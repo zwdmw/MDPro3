@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Rendering;
@@ -13,7 +14,9 @@ namespace MDPro3
         static Material deckMaterial;
         static Material deckBackMaterial;
         static Material effectMaterialTemplate;
+        static Texture2D preferredDeckBackTexture;
         const string FallbackDeckName = "FallbackDuelDeckAppearance";
+        const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
 
         public static GameObject CreateAttackLine()
         {
@@ -505,14 +508,26 @@ namespace MDPro3
                 deckBackMaterial = new Material(GetDeckMaterial());
 
             SetMaterialColor(deckBackMaterial, new Color(0.08f, 0.15f, 0.28f, 1f));
-            var sprite = TextureManager.container != null ? TextureManager.container.cardBackDefault : null;
-            if (sprite != null && sprite.texture != null)
+            var preferredTexture = LoadPreferredDeckBackTexture();
+            if (preferredTexture != null)
             {
-                deckBackMaterial.mainTexture = sprite.texture;
+                deckBackMaterial.mainTexture = preferredTexture;
                 if (deckBackMaterial.HasProperty("_BaseMap"))
-                    deckBackMaterial.SetTexture("_BaseMap", sprite.texture);
+                    deckBackMaterial.SetTexture("_BaseMap", preferredTexture);
                 if (deckBackMaterial.HasProperty("_MainTex"))
-                    deckBackMaterial.SetTexture("_MainTex", sprite.texture);
+                    deckBackMaterial.SetTexture("_MainTex", preferredTexture);
+            }
+            else
+            {
+                var sprite = TextureManager.container != null ? TextureManager.container.cardBackDefault : null;
+                if (sprite != null && sprite.texture != null)
+                {
+                    deckBackMaterial.mainTexture = sprite.texture;
+                    if (deckBackMaterial.HasProperty("_BaseMap"))
+                        deckBackMaterial.SetTexture("_BaseMap", sprite.texture);
+                    if (deckBackMaterial.HasProperty("_MainTex"))
+                        deckBackMaterial.SetTexture("_MainTex", sprite.texture);
+                }
             }
             if (deckBackMaterial.HasProperty("_Surface"))
                 deckBackMaterial.SetFloat("_Surface", 0f);
@@ -525,6 +540,49 @@ namespace MDPro3
             deckBackMaterial.DisableKeyword("_ALPHABLEND_ON");
             deckBackMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset;
             return deckBackMaterial;
+        }
+
+        static Texture2D LoadPreferredDeckBackTexture()
+        {
+            if (preferredDeckBackTexture != null)
+                return preferredDeckBackTexture;
+
+            foreach (var path in GetPreferredDeckBackPaths())
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                    continue;
+
+                try
+                {
+                    var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                    {
+                        name = "QuestFallbackYGOPro2CardBack",
+                        filterMode = FilterMode.Trilinear,
+                        wrapMode = TextureWrapMode.Clamp,
+                        anisoLevel = 8
+                    };
+                    if (texture.LoadImage(File.ReadAllBytes(path), false))
+                    {
+                        preferredDeckBackTexture = texture;
+                        Debug.Log("Runtime duel fallback card back loaded from: " + path);
+                        return preferredDeckBackTexture;
+                    }
+
+                    Object.Destroy(texture);
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning("Runtime duel fallback card back load failed: " + path + " / " + ex.Message);
+                }
+            }
+
+            return null;
+        }
+
+        static IEnumerable<string> GetPreferredDeckBackPaths()
+        {
+            yield return Path.Combine(Program.expansionsPath, PreferredCardBackRelativePath);
+            yield return Path.Combine("Expansions", PreferredCardBackRelativePath);
         }
     }
 }

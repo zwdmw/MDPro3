@@ -19,8 +19,8 @@ namespace MDPro3
         private const float SmallPanelScale = 0.016f;
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.020f;
-        private const float CardInfoScale = 0.0175f;
-        private const float DuelLogPanelScale = 0.020f;
+        private const float CardInfoScale = 0.021f;
+        private const float DuelLogPanelScale = 0.026f;
         private const float WorldCanvasDynamicPixelsPerUnit = 5f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
@@ -28,6 +28,7 @@ namespace MDPro3
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, -0.005f, -1.5f);
 
         private Camera xrCamera;
+        private Transform duelWorldAnchor;
         private Canvas cardPanelCanvas;
         private RectTransform cardPanelRect;
         private TextMeshProUGUI cardTitleText;
@@ -81,6 +82,8 @@ namespace MDPro3
         private RectTransform phaseHudRect;
         private TextMeshProUGUI phaseHudText;
         private TextMeshProUGUI lifeHudText;
+        private Canvas controlHudCanvas;
+        private RectTransform controlHudRect;
         private RectTransform phaseHudButtonRoot;
         private RectTransform systemHudButtonRoot;
         private readonly List<GameObject> phaseHudRows = new List<GameObject>();
@@ -103,10 +106,34 @@ namespace MDPro3
             }
         }
 
-        public void Configure(Camera camera)
+        public void Configure(Camera camera, Transform worldAnchor = null)
         {
             xrCamera = camera;
+            duelWorldAnchor = worldAnchor;
+            ReparentCanvasesToWorldAnchor();
             UpdatePanelPoses();
+        }
+
+        private void ReparentCanvasesToWorldAnchor()
+        {
+            if (duelWorldAnchor == null)
+                return;
+
+            ReparentCanvas(cardPanelCanvas);
+            ReparentCanvas(cardInfoCanvas);
+            ReparentCanvas(optionCanvas);
+            ReparentCanvas(phaseMenuCanvas);
+            ReparentCanvas(phaseHudCanvas);
+            ReparentCanvas(controlHudCanvas);
+            ReparentCanvas(duelLogCanvas);
+        }
+
+        private void ReparentCanvas(Canvas canvas)
+        {
+            if (canvas == null || canvas.transform.parent == duelWorldAnchor)
+                return;
+
+            canvas.transform.SetParent(duelWorldAnchor, false);
         }
 
         public void Tick()
@@ -157,7 +184,7 @@ namespace MDPro3
             EnsureOptionPanel();
             optionAnchorCard = anchorCard;
             ClearRows(optionRows);
-            optionTitleText.text = selections.Count > 0 ? SanitizeText(selections[0]) : "请选择";
+            optionTitleText.text = selections.Count > 0 ? LocalizeQuestLabel(SanitizeText(selections[0])) : "\u8bf7\u9009\u62e9";
             optionBodyText.text = string.Empty;
             for (var index = 1; index < selections.Count; index += 1)
             {
@@ -165,7 +192,7 @@ namespace MDPro3
                 if (responseIndex >= responses.Count)
                     break;
 
-                var label = SanitizeText(selections[index]);
+                var label = LocalizeQuestLabel(SanitizeText(selections[index]));
                 var response = responses[responseIndex];
                 AddOptionButton(label, () =>
                 {
@@ -188,14 +215,14 @@ namespace MDPro3
             EnsureOptionPanel();
             optionAnchorCard = null;
             ClearRows(optionRows);
-            optionTitleText.text = selections.Count > 0 ? SanitizeText(selections[0]) : "确认";
-            optionBodyText.text = selections.Count > 1 ? SanitizeText(selections[1]) : string.Empty;
-            AddOptionButton(selections.Count > 2 ? SanitizeText(selections[2]) : "确定", () =>
+            optionTitleText.text = selections.Count > 0 ? LocalizeQuestLabel(SanitizeText(selections[0])) : "\u786e\u8ba4";
+            optionBodyText.text = selections.Count > 1 ? LocalizeQuestLabel(SanitizeText(selections[1])) : string.Empty;
+            AddOptionButton(selections.Count > 2 ? LocalizeQuestLabel(SanitizeText(selections[2])) : "\u786e\u5b9a", () =>
             {
                 confirmAction?.Invoke();
                 HideOptionPanel();
             });
-            AddOptionButton(selections.Count > 3 ? SanitizeText(selections[3]) : "取消", () =>
+            AddOptionButton(selections.Count > 3 ? LocalizeQuestLabel(SanitizeText(selections[3])) : "\u53d6\u6d88", () =>
             {
                 cancelAction?.Invoke();
                 HideOptionPanel();
@@ -462,17 +489,25 @@ namespace MDPro3
 
         private void EnsurePhaseHud()
         {
-            if (phaseHudCanvas != null)
-                return;
+            if (phaseHudCanvas == null)
+            {
+                var canvasObject = CreateCanvasObject("QuestDuelPhaseHud", out phaseHudCanvas, out phaseHudRect);
+                phaseHudRect.sizeDelta = new Vector2(850f, 290f);
+                AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.020f, 0.92f));
+                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(34f, -24f), new Vector2(390f, 220f), 48f, TextAlignmentOptions.Left);
+                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(455f, -34f), new Vector2(340f, 190f), 38f, TextAlignmentOptions.Left);
+                canvasObject.SetActive(false);
+            }
 
-            var canvasObject = CreateCanvasObject("QuestDuelPhaseHud", out phaseHudCanvas, out phaseHudRect);
-            phaseHudRect.sizeDelta = new Vector2(1780f, 250f);
-            AddPanelBackground(canvasObject, new Color(0.012f, 0.017f, 0.022f, 0.88f));
-            lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(30f, -22f), new Vector2(360f, 190f), 42f, TextAlignmentOptions.Left);
-            phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(430f, -30f), new Vector2(320f, 160f), 34f, TextAlignmentOptions.Left);
-            phaseHudButtonRoot = CreateRect("Buttons", phaseHudRect, new Vector2(770f, -32f), new Vector2(720f, 150f), new Vector2(0f, 1f));
-            systemHudButtonRoot = CreateRect("SystemButtons", phaseHudRect, new Vector2(1500f, -32f), new Vector2(250f, 150f), new Vector2(0f, 1f));
-            canvasObject.SetActive(false);
+            if (controlHudCanvas == null)
+            {
+                var controlObject = CreateCanvasObject("QuestDuelControlHud", out controlHudCanvas, out controlHudRect);
+                controlHudRect.sizeDelta = new Vector2(780f, 430f);
+                AddPanelBackground(controlObject, new Color(0.010f, 0.014f, 0.020f, 0.94f));
+                phaseHudButtonRoot = CreateRect("PhaseButtons", controlHudRect, new Vector2(34f, -34f), new Vector2(712f, 160f), new Vector2(0f, 1f));
+                systemHudButtonRoot = CreateRect("SystemButtons", controlHudRect, new Vector2(34f, -226f), new Vector2(712f, 150f), new Vector2(0f, 1f));
+                controlObject.SetActive(false);
+            }
         }
 
         private void UpdatePhaseHud()
@@ -482,6 +517,8 @@ namespace MDPro3
             {
                 if (phaseHudCanvas != null && phaseHudCanvas.gameObject.activeSelf)
                     phaseHudCanvas.gameObject.SetActive(false);
+                if (controlHudCanvas != null && controlHudCanvas.gameObject.activeSelf)
+                    controlHudCanvas.gameObject.SetActive(false);
                 if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                     duelLogCanvas.gameObject.SetActive(false);
                 lastPhaseHudSignature = null;
@@ -495,7 +532,7 @@ namespace MDPro3
             var canMain2 = PhaseButtonHandler.main2Phase;
             var canEnd = PhaseButtonHandler.endPhase;
             if (lifeHudText != null)
-                lifeHudText.text = "我方 LP " + Mathf.Max(0, core.life0) + "\n对方 LP " + Mathf.Max(0, core.life1);
+                lifeHudText.text = "\u6211\u65b9 LP " + Mathf.Max(0, core.life0) + "\n\u5bf9\u65b9 LP " + Mathf.Max(0, core.life1);
 
             var signature = core.phase + "|" + canBattle + "|" + canMain2 + "|" + canEnd + "|" + core.myTurn + "|" + core.life0 + "|" + core.life1;
             if (signature != lastPhaseHudSignature)
@@ -520,6 +557,8 @@ namespace MDPro3
 
             if (!phaseHudCanvas.gameObject.activeSelf)
                 phaseHudCanvas.gameObject.SetActive(true);
+            if (controlHudCanvas != null && !controlHudCanvas.gameObject.activeSelf)
+                controlHudCanvas.gameObject.SetActive(true);
 
             UpdateDuelLogPanel(core);
         }
@@ -530,14 +569,14 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestDuelLogPanel", out duelLogCanvas, out duelLogRect);
-            duelLogRect.sizeDelta = new Vector2(960f, 370f);
-            AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.019f, 0.88f));
+            duelLogRect.sizeDelta = new Vector2(980f, 500f);
+            AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.019f, 0.92f));
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
-            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(28f, -18f), new Vector2(904f, 54f), 32f, TextAlignmentOptions.Left);
-            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(28f, -86f), new Vector2(904f, 250f), 28f, TextAlignmentOptions.TopLeft);
+            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(32f, -22f), new Vector2(916f, 60f), 36f, TextAlignmentOptions.Left);
+            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(32f, -94f), new Vector2(916f, 370f), 32f, TextAlignmentOptions.TopLeft);
             duelLogBodyText.enableWordWrapping = true;
             duelLogBodyText.overflowMode = TextOverflowModes.Truncate;
             duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
@@ -609,8 +648,8 @@ namespace MDPro3
             var row = CreateButton(
                 "HudPhase_" + index,
                 phaseHudButtonRoot,
-                new Vector2(index * 230f, -4f),
-                new Vector2(210f, 124f),
+                new Vector2(index * 238f, -4f),
+                new Vector2(220f, 132f),
                 label,
                 onClick,
                 new Color(0.10f, 0.32f, 0.46f, 0.98f),
@@ -624,8 +663,8 @@ namespace MDPro3
                 "HudSurrender",
                 systemHudButtonRoot,
                 new Vector2(0f, -4f),
-                new Vector2(120f, 124f),
-                "投降",
+                new Vector2(330f, 124f),
+                "\u6295\u964d",
                 RequestSurrender,
                 new Color(0.48f, 0.16f, 0.18f, 0.98f),
                 new Vector2(0f, 1f));
@@ -634,9 +673,9 @@ namespace MDPro3
             var exit = CreateButton(
                 "HudExit",
                 systemHudButtonRoot,
-                new Vector2(132f, -4f),
-                new Vector2(120f, 124f),
-                "退出",
+                new Vector2(356f, -4f),
+                new Vector2(330f, 124f),
+                "\u9000\u51fa",
                 RequestExitDuel,
                 new Color(0.22f, 0.23f, 0.28f, 0.98f),
                 new Vector2(0f, 1f));
@@ -652,14 +691,15 @@ namespace MDPro3
             var selections = new List<string> { "投降", "确定要投降吗？", "确定", "取消" };
             ShowYesOrNo(selections, () =>
             {
+                var localServerDuel = UsesLocalYgoServer();
                 core.surrendered = true;
-                if (TcpHelper.tcpClient != null && TcpHelper.tcpClient.Connected)
+                if (!localServerDuel && TcpHelper.tcpClient != null && TcpHelper.tcpClient.Connected)
                 {
                     TcpHelper.CtosMessage_Surrender();
                     if (Room.mode == 2 && !core.tagSurrendered)
                         MessageManager.Cast(InterString.Get("队友投降了。"));
                 }
-                ReturnDuelToMainMenu(core, "surrender");
+                ReturnDuelToMainMenu(core, "surrender", localServerDuel);
             }, null);
         }
 
@@ -672,18 +712,25 @@ namespace MDPro3
             var selections = new List<string> { "退出决斗", "离开当前决斗？", "退出", "取消" };
             ShowYesOrNo(selections, () =>
             {
-                TcpHelper.CtosMessage_LeaveGame();
-                ReturnDuelToMainMenu(core, "leave");
+                var localServerDuel = UsesLocalYgoServer();
+                if (!localServerDuel)
+                    TcpHelper.CtosMessage_LeaveGame();
+                ReturnDuelToMainMenu(core, "leave", localServerDuel);
             }, null);
         }
 
-        private static void ReturnDuelToMainMenu(OcgCore core, string reason)
+        private static bool UsesLocalYgoServer()
+        {
+            return Room.fromSolo || Room.fromLocalHost || YgoServer.ServerRunning();
+        }
+
+        private static void ReturnDuelToMainMenu(OcgCore core, string reason, bool localServerDuel = false)
         {
             var program = Program.instance;
             if (program == null)
                 return;
 
-            Debug.LogFormat("Quest duel return to main menu requested. Reason={0}", reason);
+            Debug.LogFormat("Quest duel return to main menu requested. Reason={0}, LocalServer={1}", reason, localServerDuel);
 
             try
             {
@@ -707,22 +754,34 @@ namespace MDPro3
             {
                 core.returnAction = null;
                 core.returnServant = program.menu;
-                core.OnNor();
-                core.OnExit();
+                if (localServerDuel)
+                {
+                    TcpHelper.DetachQuestLocalClientWithoutDisconnect();
+                    program.ShiftToServant(program.menu);
+                }
+                else
+                {
+                    core.OnExit();
+                }
             }
             else if (program.menu != null)
             {
                 program.ShiftToServant(program.menu);
             }
 
-            try
+            if (!localServerDuel)
             {
-                YgoServer.StopServer();
+                try
+                {
+                    YgoServer.StopServer();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("Quest duel server cleanup failed: " + ex.Message);
+                }
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("Quest duel server cleanup failed: " + ex.Message);
-            }
+
+            QuestXrBootstrap.NotifyQuestDuelReturnedToMainMenu();
         }
 
         private void AddOptionButton(string label, Action onClick, Color? color = null)
@@ -1289,17 +1348,19 @@ namespace MDPro3
                 return;
 
             if (cardPanelRect != null && cardPanelCanvas.gameObject.activeSelf)
-                PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 8.8f, -22f), PanelScale);
+                PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 9.8f, -24f), PanelScale);
             if (cardInfoRect != null && cardInfoCanvas.gameObject.activeSelf)
-                PlacePanel(cardInfoRect, DuelWorldCenterOnGround + new Vector3(31f, 8.6f, -14f), CardInfoScale);
+                PlacePanel(cardInfoRect, DuelWorldCenterOnGround + new Vector3(30f, 9.8f, -8f), CardInfoScale);
             if (optionRect != null && optionCanvas.gameObject.activeSelf)
                 PlacePanel(optionRect, ResolveOptionPanelPosition(), SmallPanelScale);
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
-                PlacePanel(phaseMenuRect, DuelWorldCenterOnGround + new Vector3(0f, 6.2f, -18f), SmallPanelScale);
+                PlacePanel(phaseMenuRect, DuelWorldCenterOnGround + new Vector3(0f, 8.4f, -18f), SmallPanelScale);
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
-                PlaceFloorHud(phaseHudRect, DuelWorldCenterOnGround + new Vector3(0f, 0.10f, -42f), FloorHudScale);
+                PlacePanel(phaseHudRect, DuelWorldCenterOnGround + new Vector3(72f, 24.2f, -11f), FloorHudScale);
+            if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
+                PlacePanel(controlHudRect, DuelWorldCenterOnGround + new Vector3(34f, 12.8f, -44f), FloorHudScale);
             if (duelLogRect != null && duelLogCanvas.gameObject.activeSelf)
-                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(-20f, 9.6f, -17f), DuelLogPanelScale);
+                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(72f, 16.2f, 2f), DuelLogPanelScale);
         }
 
         private Vector3 ResolveOptionPanelPosition()
@@ -1312,20 +1373,21 @@ namespace MDPro3
             position.z *= QuestBoardScaleZ;
             position.y = Mathf.Max(position.y + 5.4f, 5.8f);
             position += Vector3.back * 4.8f;
-            return position;
+            return DuelWorldCenterOnGround + position;
         }
 
         private void PlacePanel(RectTransform rect, Vector3 position, float scale)
         {
-            rect.position = position;
-            rect.rotation = Quaternion.identity;
-            rect.localScale = Vector3.one * scale;
-        }
-
-        private static void PlaceFloorHud(RectTransform rect, Vector3 position, float scale)
-        {
-            rect.position = position;
-            rect.rotation = Quaternion.LookRotation(Vector3.up, Vector3.forward);
+            if (duelWorldAnchor != null && rect.parent == duelWorldAnchor)
+            {
+                rect.localPosition = position - DuelWorldCenterOnGround;
+                rect.localRotation = Quaternion.identity;
+            }
+            else
+            {
+                rect.position = position;
+                rect.rotation = Quaternion.identity;
+            }
             rect.localScale = Vector3.one * scale;
         }
 
@@ -1352,6 +1414,8 @@ namespace MDPro3
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
+            if (duelWorldAnchor != null)
+                canvasObject.transform.SetParent(duelWorldAnchor, false);
             return canvasObject;
         }
 
@@ -1479,6 +1543,17 @@ namespace MDPro3
                 return string.Empty;
 
             return label
+                .Replace("\u93B4\u621E\u67DF", "\u6211\u65b9")
+                .Replace("\u7035\u89C4\u67DF", "\u5bf9\u65b9")
+                .Replace("\u93B6\u66E2\u6AB7", "\u6295\u964d")
+                .Replace("\u934F\u62BD\u68F4", "\u5173\u95ed")
+                .Replace("\u7487\u70FD\u20AC\u590B\u5AE8", "\u8bf7\u9009\u62e9")
+                .Replace("\u7EAD\uE1BF\uE17B", "\u786e\u8ba4")
+                .Replace("\u7EAD\uE1BC\u757E", "\u786e\u5b9a")
+                .Replace("\u9359\u6828\u79F7", "\u53d6\u6d88")
+                .Replace("\u93C1\u581F\u7049\u95AB\u590B\u5AE8", "\u6548\u679c\u9009\u62e9")
+                .Replace("\u9359\u621D\u59E9\u93C1\u581F\u7049", "\u53d1\u52a8\u6548\u679c")
+                .Replace("\u93C0\u60E7\u7D14", "\u653e\u5f03")
                 .Replace("\u95C3\u8235\uE18C\u9352\u56E8\u5D32", "\u9636\u6bb5\u5207\u6362")
                 .Replace("\u93B4\u6A3B\u679F\u95C3\u8235\uE18C", "\u6218\u6597\u9636\u6bb5")
                 .Replace("\u6D93\u660F\uE6E6\u95C3\u8235\uE18C\u0031", "\u4e3b\u8981\u9636\u6bb51")

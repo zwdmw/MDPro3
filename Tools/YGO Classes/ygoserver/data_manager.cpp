@@ -454,15 +454,19 @@ byte* DataManager::ScriptReaderEx(const char* script_name, int* slen) {
 	char first[256];
 	char second[256];
 	char third[256];
+	char fourth[256];
 	sprintf(first, "specials/%s", script_name + 9);
-	sprintf(second, "expansions/%s", script_name + 2);
-	sprintf(third, "%s", script_name + 2);
+	sprintf(second, "Expansions/%s", script_name + 2);
+	sprintf(third, "expansions/%s", script_name + 2);
+	sprintf(fourth, "%s", script_name + 2);
 	if(ScriptReader(first, slen))
 		return scriptBuffer;
 	else if(ScriptReader(second, slen))
 		return scriptBuffer;
+	else if(ScriptReader(third, slen))
+		return scriptBuffer;
 	else
-		return ScriptReader(third, slen);
+		return ScriptReader(fourth, slen);
 #else
 	char first[256]{};
 	char second[256]{};

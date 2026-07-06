@@ -1432,6 +1432,19 @@ namespace MDPro3
             Action yes = () =>
             {
                 surrendered = true;
+                if (QuestXrBootstrap.IsQuestFastNativeDuelActive() && (Room.fromSolo || Room.fromLocalHost || YgoServer.ServerRunning()))
+                {
+                    Debug.Log("Quest local surrender detaches without notifying ygoserver.");
+                    TcpHelper.DetachQuestLocalClientWithoutDisconnect();
+                    Room.fromSolo = false;
+                    Room.fromLocalHost = false;
+                    Room.needSide = false;
+                    Room.sideWaitingObserver = false;
+                    Program.instance.room.duelEnded = false;
+                    returnServant = Program.instance.menu;
+                    Program.instance.ShiftToServant(Program.instance.menu);
+                    return;
+                }
                 if (TcpHelper.tcpClient != null && TcpHelper.tcpClient.Connected)
                 {
                     TcpHelper.CtosMessage_Surrender();
@@ -8015,6 +8028,9 @@ namespace MDPro3
         }
         void ShowChainStack()
         {
+            if (QuestXrBootstrap.IsQuestFastNativeDuelActive())
+                return;
+
             int chain = cardsInChain.Count;
             if (chain == 1)
                 return;
@@ -8192,6 +8208,9 @@ namespace MDPro3
         }
         float ShowChainResolve(int chain)
         {
+            if (QuestXrBootstrap.IsQuestFastNativeDuelActive())
+                return 0f;
+
             if (cardsInChain.Count == 1)
                 return 0;
             if (!CheckChain())

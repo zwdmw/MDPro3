@@ -1,5 +1,6 @@
 #include "config.h"
 #include "game.h"
+#include <string>
 #ifdef YGOPRO_SERVER_MODE
 #include "data_manager.h"
 #include "deck_manager.h"
@@ -13,6 +14,52 @@ namespace irr {
 	}
 }
 #endif
+
+namespace {
+	bool HasExtension(const wchar_t* name, const wchar_t* extension) {
+		const wchar_t* dot = wcsrchr(name, L'.');
+		return dot && !mywcsncasecmp(dot, extension, wcslen(extension));
+	}
+
+	bool StartsWithNoCase(const wchar_t* text, const wchar_t* prefix) {
+		return !mywcsncasecmp(text, prefix, wcslen(prefix));
+	}
+
+	int GetTrailingNumber(const wchar_t* text) {
+		int multiplier = 1;
+		int value = 0;
+		bool found = false;
+		size_t length = wcslen(text);
+		while(length > 0) {
+			wchar_t c = text[length - 1];
+			if(c < L'0' || c > L'9')
+				break;
+			found = true;
+			value += (c - L'0') * multiplier;
+			multiplier *= 10;
+			--length;
+		}
+		return found ? value : 0;
+	}
+
+	int GetExpansionDatabasePriority(const std::wstring& name) {
+		if(!mywcsncasecmp(name.c_str(), L"cards.cdb", 9))
+			return 0;
+		if(!mywcsncasecmp(name.c_str(), L"ifanime.cdb", 11))
+			return 100;
+		if(StartsWithNoCase(name.c_str(), L"ifzcg"))
+			return 300 + GetTrailingNumber(name.c_str());
+		return 200;
+	}
+
+	bool ExpansionDatabaseLess(const std::wstring& left, const std::wstring& right) {
+		int leftPriority = GetExpansionDatabasePriority(left);
+		int rightPriority = GetExpansionDatabasePriority(right);
+		if(leftPriority != rightPriority)
+			return leftPriority < rightPriority;
+		return left < right;
+	}
+}
 #else
 #include "image_manager.h"
 #include "data_manager.h"
@@ -1181,39 +1228,31 @@ std::wstring Game::SetStaticText(irr::gui::IGUIStaticText* pControl, u32 cWidth,
 }
 #endif //YGOPRO_SERVER_MODE
 void Game::LoadExpansions() {
-#ifdef SERVER_PRO2_SUPPORT
-	FileSystem::TraversalDir(L"./cdb", [](const wchar_t* name, bool isdir) {
-		wchar_t fpath[1024];
-		myswprintf(fpath, L"./cdb/%ls", name);
-		if(!isdir && wcsrchr(name, '.') && !mywcsncasecmp(wcsrchr(name, '.'), L".cdb", 4)) {
-			dataManager.LoadDB(fpath);
-		}
-	});
-#endif // SERVER_PRO2_SUPPORT
-#ifdef SERVER_PRO3_SUPPORT
-	FileSystem::TraversalDir(L"./Data/locales/zh-CN", [](const wchar_t* name, bool isdir) {
-		wchar_t fpath[1024];
-		myswprintf(fpath, L"./Data/locales/zh-CN/%ls", name);
-		if (!isdir && wcsrchr(name, '.') && !mywcsncasecmp(wcsrchr(name, '.'), L".cdb", 4)) {
-			dataManager.LoadDB(fpath);
-		}
+	auto loadCdbFiles = [](const wchar_t* directory) {
+		std::vector<std::wstring> cdbFiles;
+		FileSystem::TraversalDir(directory, [&cdbFiles](const wchar_t* name, bool isdir) {
+			if(!isdir && HasExtension(name, L".cdb"))
+				cdbFiles.push_back(name);
 		});
-#endif // SERVER_PRO3_SUPPORT
-	FileSystem::TraversalDir(L"./expansions", [](const wchar_t* name, bool isdir) {
-		wchar_t fpath[1024];
-		myswprintf(fpath, L"./expansions/%ls", name);
-		if(!isdir && wcsrchr(name, '.') && !mywcsncasecmp(wcsrchr(name, '.'), L".cdb", 4)) {
+		std::sort(cdbFiles.begin(), cdbFiles.end(), ExpansionDatabaseLess);
+		for(const auto& name : cdbFiles) {
+			wchar_t fpath[1024];
+			myswprintf(fpath, L"%ls/%ls", directory, name.c_str());
 			dataManager.LoadDB(fpath);
 		}
-#ifndef YGOPRO_SERVER_MODE
-		if(!isdir && wcsrchr(name, '.') && !mywcsncasecmp(wcsrchr(name, '.'), L".conf", 5)) {
-			char upath[1024];
-			BufferIO::EncodeUTF8(fpath, upath);
-			dataManager.LoadStrings(upath);
-		}
-#endif // YGOPRO_SERVER_MODE
+	};
+
+	auto addZipArchives = [](const wchar_t* directory) {
 #if defined(SERVER_ZIP_SUPPORT) || !defined(YGOPRO_SERVER_MODE)
-		if(!isdir && wcsrchr(name, '.') && (!mywcsncasecmp(wcsrchr(name, '.'), L".zip", 4) || !mywcsncasecmp(wcsrchr(name, '.'), L".ypk", 4))) {
+		std::vector<std::wstring> archives;
+		FileSystem::TraversalDir(directory, [&archives](const wchar_t* name, bool isdir) {
+			if(!isdir && (HasExtension(name, L".zip") || HasExtension(name, L".ypk")))
+				archives.push_back(name);
+		});
+		std::sort(archives.begin(), archives.end());
+		for(const auto& name : archives) {
+			wchar_t fpath[1024];
+			myswprintf(fpath, L"%ls/%ls", directory, name.c_str());
 #ifdef _WIN32
 			dataManager.FileSystem->addFileArchive(fpath, true, false, EFAT_ZIP);
 #else
@@ -1222,8 +1261,30 @@ void Game::LoadExpansions() {
 			dataManager.FileSystem->addFileArchive(upath, true, false, EFAT_ZIP);
 #endif
 		}
-#endif //SERVER_ZIP_SUPPORT
+#endif
+	};
+
+#ifdef SERVER_PRO2_SUPPORT
+	loadCdbFiles(L"./cdb");
+#endif // SERVER_PRO2_SUPPORT
+#ifdef SERVER_PRO3_SUPPORT
+	loadCdbFiles(L"./Data/locales/zh-CN");
+#endif // SERVER_PRO3_SUPPORT
+	loadCdbFiles(L"./expansions");
+	loadCdbFiles(L"./Expansions");
+	FileSystem::TraversalDir(L"./expansions", [](const wchar_t* name, bool isdir) {
+		wchar_t fpath[1024];
+		myswprintf(fpath, L"./expansions/%ls", name);
+#ifndef YGOPRO_SERVER_MODE
+		if(!isdir && wcsrchr(name, '.') && !mywcsncasecmp(wcsrchr(name, '.'), L".conf", 5)) {
+			char upath[1024];
+			BufferIO::EncodeUTF8(fpath, upath);
+			dataManager.LoadStrings(upath);
+		}
+#endif // YGOPRO_SERVER_MODE
 	});
+	addZipArchives(L"./expansions");
+	addZipArchives(L"./Expansions");
 #if defined(SERVER_ZIP_SUPPORT) || !defined(YGOPRO_SERVER_MODE)
 	for(u32 i = 0; i < DataManager::FileSystem->getFileArchiveCount(); ++i) {
 		const IFileList* archive = DataManager::FileSystem->getFileArchive(i)->getFileList();

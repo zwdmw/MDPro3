@@ -29,6 +29,8 @@ namespace MDPro3
         private static readonly Queue<Package> messageQueue = new Queue<Package>();
         static Thread senderThread;
         static Thread linkThread;
+        static Thread receiverThread;
+        private static readonly List<TcpClient> detachedLocalClients = new List<TcpClient>();
 
         public static int version = 0x1361;
 
@@ -94,8 +96,11 @@ namespace MDPro3
 
                 tcpClient = new TcpClientWithTimeout(ipString, int.Parse(portString), 3000).Connect();
                 networkStream = tcpClient.GetStream();
-                var t = new Thread(Receiver);
-                t.Start();
+                receiverThread = new Thread(Receiver)
+                {
+                    IsBackground = true
+                };
+                receiverThread.Start();
                 messageQueue.Clear();
                 InitializeSender();
                 CtosMessage_PlayerInfo(name);
@@ -429,6 +434,61 @@ namespace MDPro3
             Send(message);
         }
 
+        public static void DetachQuestLocalClientWithoutDisconnect()
+        {
+            Debug.Log("TcpHelper detaching Quest local client without sending disconnect to ygoserver.");
+            try
+            {
+                senderThread?.Abort();
+            }
+            catch { }
+            try
+            {
+                receiverThread?.Abort();
+            }
+            catch { }
+            try
+            {
+                linkThread?.Abort();
+            }
+            catch { }
+
+            lock (locker)
+            {
+                messageQueue.Clear();
+            }
+            if (Monitor.TryEnter(datas))
+            {
+                try
+                {
+                    datas.Clear();
+                }
+                finally
+                {
+                    Monitor.Exit(datas);
+                }
+            }
+
+            if (tcpClient != null)
+                detachedLocalClients.Add(tcpClient);
+            tcpClient = null;
+            networkStream = null;
+            onDisConnected = false;
+            canJoin = true;
+        }
+
+        public static void CloseDetachedQuestLocalClients()
+        {
+            foreach (var client in detachedLocalClients)
+            {
+                try
+                {
+                    client?.Close();
+                }
+                catch { }
+            }
+            detachedLocalClients.Clear();
+        }
         public static void CtosMessage_Surrender()
         {
             var message = new Package();

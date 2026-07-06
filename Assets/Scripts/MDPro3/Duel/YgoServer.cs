@@ -50,6 +50,7 @@ namespace MDPro3.Net
                 Debug.LogWarning("YgoServer.StopServer failed: " + ex);
             }
             serverThread?.Abort();
+            MDPro3.TcpHelper.CloseDetachedQuestLocalClients();
         }
 
         public static bool ServerRunning()

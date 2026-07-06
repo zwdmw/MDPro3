@@ -57,10 +57,10 @@ namespace MDPro3
         }
         private const bool UiRenderTextureNeedsHorizontalFlip = true;
         private const float UiRenderPanelWidth = 92f;
-        private const float UiRenderPanelHeightOffset = 22f;
+        private const float UiRenderPanelHeightOffset = 28f;
         private const float UiRenderPanelSideOffset = 0f;
         private const float UiRenderPanelForwardOffset = 54f;
-        private const float ControllerRayLength = 12f * DuelWorldUnitsPerMeter;
+        private const float ControllerRayLength = 30f * DuelWorldUnitsPerMeter;
         private const float ControllerRayStartWidth = 0.012f * DuelWorldUnitsPerMeter;
         private const float ControllerRayEndWidth = 0.004f * DuelWorldUnitsPerMeter;
         private const float ControllerCursorScale = 0.055f * DuelWorldUnitsPerMeter;
@@ -71,13 +71,11 @@ namespace MDPro3
         private const float QuestDuelActionItemGap = 14f;
         private const float QuestDuelActionCardYOffset = 1.65f;
         private const float QuestDuelActionCardForwardOffset = 0.42f;
-        private const int FallbackGridLineCount = 17;
+        private const int FallbackGridLineCount = 65;
         private const float FallbackGridSpacing = 5f;
         private const float DuelGroundY = -0.005f;
         private const float DuelWorldTargetWidth = 112f;
         private const float DuelWorldTargetDepth = 92f;
-        private const float DuelWorldMinScale = 0.35f;
-        private const float DuelWorldMaxScale = 1.25f;
         private const float DuelGameplayTableWidth = 106f;
         private const float DuelGameplayTableDepth = 90f;
         private const float DuelGameplayTableHeight = 4f;
@@ -102,6 +100,15 @@ namespace MDPro3
         private const int QuestDuelSleepCompressionMax = 55;
         private const float QuestDuelSleepCompressionScale = 0.35f;
         private const float QuestDuelSleepCompressionLogInterval = 3f;
+        private const int QuestChainSleepCompressionMax = 12;
+        private const float QuestThumbstickDeadZone = 0.18f;
+        private const float QuestPlayerMoveSpeed = 14f;
+        private const float QuestPlayerVerticalSpeed = 10f;
+        private const float QuestWorldScaleSpeed = 0.65f;
+        private const float QuestWorldScaleMinPositive = 0.0001f;
+        private const float QuestPlayerYawTurnSpeed = 90f;
+        private const float QuestWorldFastControlMultiplier = 3f;
+        private const float QuestWorldControlLogInterval = 3f;
         private static readonly Quaternion DuelWorldFloorRotation = Quaternion.identity;
         private static readonly Vector3 DuelEyePosition = new Vector3(0f, 24f, -50f);
         private static readonly Vector3 DuelLookTarget = new Vector3(0f, DuelGroundY + 0.5f, -1.5f);
@@ -159,9 +166,6 @@ namespace MDPro3
         private Material controllerRayMaterial;
         private Material controllerRayCursorMaterial;
         private Material fallbackGridMaterial;
-        private Material virtualFloorMaterial;
-        private Material virtualTableMaterial;
-        private Material virtualBackdropMaterial;
         private Material duelArenaLineMaterial;
         private Material worldCanvasPanelMaterial;
         private Material uiRenderPanelMaterial;
@@ -246,6 +250,12 @@ namespace MDPro3
         private readonly Dictionary<GameObject, QuestDuelAction> questDuelActionByRow = new Dictionary<GameObject, QuestDuelAction>();
         private float lastQuestDuelActionMenuLog;
         private float lastDirectUiPointerExceptionLog;
+        private float lastQuestWorldControlLog;
+        private Vector3 questPlayerWorldOffset;
+        private float questDuelWorldScaleMultiplier = 1f;
+        private bool questDuelWorldUserTransformInitialized;
+        private Vector3 questDuelWorldUserAnchorPosition;
+        private float questPlayerYawOffsetDegrees;
         private Transform questCutinWorldRoot;
 
         private InputAction pointerPositionAction;
@@ -254,12 +264,17 @@ namespace MDPro3
         private InputAction handPointerPositionAction;
         private InputAction handPointerRotationAction;
         private InputAction handPointerPressAction;
+        private InputAction leftThumbstickAction;
+        private InputAction rightThumbstickAction;
+        private InputAction rightPrimaryButtonAction;
+        private InputAction rightSecondaryButtonAction;
         private InputActionAsset uiActionAsset;
         private InputAction uiPointAction;
         private InputAction uiClickAction;
         private InputActionReference uiPointReference;
         private InputActionReference uiClickReference;
         private static QuestXrBootstrap activeInstance;
+        private static float questNativeDuelFrontendSuppressedUntil;
 
         private sealed class QuestDuelAction
         {
@@ -326,6 +341,38 @@ namespace MDPro3
             UserInput.ClearPointerOverride();
         }
 
+        public static void NotifyQuestDuelReturnedToMainMenu()
+        {
+            questNativeDuelFrontendSuppressedUntil = Time.unscaledTime + 4f;
+            activeInstance?.HandleQuestDuelReturnedToMainMenu();
+        }
+
+        private void HandleQuestDuelReturnedToMainMenu()
+        {
+            questDuelNativeUi?.HideAllQuestUi();
+            questDuelWorldPresenter?.SetVisible(false);
+            ClearQuestDuelActionMenu();
+            ResetPointerState();
+            UserInput.ClearPointerOverride();
+            SetControllerRayVisible(false, false);
+
+            anchoredDuelContainer = null;
+            lockedDuelAlignmentContainer = null;
+            originalFieldHiddenContainer = null;
+            legacyResidueContainer = null;
+            earlySuppressedDuelContainer = null;
+            earlyDuelSuppressionLogged = false;
+            duelWorldRootLogged = false;
+            mdproCameraRenderModeInitialized = false;
+            lastAppliedXrCullingMask = int.MinValue;
+
+            ApplyResolvedXrCullingMask();
+            ConfigureMdproCameras();
+            ConfigureOverlayCanvases();
+            ConfigureUiRenderPanel();
+            Debug.Log("Quest native duel frontend released for main menu.");
+        }
+
         public static bool IsQuestFastNativeDuelActive()
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
@@ -340,11 +387,14 @@ namespace MDPro3
         public static int AdjustQuestDuelSleep(int framesIn100)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (!IsQuestFastNativeDuelActive() || framesIn100 <= QuestDuelSleepCompressionThreshold)
+            if (!IsQuestFastNativeDuelActive() || framesIn100 <= 0)
                 return framesIn100;
 
-            var adjusted = Mathf.RoundToInt(framesIn100 * QuestDuelSleepCompressionScale);
-            adjusted = Mathf.Clamp(adjusted, QuestDuelSleepCompressionThreshold, QuestDuelSleepCompressionMax);
+            var core = Program.instance == null ? null : Program.instance.ocgcore;
+            if (core == null || !IsQuestChainMessage(core.currentMessage))
+                return framesIn100;
+
+            var adjusted = Mathf.Min(framesIn100, QuestChainSleepCompressionMax);
             if (adjusted < framesIn100
                 && activeInstance != null
                 && Time.unscaledTime - activeInstance.lastQuestDuelSleepCompressionLog >= QuestDuelSleepCompressionLogInterval)
@@ -357,6 +407,17 @@ namespace MDPro3
 #else
             return framesIn100;
 #endif
+        }
+
+        private static bool IsQuestChainMessage(GameMessage message)
+        {
+            return message == GameMessage.Chaining
+                || message == GameMessage.Chained
+                || message == GameMessage.ChainSolving
+                || message == GameMessage.ChainSolved
+                || message == GameMessage.ChainEnd
+                || message == GameMessage.ChainNegated
+                || message == GameMessage.ChainDisabled;
         }
 
         public static bool ShowQuestDuelButton(MDPro3.UI.DuelButton button)
@@ -576,6 +637,7 @@ namespace MDPro3
             MaintainQuestWorldVisibility();
             SuppressQuestDecorativeUiBackgrounds();
             ConfigureDuelWorldRoot();
+            UpdateQuestWorldControls();
             ConfigureOverlayCanvases();
             ConfigureUiRenderPanel();
             ConfigureUiInputModule();
@@ -590,6 +652,7 @@ namespace MDPro3
             {
                 questDuelNativeUi?.HideAllQuestUi();
                 ClearQuestDuelActionMenu();
+                ResetQuestWorldControlsWhenNoDuel();
             }
             UpdateQuestDuelActionMenuPose();
             UpdateQuestPointer();
@@ -616,6 +679,10 @@ namespace MDPro3
             handPointerPositionAction?.Dispose();
             handPointerRotationAction?.Dispose();
             handPointerPressAction?.Dispose();
+            leftThumbstickAction?.Dispose();
+            rightThumbstickAction?.Dispose();
+            rightPrimaryButtonAction?.Dispose();
+            rightSecondaryButtonAction?.Dispose();
             if (uiActionAsset != null)
                 Destroy(uiActionAsset);
             if (controllerRayMaterial != null)
@@ -624,12 +691,6 @@ namespace MDPro3
                 Destroy(controllerRayCursorMaterial);
             if (fallbackGridMaterial != null)
                 Destroy(fallbackGridMaterial);
-            if (virtualFloorMaterial != null)
-                Destroy(virtualFloorMaterial);
-            if (virtualTableMaterial != null)
-                Destroy(virtualTableMaterial);
-            if (virtualBackdropMaterial != null)
-                Destroy(virtualBackdropMaterial);
             if (duelArenaLineMaterial != null)
                 Destroy(duelArenaLineMaterial);
             if (worldCanvasPanelMaterial != null)
@@ -994,19 +1055,7 @@ namespace MDPro3
 
             var worldObject = new GameObject("QuestVirtualDuelWorld");
             fallbackEnvironmentRoot = worldObject.transform;
-            fallbackEnvironmentRoot.SetParent(transform, true);
-            virtualFloorMaterial = CreateColorMaterial(
-                "Quest Virtual Floor Material",
-                new Color(0.12f, 0.15f, 0.18f, 1f),
-                false);
-            virtualTableMaterial = CreateColorMaterial(
-                "Quest Virtual Duel Table Material",
-                new Color(0.02f, 0.30f, 0.34f, 1f),
-                false);
-            virtualBackdropMaterial = CreateColorMaterial(
-                "Quest Virtual Backdrop Material",
-                new Color(0.06f, 0.08f, 0.12f, 1f),
-                false);
+            fallbackEnvironmentRoot.SetParent(transform, false);
             fallbackGridMaterial = CreateColorMaterial(
                 "Quest World Reference Grid Material",
                 new Color(0.35f, 0.9f, 1f, 0.65f),
@@ -1016,71 +1065,39 @@ namespace MDPro3
                 new Color(0.28f, 1f, 0.95f, 0.82f),
                 true);
 
-            CreateWorldBox(
-                "QuestVirtualFloor",
-                new Vector3(0f, DuelGroundY - 0.22f, 6f),
-                new Vector3(240f, 0.12f, 180f),
-                virtualFloorMaterial);
-            CreateWorldBox(
-                "QuestVirtualBackdrop",
-                new Vector3(0f, 38f, 82f),
-                new Vector3(240f, 76f, 0.18f),
-                virtualBackdropMaterial);
-
             var lightObject = new GameObject("QuestVirtualWorldKeyLight");
-            lightObject.transform.SetParent(fallbackEnvironmentRoot, true);
-            lightObject.transform.SetPositionAndRotation(new Vector3(-40f, 72f, -36f), Quaternion.Euler(50f, -35f, 0f));
+            lightObject.transform.SetParent(fallbackEnvironmentRoot, false);
+            lightObject.transform.SetLocalPositionAndRotation(new Vector3(-40f, 72f, -34.5f), Quaternion.Euler(50f, -35f, 0f));
             var light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 1.15f;
             light.color = new Color(0.82f, 0.92f, 1f, 1f);
 
             var half = (FallbackGridLineCount - 1) * 0.5f * FallbackGridSpacing;
-            var y = DuelGroundY + 0.001f;
+            var y = 0.001f;
             for (var index = 0; index < FallbackGridLineCount; index += 1)
             {
                 var offset = -half + index * FallbackGridSpacing;
                 CreateReferenceLine(
-                    new Vector3(-half, y, DuelLookTarget.z + offset),
-                    new Vector3(half, y, DuelLookTarget.z + offset));
+                    new Vector3(-half, y, offset),
+                    new Vector3(half, y, offset));
                 CreateReferenceLine(
-                    new Vector3(offset, y, DuelLookTarget.z - half),
-                    new Vector3(offset, y, DuelLookTarget.z + half));
+                    new Vector3(offset, y, -half),
+                    new Vector3(offset, y, half));
             }
 
             CreateAnimeDuelArena();
-        }
-
-        private void CreateWorldBox(string name, Vector3 position, Vector3 scale, Material material)
-        {
-            var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            box.name = name;
-            SetQuestOverlayLayer(box);
-            box.transform.SetParent(fallbackEnvironmentRoot, true);
-            box.transform.SetPositionAndRotation(position, Quaternion.identity);
-            box.transform.localScale = scale;
-
-            var collider = box.GetComponent<Collider>();
-            if (collider != null)
-                Destroy(collider);
-
-            var renderer = box.GetComponent<MeshRenderer>();
-            if (renderer != null)
-            {
-                renderer.sharedMaterial = material;
-                renderer.shadowCastingMode = ShadowCastingMode.Off;
-                renderer.receiveShadows = false;
-            }
+            AttachFallbackEnvironmentToDuelWorldAnchor();
         }
 
         private void CreateReferenceLine(Vector3 start, Vector3 end)
         {
             var lineObject = new GameObject("QuestWorldReferenceLine");
             SetQuestOverlayLayer(lineObject);
-            lineObject.transform.SetParent(fallbackEnvironmentRoot, true);
+            lineObject.transform.SetParent(fallbackEnvironmentRoot, false);
             var line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = 2;
-            line.useWorldSpace = true;
+            line.useWorldSpace = false;
             line.SetPosition(0, start);
             line.SetPosition(1, end);
             line.startWidth = 0.035f;
@@ -1100,43 +1117,20 @@ namespace MDPro3
             var arenaObject = new GameObject("QuestAnimeDuelArena");
             SetQuestOverlayLayer(arenaObject);
             duelArenaRoot = arenaObject.transform;
-            duelArenaRoot.SetParent(fallbackEnvironmentRoot, true);
-            duelArenaRoot.SetPositionAndRotation(DuelWorldCenterOnGround, Quaternion.identity);
-
-            CreateWorldBox(
-                "QuestAnimeDuelTable",
-                DuelWorldCenterOnGround + new Vector3(0f, -0.035f, 0f),
-                new Vector3(DuelArenaWidth, 0.045f, DuelArenaDepth),
-                virtualTableMaterial);
-            CreateDuelTableCollider();
+            duelArenaRoot.SetParent(fallbackEnvironmentRoot, false);
+            duelArenaRoot.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
 
             var halfWidth = DuelArenaWidth * 0.5f;
             var halfDepth = DuelArenaDepth * 0.5f;
-            var y = DuelGroundY + DuelArenaLineY;
-            CreateArenaLine(new Vector3(-halfWidth, y, DuelWorldCenterOnGround.z - halfDepth), new Vector3(halfWidth, y, DuelWorldCenterOnGround.z - halfDepth));
-            CreateArenaLine(new Vector3(halfWidth, y, DuelWorldCenterOnGround.z - halfDepth), new Vector3(halfWidth, y, DuelWorldCenterOnGround.z + halfDepth));
-            CreateArenaLine(new Vector3(halfWidth, y, DuelWorldCenterOnGround.z + halfDepth), new Vector3(-halfWidth, y, DuelWorldCenterOnGround.z + halfDepth));
-            CreateArenaLine(new Vector3(-halfWidth, y, DuelWorldCenterOnGround.z + halfDepth), new Vector3(-halfWidth, y, DuelWorldCenterOnGround.z - halfDepth));
-            CreateArenaLine(new Vector3(-halfWidth, y, DuelWorldCenterOnGround.z), new Vector3(halfWidth, y, DuelWorldCenterOnGround.z));
+            var y = DuelArenaLineY;
+            CreateArenaLine(new Vector3(-halfWidth, y, -halfDepth), new Vector3(halfWidth, y, -halfDepth));
+            CreateArenaLine(new Vector3(halfWidth, y, -halfDepth), new Vector3(halfWidth, y, halfDepth));
+            CreateArenaLine(new Vector3(halfWidth, y, halfDepth), new Vector3(-halfWidth, y, halfDepth));
+            CreateArenaLine(new Vector3(-halfWidth, y, halfDepth), new Vector3(-halfWidth, y, -halfDepth));
+            CreateArenaLine(new Vector3(-halfWidth, y, 0f), new Vector3(halfWidth, y, 0f));
 
             CreateMainZoneRows(y + 0.012f);
             CreatePileZones(y + 0.018f);
-        }
-
-        private void CreateDuelTableCollider()
-        {
-            var colliderObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            colliderObject.name = "QuestDuelGroundCollider";
-            SetQuestOverlayLayer(colliderObject);
-            colliderObject.transform.SetParent(fallbackEnvironmentRoot, true);
-            colliderObject.transform.SetPositionAndRotation(
-                DuelWorldCenterOnGround + new Vector3(0f, -0.05f, 0f),
-                Quaternion.identity);
-            colliderObject.transform.localScale = new Vector3(DuelArenaWidth, 0.03f, DuelArenaDepth);
-
-            var renderer = colliderObject.GetComponent<MeshRenderer>();
-            if (renderer != null)
-                Destroy(renderer);
         }
 
         private void CreateMainZoneRows(float y)
@@ -1197,10 +1191,10 @@ namespace MDPro3
         {
             var lineObject = new GameObject("QuestAnimeDuelArenaLine");
             SetQuestOverlayLayer(lineObject);
-            lineObject.transform.SetParent(duelArenaRoot == null ? fallbackEnvironmentRoot : duelArenaRoot, true);
+            lineObject.transform.SetParent(duelArenaRoot == null ? fallbackEnvironmentRoot : duelArenaRoot, false);
             var line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = 2;
-            line.useWorldSpace = true;
+            line.useWorldSpace = false;
             line.SetPosition(0, start);
             line.SetPosition(1, end);
             line.startWidth = DuelArenaLineWidth;
@@ -1279,9 +1273,26 @@ namespace MDPro3
             handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pinchTouched");
             handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pinchTouched");
 
+            leftThumbstickAction = new InputAction("Quest Left Thumbstick", InputActionType.PassThrough);
+            leftThumbstickAction.expectedControlType = "Vector2";
+            leftThumbstickAction.AddBinding("<XRController>{LeftHand}/primary2DAxis");
+            leftThumbstickAction.AddBinding("<XRController>{LeftHand}/thumbstick");
+            rightThumbstickAction = new InputAction("Quest Right Thumbstick", InputActionType.PassThrough);
+            rightThumbstickAction.expectedControlType = "Vector2";
+            rightThumbstickAction.AddBinding("<XRController>{RightHand}/primary2DAxis");
+            rightThumbstickAction.AddBinding("<XRController>{RightHand}/thumbstick");
+            rightPrimaryButtonAction = new InputAction("Quest Right A Button", InputActionType.Button);
+            rightPrimaryButtonAction.AddBinding("<XRController>{RightHand}/primaryButton");
+            rightSecondaryButtonAction = new InputAction("Quest Right B Button", InputActionType.Button);
+            rightSecondaryButtonAction.AddBinding("<XRController>{RightHand}/secondaryButton");
+
             pointerPositionAction.Enable();
             pointerRotationAction.Enable();
             pointerPressAction.Enable();
+            leftThumbstickAction.Enable();
+            rightThumbstickAction.Enable();
+            rightPrimaryButtonAction.Enable();
+            rightSecondaryButtonAction.Enable();
             try
             {
                 handPointerPositionAction.Enable();
@@ -1604,12 +1615,15 @@ namespace MDPro3
             EnsureDuelWorldAnchor();
             if (duelWorldAnchor == null)
                 return;
+            AttachFallbackEnvironmentToDuelWorldAnchor();
 
             if (anchoredDuelContainer != duelContainer || duelContainer.parent != duelWorldAnchor)
             {
                 duelContainer.SetParent(duelWorldAnchor, false);
                 anchoredDuelContainer = duelContainer;
                 lockedDuelAlignmentContainer = null;
+                questDuelWorldUserTransformInitialized = false;
+                questDuelWorldScaleMultiplier = 1f;
                 originalFieldHiddenContainer = null;
                 legacyResidueContainer = null;
                 SuppressLegacyDuelContainerImmediately(duelContainer);
@@ -1671,6 +1685,20 @@ namespace MDPro3
             duelWorldAnchor.SetParent(transform, true);
             duelWorldAnchor.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             duelWorldAnchor.localScale = Vector3.one;
+            AttachFallbackEnvironmentToDuelWorldAnchor();
+        }
+
+        private void AttachFallbackEnvironmentToDuelWorldAnchor()
+        {
+            if (fallbackEnvironmentRoot == null || duelWorldAnchor == null)
+                return;
+
+            if (fallbackEnvironmentRoot.parent != duelWorldAnchor)
+                fallbackEnvironmentRoot.SetParent(duelWorldAnchor, false);
+
+            fallbackEnvironmentRoot.localPosition = Vector3.zero;
+            fallbackEnvironmentRoot.localRotation = Quaternion.identity;
+            fallbackEnvironmentRoot.localScale = Vector3.one;
         }
 
         private void EnsureQuestDuelWorldPresenter()
@@ -1686,7 +1714,7 @@ namespace MDPro3
             if (questDuelNativeUi == null)
                 questDuelNativeUi = gameObject.AddComponent<QuestDuelNativeUi>();
 
-            questDuelNativeUi.Configure(xrCamera);
+            questDuelNativeUi.Configure(xrCamera, duelWorldAnchor);
         }
 
         private void EnsureQuestNativeMainMenu()
@@ -1732,6 +1760,8 @@ namespace MDPro3
 
         private static bool ShouldEarlySuppressQuestDuelPresentation(Transform duelContainer)
         {
+            if (Time.unscaledTime < questNativeDuelFrontendSuppressedUntil)
+                return false;
             if (!QuestNativeDuelFrontendOnly || duelContainer == null || Program.instance == null)
                 return false;
 
@@ -1739,8 +1769,9 @@ namespace MDPro3
             if (core == null)
                 return false;
 
-            if (Program.instance.currentServant == core || core.showing)
-                return true;
+            var coreIsVisibleServant = Program.instance.currentServant == core || core.showing;
+            if (!coreIsVisibleServant)
+                return false;
             if (core.currentMessage != GameMessage.Waiting)
                 return true;
             if (core.cards != null && core.cards.Count > 0)
@@ -1840,7 +1871,10 @@ namespace MDPro3
             var rootObject = new GameObject("QuestMonsterCutinWorldRoot");
             SetQuestOverlayLayer(rootObject);
             questCutinWorldRoot = rootObject.transform;
-            questCutinWorldRoot.SetParent(transform, true);
+            if (duelWorldAnchor != null)
+                questCutinWorldRoot.SetParent(duelWorldAnchor, false);
+            else
+                questCutinWorldRoot.SetParent(transform, true);
 
             var rotation = GetDuelBaseYawRotation();
             var position = DuelWorldCenterOnGround
@@ -1850,7 +1884,15 @@ namespace MDPro3
             var rootRotation = forward.sqrMagnitude > 0.0001f
                 ? Quaternion.LookRotation(forward.normalized, Vector3.up)
                 : rotation * Quaternion.Euler(0f, 180f, 0f);
-            questCutinWorldRoot.SetPositionAndRotation(position, rootRotation);
+            if (questCutinWorldRoot.parent == duelWorldAnchor && duelWorldAnchor != null)
+            {
+                questCutinWorldRoot.localPosition = position - DuelWorldCenterOnGround;
+                questCutinWorldRoot.localRotation = Quaternion.Inverse(duelWorldAnchor.rotation) * rootRotation;
+            }
+            else
+            {
+                questCutinWorldRoot.SetPositionAndRotation(position, rootRotation);
+            }
             questCutinWorldRoot.localScale = Vector3.one;
         }
 
@@ -1917,6 +1959,12 @@ namespace MDPro3
             lockedDuelContainerLocalPosition = duelContainer.localPosition;
             lockedDuelContainerLocalRotation = duelContainer.localRotation;
             lockedDuelContainerLocalScale = duelContainer.localScale;
+            if (!questDuelWorldUserTransformInitialized)
+            {
+                questDuelWorldUserAnchorPosition = lockedDuelAnchorPosition;
+                questDuelWorldUserTransformInitialized = true;
+            }
+            ApplyQuestDuelWorldUserTransform();
         }
 
         private void ApplyLockedDuelWorldAlignment(Transform duelContainer)
@@ -1929,6 +1977,24 @@ namespace MDPro3
             duelContainer.localPosition = lockedDuelContainerLocalPosition;
             duelContainer.localRotation = lockedDuelContainerLocalRotation;
             duelContainer.localScale = lockedDuelContainerLocalScale;
+            ApplyQuestDuelWorldUserTransform();
+        }
+
+        private void ApplyQuestDuelWorldUserTransform()
+        {
+            if (duelWorldAnchor == null || lockedDuelAlignmentContainer == null)
+                return;
+
+            var multiplier = Mathf.Max(questDuelWorldScaleMultiplier, QuestWorldScaleMinPositive);
+            questDuelWorldScaleMultiplier = multiplier;
+            if (!questDuelWorldUserTransformInitialized)
+            {
+                questDuelWorldUserAnchorPosition = lockedDuelAnchorPosition;
+                questDuelWorldUserTransformInitialized = true;
+            }
+
+            duelWorldAnchor.SetPositionAndRotation(questDuelWorldUserAnchorPosition, lockedDuelAnchorRotation);
+            duelWorldAnchor.localScale = lockedDuelAnchorScale * multiplier;
         }
 
         private bool TryGetDuelGroundBounds(Transform root, out Bounds bounds, out string source)
@@ -2115,7 +2181,7 @@ namespace MDPro3
             var depth = Mathf.Max(localBounds.size.z, 0.001f);
             var scaleByWidth = DuelWorldTargetWidth / width;
             var scaleByDepth = DuelWorldTargetDepth / depth;
-            return Mathf.Clamp(Mathf.Min(scaleByWidth, scaleByDepth), DuelWorldMinScale, DuelWorldMaxScale);
+            return Mathf.Max(Mathf.Min(scaleByWidth, scaleByDepth), QuestWorldScaleMinPositive);
         }
 
         private bool IsDuelGroundBoundsCandidate(Renderer renderer, bool stableOnly)
@@ -3449,16 +3515,19 @@ namespace MDPro3
 
         private static bool IsQuestNativeDuelActive()
         {
+            if (Time.unscaledTime < questNativeDuelFrontendSuppressedUntil)
+                return false;
+
             var core = Program.instance == null ? null : Program.instance.ocgcore;
             if (core == null)
                 return false;
 
-            if (core.currentMessage != GameMessage.Waiting)
-                return true;
-
             var coreIsVisibleServant = Program.instance.currentServant == core || core.showing;
             if (!coreIsVisibleServant)
                 return false;
+
+            if (core.currentMessage != GameMessage.Waiting)
+                return true;
 
             if (core.cards != null && core.cards.Count > 0)
                 return true;
@@ -3791,6 +3860,13 @@ namespace MDPro3
             if (!TryReadHeadPose(out var localPosition, out var localRotation))
                 return;
 
+            if (IsQuestNativeDuelActive())
+            {
+                trackingOriginCalibratedWithUserPresence = true;
+                Debug.Log("Quest XR user-presence recalibration skipped during native duel to preserve player view yaw.");
+                return;
+            }
+
             PlaceXrOrigin(localPosition, localRotation);
             trackingOriginCalibratedWithUserPresence = true;
             Debug.LogFormat(
@@ -3836,13 +3912,53 @@ namespace MDPro3
             if (xrOrigin == null)
                 return;
 
-            var baseRotation = GetDuelBaseYawRotation();
+            var baseRotation = GetCurrentDuelViewYawRotation();
             var headYawRotation = GetYawRotation(localHeadRotation);
             var originRotation = baseRotation * Quaternion.Inverse(headYawRotation);
             var scaledHeadOffset = localHeadPosition * DuelWorldUnitsPerMeter;
+            var targetEyePosition = DuelEyePosition + questPlayerWorldOffset;
             xrOrigin.transform.localScale = Vector3.one * DuelWorldUnitsPerMeter;
-            xrOrigin.transform.SetPositionAndRotation(DuelEyePosition - originRotation * scaledHeadOffset, originRotation);
+            xrOrigin.transform.SetPositionAndRotation(targetEyePosition - originRotation * scaledHeadOffset, originRotation);
 
+            RefreshWorldUiAfterXrOriginMove();
+        }
+
+        private void RepositionXrOriginPreservingCurrentView()
+        {
+            if (xrOrigin == null)
+                return;
+
+            if (!TryReadHeadPose(out var localHeadPosition, out _))
+                localHeadPosition = Vector3.zero;
+
+            var originRotation = xrOrigin.transform.rotation;
+            var scaledHeadOffset = localHeadPosition * DuelWorldUnitsPerMeter;
+            var targetEyePosition = DuelEyePosition + questPlayerWorldOffset;
+            xrOrigin.transform.localScale = Vector3.one * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.SetPositionAndRotation(targetEyePosition - originRotation * scaledHeadOffset, originRotation);
+            RefreshWorldUiAfterXrOriginMove();
+        }
+
+        private void ApplyQuestViewYawDelta(float yawDeltaDegrees)
+        {
+            if (xrOrigin == null || Mathf.Abs(yawDeltaDegrees) < 0.001f)
+                return;
+
+            if (!TryReadHeadPose(out var localHeadPosition, out _))
+                localHeadPosition = Vector3.zero;
+
+            var headWorldPosition = xrCamera == null
+                ? DuelEyePosition + questPlayerWorldOffset
+                : xrCamera.transform.position;
+            var originRotation = Quaternion.Euler(0f, yawDeltaDegrees, 0f) * xrOrigin.transform.rotation;
+            var scaledHeadOffset = localHeadPosition * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.localScale = Vector3.one * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.SetPositionAndRotation(headWorldPosition - originRotation * scaledHeadOffset, originRotation);
+            RefreshWorldUiAfterXrOriginMove();
+        }
+
+        private void RefreshWorldUiAfterXrOriginMove()
+        {
             if (worldUiAnchor != null)
             {
                 RepositionWorldUiAnchor();
@@ -3852,6 +3968,174 @@ namespace MDPro3
                         PlaceWorldCanvas(canvas);
                 }
             }
+        }
+
+        private void UpdateQuestWorldControls()
+        {
+            if (!trackingOriginCalibrated || xrOrigin == null || !IsQuestNativeDuelActive())
+                return;
+
+            var rightAxis = ReadQuestThumbstick(rightThumbstickAction, XRNode.RightHand);
+            var leftAxis = ReadQuestThumbstick(leftThumbstickAction, XRNode.LeftHand);
+            var rotateViewHeld = ReadQuestButton(rightSecondaryButtonAction, XRNode.RightHand, true);
+            var fastControlHeld = ReadQuestButton(rightPrimaryButtonAction, XRNode.RightHand, false);
+            var speedMultiplier = fastControlHeld ? QuestWorldFastControlMultiplier : 1f;
+            var dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            var positionChanged = false;
+            var viewYawChanged = false;
+            var scaleChanged = false;
+
+            if (rightAxis.sqrMagnitude > 0f)
+            {
+                if (rotateViewHeld)
+                {
+                    if (Mathf.Abs(rightAxis.x) > 0f)
+                    {
+                        questPlayerYawOffsetDegrees = NormalizeDegrees(
+                            questPlayerYawOffsetDegrees + rightAxis.x * QuestPlayerYawTurnSpeed * speedMultiplier * dt);
+                        viewYawChanged = true;
+                    }
+                }
+                else
+                {
+                    var viewYaw = GetCurrentDuelViewYawRotation();
+                    var forward = xrCamera == null ? viewYaw * Vector3.forward : xrCamera.transform.forward;
+                    var right = xrCamera == null ? viewYaw * Vector3.right : xrCamera.transform.right;
+                    forward.y = 0f;
+                    right.y = 0f;
+                    if (forward.sqrMagnitude < 0.0001f)
+                        forward = viewYaw * Vector3.forward;
+                    if (right.sqrMagnitude < 0.0001f)
+                        right = viewYaw * Vector3.right;
+                    forward.Normalize();
+                    right.Normalize();
+
+                    questPlayerWorldOffset += (right * rightAxis.x + forward * rightAxis.y) * QuestPlayerMoveSpeed * speedMultiplier * dt;
+                    positionChanged = true;
+                }
+            }
+
+            if (Mathf.Abs(leftAxis.y) > 0f)
+            {
+                questPlayerWorldOffset.y += leftAxis.y * QuestPlayerVerticalSpeed * speedMultiplier * dt;
+                positionChanged = true;
+            }
+
+            if (Mathf.Abs(leftAxis.x) > 0f)
+            {
+                var previousScale = questDuelWorldScaleMultiplier;
+                var targetScale = Mathf.Max(
+                    questDuelWorldScaleMultiplier + leftAxis.x * QuestWorldScaleSpeed * speedMultiplier * dt,
+                    QuestWorldScaleMinPositive);
+                SetQuestDuelWorldScale(targetScale);
+                scaleChanged = Mathf.Abs(previousScale - questDuelWorldScaleMultiplier) > 0.0001f;
+            }
+
+            if (viewYawChanged)
+                ApplyQuestViewYawDelta(rightAxis.x * QuestPlayerYawTurnSpeed * speedMultiplier * dt);
+            if (positionChanged)
+                RepositionXrOriginPreservingCurrentView();
+            if (scaleChanged)
+                ApplyQuestDuelWorldUserTransform();
+
+            if ((positionChanged || viewYawChanged || scaleChanged) && Time.unscaledTime - lastQuestWorldControlLog >= QuestWorldControlLogInterval)
+            {
+                lastQuestWorldControlLog = Time.unscaledTime;
+                Debug.LogFormat(
+                    "Quest world controls active. PlayerOffset={0}, DuelWorldScale={1:F2}, RightAxis={2}, LeftAxis={3}, Fast={4}, RotateView={5}, Yaw={6:F1}",
+                    questPlayerWorldOffset,
+                    questDuelWorldScaleMultiplier,
+                    rightAxis,
+                    leftAxis,
+                    fastControlHeld,
+                    rotateViewHeld,
+                    questPlayerYawOffsetDegrees);
+            }
+        }
+
+        private void ReapplyXrOriginForCurrentHeadPose()
+        {
+            if (TryReadHeadPose(out var localPosition, out var localRotation))
+                PlaceXrOrigin(localPosition, localRotation);
+            else
+                PlaceXrOrigin(Vector3.zero, Quaternion.identity);
+        }
+
+        private void SetQuestDuelWorldScale(float targetScale)
+        {
+            targetScale = Mathf.Max(targetScale, QuestWorldScaleMinPositive);
+            if (!questDuelWorldUserTransformInitialized)
+            {
+                questDuelWorldUserAnchorPosition = duelWorldAnchor == null ? lockedDuelAnchorPosition : duelWorldAnchor.position;
+                questDuelWorldUserTransformInitialized = true;
+            }
+
+            var previousScale = Mathf.Max(questDuelWorldScaleMultiplier, QuestWorldScaleMinPositive);
+            if (Mathf.Abs(previousScale - targetScale) < 0.0001f)
+                return;
+
+            var pivot = xrCamera == null ? DuelEyePosition + questPlayerWorldOffset : xrCamera.transform.position;
+            var ratio = targetScale / previousScale;
+            questDuelWorldUserAnchorPosition = pivot + (questDuelWorldUserAnchorPosition - pivot) * ratio;
+            questDuelWorldScaleMultiplier = targetScale;
+        }
+
+        private static Vector2 ReadQuestThumbstick(InputAction action, XRNode node)
+        {
+            var value = Vector2.zero;
+            try
+            {
+                if (action != null)
+                    value = action.ReadValue<Vector2>();
+            }
+            catch
+            {
+                value = Vector2.zero;
+            }
+
+            if (value.sqrMagnitude < 0.0001f)
+            {
+                var device = InputDevices.GetDeviceAtXRNode(node);
+                if (device.isValid && device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out var axis))
+                    value = axis;
+            }
+
+            value.x = Mathf.Abs(value.x) < QuestThumbstickDeadZone ? 0f : value.x;
+            value.y = Mathf.Abs(value.y) < QuestThumbstickDeadZone ? 0f : value.y;
+            return Vector2.ClampMagnitude(value, 1f);
+        }
+
+        private static bool ReadQuestButton(InputAction action, XRNode node, bool secondaryButton)
+        {
+            try
+            {
+                if (action != null && action.ReadValue<float>() > 0.5f)
+                    return true;
+            }
+            catch
+            {
+            }
+
+            var device = InputDevices.GetDeviceAtXRNode(node);
+            if (!device.isValid)
+                return false;
+
+            var usage = secondaryButton
+                ? UnityEngine.XR.CommonUsages.secondaryButton
+                : UnityEngine.XR.CommonUsages.primaryButton;
+            return device.TryGetFeatureValue(usage, out var pressed) && pressed;
+        }
+
+        private void ResetQuestWorldControlsWhenNoDuel()
+        {
+            if (questPlayerWorldOffset.sqrMagnitude < 0.0001f && Mathf.Abs(questPlayerYawOffsetDegrees) < 0.001f)
+                return;
+
+            questPlayerWorldOffset = Vector3.zero;
+            questPlayerYawOffsetDegrees = 0f;
+            if (trackingOriginCalibrated && xrOrigin != null)
+                ReapplyXrOriginForCurrentHeadPose();
+            Debug.Log("Quest world player offset reset outside duel.");
         }
 
         private static Quaternion GetDuelBaseRotation()
@@ -3873,6 +4157,11 @@ namespace MDPro3
             return Quaternion.LookRotation(direction.normalized, Vector3.up);
         }
 
+        private Quaternion GetCurrentDuelViewYawRotation()
+        {
+            return Quaternion.Euler(0f, questPlayerYawOffsetDegrees, 0f) * GetDuelBaseYawRotation();
+        }
+
         private static Quaternion GetYawRotation(Quaternion rotation)
         {
             var forward = rotation * Vector3.forward;
@@ -3881,6 +4170,15 @@ namespace MDPro3
                 return Quaternion.identity;
 
             return Quaternion.LookRotation(forward.normalized, Vector3.up);
+        }
+
+        private static float NormalizeDegrees(float degrees)
+        {
+            while (degrees > 180f)
+                degrees -= 360f;
+            while (degrees < -180f)
+                degrees += 360f;
+            return degrees;
         }
 
         private void ShowQuestDuelActionButton(MDPro3.UI.DuelButton button)
@@ -4015,6 +4313,8 @@ namespace MDPro3
 
             var menuObject = new GameObject("QuestDuelActionMenu", typeof(RectTransform));
             SetQuestOverlayLayer(menuObject);
+            if (duelWorldAnchor != null)
+                menuObject.transform.SetParent(duelWorldAnchor, false);
             questDuelActionMenuCanvas = menuObject.AddComponent<Canvas>();
             questDuelActionMenuCanvas.renderMode = RenderMode.WorldSpace;
             questDuelActionMenuCanvas.worldCamera = xrCamera;
@@ -4301,10 +4601,20 @@ namespace MDPro3
 
             if (questDuelActionMenuCanvas.worldCamera != xrCamera)
                 questDuelActionMenuCanvas.worldCamera = xrCamera;
+            if (duelWorldAnchor != null && questDuelActionMenuRect.parent != duelWorldAnchor)
+                questDuelActionMenuRect.SetParent(duelWorldAnchor, false);
 
             var position = ResolveQuestDuelActionMenuPosition(questDuelActions[0]);
-            questDuelActionMenuRect.position = position;
-            questDuelActionMenuRect.rotation = ResolveQuestDuelActionMenuRotation(position);
+            if (duelWorldAnchor != null && questDuelActionMenuRect.parent == duelWorldAnchor)
+            {
+                questDuelActionMenuRect.localPosition = duelWorldAnchor.InverseTransformPoint(position);
+                questDuelActionMenuRect.localRotation = Quaternion.Inverse(duelWorldAnchor.rotation) * ResolveQuestDuelActionMenuRotation(position);
+            }
+            else
+            {
+                questDuelActionMenuRect.position = position;
+                questDuelActionMenuRect.rotation = ResolveQuestDuelActionMenuRotation(position);
+            }
             questDuelActionMenuRect.localScale = Vector3.one * QuestDuelActionMenuScale;
         }
 
@@ -4425,37 +4735,36 @@ namespace MDPro3
         private static string GetQuestDuelActionLabel(QuestDuelAction action)
         {
             if (action == null)
-                return "Action";
+                return "\u64cd\u4f5c";
+            if (action.Type == MDPro3.UI.ButtonType.SetSpell || action.Type == MDPro3.UI.ButtonType.SetMonster)
+                return "\u653e\u7f6e";
+            if (action.Type == MDPro3.UI.ButtonType.SetPendulum)
+                return "\u7075\u6446\u653e\u7f6e";
             if (!string.IsNullOrWhiteSpace(action.Hint))
                 return action.Hint;
 
             switch (action.Type)
             {
                 case MDPro3.UI.ButtonType.Select:
-                    return "Select";
+                    return "\u9009\u62e9";
                 case MDPro3.UI.ButtonType.Decide:
-                    return "Confirm";
+                    return "\u786e\u5b9a";
                 case MDPro3.UI.ButtonType.Cancel:
-                    return "Cancel";
+                    return "\u53d6\u6d88";
                 case MDPro3.UI.ButtonType.Activate:
-                    return "Activate";
+                    return "\u53d1\u52a8";
                 case MDPro3.UI.ButtonType.Battle:
-                    return "Attack";
+                    return "\u653b\u51fb";
                 case MDPro3.UI.ButtonType.ToAttackPosition:
-                    return "Attack Position";
+                    return "\u653b\u51fb\u8868\u793a";
                 case MDPro3.UI.ButtonType.ToDefensePosition:
-                    return "Defense Position";
+                    return "\u5b88\u5907\u8868\u793a";
                 case MDPro3.UI.ButtonType.SpSummon:
-                    return "Special Summon";
+                    return "\u7279\u6b8a\u53ec\u5524";
                 case MDPro3.UI.ButtonType.Summon:
-                    return "Summon";
+                    return "\u901a\u5e38\u53ec\u5524";
                 case MDPro3.UI.ButtonType.PenSummon:
-                    return "Pendulum Summon";
-                case MDPro3.UI.ButtonType.SetSpell:
-                case MDPro3.UI.ButtonType.SetMonster:
-                    return "Set";
-                case MDPro3.UI.ButtonType.SetPendulum:
-                    return "Pendulum Set";
+                    return "\u7075\u6446\u53ec\u5524";
                 default:
                     return action.Type.ToString();
             }
@@ -4748,13 +5057,13 @@ namespace MDPro3
                 distance);
         }
 
-        private static bool TryGetQuestCardHit(Ray ray, out GameCard card, out GameObject hitObject, out float distance)
+        private bool TryGetQuestCardHit(Ray ray, out GameCard card, out GameObject hitObject, out float distance)
         {
             card = null;
             hitObject = null;
             distance = float.PositiveInfinity;
 
-            var hits = Physics.RaycastAll(ray, ControllerRayLength);
+            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
             if (hits == null || hits.Length == 0)
                 return false;
 
@@ -4778,12 +5087,12 @@ namespace MDPro3
             return false;
         }
 
-        private static bool TryGetQuestPileHit(Ray ray, out QuestPileProxyHit pile, out float distance)
+        private bool TryGetQuestPileHit(Ray ray, out QuestPileProxyHit pile, out float distance)
         {
             pile = null;
             distance = float.PositiveInfinity;
 
-            var hits = Physics.RaycastAll(ray, ControllerRayLength);
+            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
             if (hits == null || hits.Length == 0)
                 return false;
 
@@ -4937,12 +5246,13 @@ namespace MDPro3
         private float ScorePointerRay(Ray ray)
         {
             var score = 0f;
+            var rayLength = GetQuestControllerRayLength();
             if (TryGetUiRenderPanelHit(ray, out _, out var panelDistance))
-                score += 1200f - Mathf.Min(panelDistance, ControllerRayLength);
+                score += 1200f - Mathf.Min(panelDistance, rayLength);
             if (TryGetAnyCanvasPlaneDistance(ray, out var uiDistance))
-                score += 1000f - Mathf.Min(uiDistance, ControllerRayLength);
+                score += 1000f - Mathf.Min(uiDistance, rayLength);
             if (TryGetWorldHit(ray, out _, out var worldDistance))
-                score += 100f - Mathf.Min(worldDistance, ControllerRayLength) * 0.01f;
+                score += 100f - Mathf.Min(worldDistance, rayLength) * 0.01f;
 
             var referencePoint = worldUiAnchor == null ? DuelLookTarget : worldUiAnchor.position;
             var referenceDirection = referencePoint - ray.origin;
@@ -5988,10 +6298,10 @@ namespace MDPro3
                 ?? ExecuteEvents.GetEventHandler<IEndDragHandler>(gameObject);
         }
 
-        private static bool TryGetWorldHit(Ray ray, out Vector3 hitPoint, out float distance)
+        private bool TryGetWorldHit(Ray ray, out Vector3 hitPoint, out float distance)
         {
             distance = float.PositiveInfinity;
-            var hits = Physics.RaycastAll(ray, 200f);
+            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
             if (hits != null && hits.Length > 0)
             {
                 System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
@@ -6008,6 +6318,14 @@ namespace MDPro3
 
             hitPoint = default;
             return false;
+        }
+
+        private float GetQuestControllerRayLength()
+        {
+            var scale = IsQuestNativeDuelActive()
+                ? Mathf.Max(questDuelWorldScaleMultiplier, 1f)
+                : 1f;
+            return ControllerRayLength * scale;
         }
 
         private void EnsureControllerRayVisual()
@@ -6076,8 +6394,9 @@ namespace MDPro3
                 hasHit = true;
             }
 
-            var distance = hasHit ? uiDistance : ControllerRayLength;
-            var end = ray.origin + ray.direction.normalized * Mathf.Clamp(distance, 0.2f, ControllerRayLength);
+            var rayLength = GetQuestControllerRayLength();
+            var distance = hasHit ? uiDistance : rayLength;
+            var end = ray.origin + ray.direction.normalized * Mathf.Clamp(distance, 0.2f, rayLength);
             controllerRayLine.enabled = true;
             controllerRayLine.SetPosition(0, ray.origin);
             controllerRayLine.SetPosition(1, end);

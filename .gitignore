@@ -18,6 +18,9 @@ ExportedObj/
 *.svd
 *.pdb
 /.utmp/
+.learnings/
+TempCodex/
+UpgradeLog.htm
 
 # Unity3D generated files
 [Ll]ibrary/
@@ -26,6 +29,9 @@ ExportedObj/
 /[Bb]uild/
 Logs/
 UserSettings/
+Assets/CompositionLayers/
+Assets/XR/Temp*
+Assets/XR/UserSimulationSettings*
 *.pidb.meta
 *.pdb.meta
 sysinfo.txt

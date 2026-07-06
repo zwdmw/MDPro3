@@ -22,13 +22,14 @@ namespace MDPro3
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
-        private const float PowerLabelY = CardThickness + 0.78f;
-        private const float PowerLabelZ = -3.92f;
-        private const float PowerLabelScale = 0.23f;
+        private const float PowerLabelY = CardThickness + 0.92f;
+        private const float PowerLabelZ = -4.18f;
+        private const float PowerLabelScale = 0.32f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
         private const int MaxAutomaticDebugCaptures = 6;
+        private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
 
         private Camera xrCamera;
         private Transform worldAnchor;
@@ -41,6 +42,7 @@ namespace MDPro3
         private Material pileFaceMaterial;
         private Material portraitMaterial;
         private static Texture2D fallbackCardBackTexture;
+        private static Texture2D preferredCardBackTexture;
         private readonly Dictionary<GameCard, QuestCardProxy> cardProxies = new Dictionary<GameCard, QuestCardProxy>();
         private readonly Dictionary<string, QuestPileProxy> pileProxies = new Dictionary<string, QuestPileProxy>();
         private readonly List<GameCard> visibleCards = new List<GameCard>();
@@ -270,7 +272,7 @@ namespace MDPro3
             if (!proxy.PowerLabelRoot.activeSelf)
                 proxy.PowerLabelRoot.SetActive(true);
 
-            proxy.PowerLabelText.text = FormatPowerLabel(data);
+            proxy.PowerLabelText.text = FormatPowerLabel(card, data);
             proxy.PowerLabelText.color = Color.white;
             FaceTextToCamera(proxy.PowerLabelRoot.transform);
         }
@@ -301,17 +303,36 @@ namespace MDPro3
             return Color.white;
         }
 
-        private static string FormatPowerLabel(Card data)
+        private static string FormatPowerLabel(GameCard card, Card data)
         {
             if (data == null)
                 return string.Empty;
 
-            var grade = ColorizePowerLine(GetMonsterGradeLabel(data), GetMonsterGradeValue(data), new Color(1f, 0.84f, 0.30f, 1f));
-            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack));
+            var extras = GetMonsterGradeLabel(data) + " " + GetMonsterGradeValue(data);
+            if (data.HasType(CardType.Xyz))
+            {
+                var materialCount = 0;
+                try
+                {
+                    materialCount = Program.instance?.ocgcore == null ? 0 : Program.instance.ocgcore.GCS_GetOverlays(card).Count;
+                }
+                catch
+                {
+                    materialCount = 0;
+                }
+                extras += "  MAT " + materialCount;
+            }
+            if (data.HasType(CardType.Tuner))
+                extras += "  TUNER";
+
+            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 0);
+            var attackActive = card != null && card.p != null && ((card.p.position & (uint)CardPosition.Attack) > 0 || data.HasType(CardType.Link));
+            var defenseActive = !data.HasType(CardType.Link) && !attackActive;
+            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 17 : 12);
             if (data.HasType(CardType.Link))
                 return grade + "\n" + attack;
 
-            return grade + "\n" + attack + "\n" + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense));
+            return grade + "\n" + attack + " / " + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 17 : 12);
         }
 
         private static string GetMonsterGradeLabel(Card data)
@@ -340,9 +361,12 @@ namespace MDPro3
             return Mathf.Max(0, data.Level).ToString();
         }
 
-        private static string ColorizePowerLine(string label, string value, Color color)
+        private static string ColorizePowerLine(string label, string value, Color color, int size = 0)
         {
-            return "<mark=#061016D8><color=#" + ColorUtility.ToHtmlStringRGB(color) + ">" + label + " " + value + "</color></mark>";
+            var content = string.IsNullOrEmpty(label) ? value : label + " " + value;
+            if (size > 0)
+                content = "<size=" + size + ">" + content + "</size>";
+            return "<mark=#061016D8><color=#" + ColorUtility.ToHtmlStringRGB(color) + ">" + content + "</color></mark>";
         }
 
         private static bool IsQuestFieldSelectionTarget(GameCard card)
@@ -534,10 +558,10 @@ namespace MDPro3
 
         private void UpdatePileProxies(OcgCore core)
         {
-            UpdatePileProxy(core, 0, CardLocation.Deck, "Deck");
-            UpdatePileProxy(core, 1, CardLocation.Deck, "Deck");
-            UpdatePileProxy(core, 0, CardLocation.Extra, "Extra");
-            UpdatePileProxy(core, 1, CardLocation.Extra, "Extra");
+            UpdatePileProxy(core, 0, CardLocation.Deck, "\u4e3b\u5361\u7ec4");
+            UpdatePileProxy(core, 1, CardLocation.Deck, "\u4e3b\u5361\u7ec4");
+            UpdatePileProxy(core, 0, CardLocation.Extra, "\u989d\u5916");
+            UpdatePileProxy(core, 1, CardLocation.Extra, "\u989d\u5916");
         }
 
         private void UpdatePileProxy(OcgCore core, uint controller, CardLocation location, string label)
@@ -553,9 +577,8 @@ namespace MDPro3
                 pileProxies[key] = pile;
             }
 
-            pile.Root.SetActive(count > 0);
-            if (count <= 0)
-                return;
+            pile.Root.SetActive(true);
+            pile.SetVisibleCount(count);
 
             var gps = new GPS
             {
@@ -776,7 +799,7 @@ namespace MDPro3
                 return cardBackMaterial;
 
             cardBackMaterial = CreateMaterial("QuestCardBackMaterial", new Color(0.05f, 0.09f, 0.16f, 1f), false);
-            ApplyTexture(cardBackMaterial, CreateQuestFallbackCardBackTexture());
+            ApplyTexture(cardBackMaterial, LoadPreferredCardBackTexture() ?? CreateQuestFallbackCardBackTexture());
             return cardBackMaterial;
         }
 
@@ -884,6 +907,49 @@ namespace MDPro3
             if (material.HasProperty("_MainTex"))
                 material.SetTexture("_MainTex", texture);
             SetMaterialColor(material, Color.white);
+        }
+
+        private static Texture2D LoadPreferredCardBackTexture()
+        {
+            if (preferredCardBackTexture != null)
+                return preferredCardBackTexture;
+
+            foreach (var path in GetPreferredCardBackPaths())
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                    continue;
+
+                try
+                {
+                    var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                    {
+                        name = "QuestYGOPro2CardBack",
+                        filterMode = FilterMode.Trilinear,
+                        wrapMode = TextureWrapMode.Clamp,
+                        anisoLevel = 8
+                    };
+                    if (texture.LoadImage(File.ReadAllBytes(path), false))
+                    {
+                        preferredCardBackTexture = texture;
+                        Debug.Log("Quest card back loaded from: " + path);
+                        return preferredCardBackTexture;
+                    }
+
+                    Destroy(texture);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("Quest card back load failed: " + path + " / " + ex.Message);
+                }
+            }
+
+            return null;
+        }
+
+        private static IEnumerable<string> GetPreferredCardBackPaths()
+        {
+            yield return Path.Combine(Program.expansionsPath, PreferredCardBackRelativePath);
+            yield return Path.Combine("Expansions", PreferredCardBackRelativePath);
         }
 
         private static Texture2D CreateQuestFallbackCardBackTexture()
@@ -1078,7 +1144,7 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 13.5f;
+                text.fontSize = 16.5f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
@@ -1109,6 +1175,7 @@ namespace MDPro3
             public Transform Transform;
             public TextMeshPro Label;
             public QuestPileProxyHit Hit;
+            private List<GameObject> layers = new List<GameObject>();
 
             public static QuestPileProxy Create(
                 string key,
@@ -1125,8 +1192,9 @@ namespace MDPro3
                 collider.size = new Vector3(CardWidth, 0.75f, CardHeight);
                 collider.center = new Vector3(0f, 0.35f, 0f);
 
+                var pileLayers = new List<GameObject>();
                 for (var index = 0; index < 5; index += 1)
-                    CreatePileLayer(root.transform, index, sideMaterial, backMaterial);
+                    pileLayers.Add(CreatePileLayer(root.transform, index, sideMaterial, backMaterial));
 
                 var labelObject = new GameObject("QuestPileProxyLabel");
                 SetQuestOverlayLayer(labelObject);
@@ -1145,11 +1213,20 @@ namespace MDPro3
                     Root = root,
                     Transform = root.transform,
                     Label = label,
-                    Hit = hit
+                    Hit = hit,
+                    layers = pileLayers
                 };
             }
 
-            private static void CreatePileLayer(Transform parent, int index, Material sideMaterial, Material backMaterial)
+            public void SetVisibleCount(int count)
+            {
+                var visibleLayers = Mathf.Clamp(count, 0, layers.Count);
+                for (var index = 0; index < layers.Count; index += 1)
+                    if (layers[index] != null && layers[index].activeSelf != index < visibleLayers)
+                        layers[index].SetActive(index < visibleLayers);
+            }
+
+            private static GameObject CreatePileLayer(Transform parent, int index, Material sideMaterial, Material backMaterial)
             {
                 var layer = new GameObject("QuestPileLayer_" + index);
                 SetQuestOverlayLayer(layer);
@@ -1174,6 +1251,7 @@ namespace MDPro3
                 back.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
                 back.transform.localScale = new Vector3(CardWidth, CardHeight, 1f);
                 QuestCardProxy.ConfigureRenderer(back.GetComponent<MeshRenderer>(), backMaterial);
+                return layer;
             }
         }
     }
