@@ -96,6 +96,7 @@ namespace MDPro3
         private const float DuelWorldBoundsLogInterval = 4f;
         private const float ControllerPoseDiagnosticInterval = 5f;
         private const float MdproCameraConfigureInterval = 0.5f;
+        private const float QuestMainMenuUiRecoverySuppressDuration = 0.75f;
         private const int QuestDuelSleepCompressionThreshold = 20;
         private const int QuestDuelSleepCompressionMax = 55;
         private const float QuestDuelSleepCompressionScale = 0.35f;
@@ -180,6 +181,7 @@ namespace MDPro3
         private float lastUiRenderPanelDiagnosticsLog;
         private float lastUiRenderPanelHitDiagnosticsLog;
         private bool uiRenderCameraLogged;
+        private bool wasQuestNativeDuelActive;
         private bool questGraphicsSafeModeLogged;
         private CompositionLayer passthroughCompositionLayer;
         private ARSession arSession;
@@ -343,7 +345,7 @@ namespace MDPro3
 
         public static void NotifyQuestDuelReturnedToMainMenu()
         {
-            questNativeDuelFrontendSuppressedUntil = Time.unscaledTime + 4f;
+            questNativeDuelFrontendSuppressedUntil = Time.unscaledTime + QuestMainMenuUiRecoverySuppressDuration;
             activeInstance?.HandleQuestDuelReturnedToMainMenu();
         }
 
@@ -364,13 +366,33 @@ namespace MDPro3
             earlyDuelSuppressionLogged = false;
             duelWorldRootLogged = false;
             mdproCameraRenderModeInitialized = false;
+            wasQuestNativeDuelActive = false;
+            worldUiLogged = false;
+            uiRenderCameraLogged = false;
+            uiRenderPanelLogged = false;
+            uiRenderPanelDiagnosticsLogged = false;
+            lastUiRenderPanelDiagnosticsLog = -999f;
+            lastUiRenderPanelHitDiagnosticsLog = -999f;
             lastAppliedXrCullingMask = int.MinValue;
 
             ApplyResolvedXrCullingMask();
-            ConfigureMdproCameras();
+            ForceQuestMainMenuUiRecovery("duel-return");
+            Debug.Log("Quest native duel frontend released for main menu.");
+        }
+
+        private void ForceQuestMainMenuUiRecovery(string reason)
+        {
+            var restoredCanvasCount = RestoreLegacyDuelCanvases();
+            mdproCameraRenderModeInitialized = false;
+            lastMdproCameraConfigureTime = -999f;
+
+            EnsureUiRenderTexture();
+            EnsureUiRenderPanel();
+            RepairUiRenderPanelRenderer();
+            ConfigureMdproCameras(true);
             ConfigureOverlayCanvases();
             ConfigureUiRenderPanel();
-            Debug.Log("Quest native duel frontend released for main menu.");
+            LogQuestMainMenuUiRecovery(reason, restoredCanvasCount);
         }
 
         public static bool IsQuestFastNativeDuelActive()
@@ -633,6 +655,15 @@ namespace MDPro3
             RecalibrateTrackingOriginWhenUserPresenceAppears();
             ConfigureFloorTrackingOrigin();
             PreSuppressQuestDuelPresentation();
+            var questNativeDuelActive = IsQuestNativeDuelActive();
+            if (wasQuestNativeDuelActive && !questNativeDuelActive)
+            {
+                questNativeDuelFrontendSuppressedUntil = Mathf.Max(
+                    questNativeDuelFrontendSuppressedUntil,
+                    Time.unscaledTime + QuestMainMenuUiRecoverySuppressDuration);
+                ForceQuestMainMenuUiRecovery("duel-state-exit");
+            }
+            wasQuestNativeDuelActive = questNativeDuelActive;
             ConfigureMdproCameras();
             MaintainQuestWorldVisibility();
             SuppressQuestDecorativeUiBackgrounds();
@@ -643,7 +674,7 @@ namespace MDPro3
             ConfigureUiInputModule();
             EnsureQuestNativeMainMenu();
             questNativeMainMenu?.Tick();
-            if (IsQuestNativeDuelActive())
+            if (questNativeDuelActive)
             {
                 EnsureQuestDuelNativeUi();
                 questDuelNativeUi?.Tick();
@@ -1335,7 +1366,7 @@ namespace MDPro3
             virtualMouse.MakeCurrent();
         }
 
-        private void ConfigureMdproCameras()
+        private void ConfigureMdproCameras(bool force = false)
         {
             if (Program.instance == null || Program.instance.camera_ == null || xrCamera == null)
                 return;
@@ -1345,7 +1376,8 @@ namespace MDPro3
                 && !QuestUseNativeMainMenu
                 && !(QuestNativeDuelFrontendOnly && IsQuestNativeDuelActive());
             var now = Time.unscaledTime;
-            if (mdproCameraRenderModeInitialized
+            if (!force
+                && mdproCameraRenderModeInitialized
                 && lastMdproCameraRenderToUiPanel == renderToUiPanel
                 && now - lastMdproCameraConfigureTime < MdproCameraConfigureInterval)
                 return;
@@ -1760,17 +1792,11 @@ namespace MDPro3
 
         private static bool ShouldEarlySuppressQuestDuelPresentation(Transform duelContainer)
         {
-            if (Time.unscaledTime < questNativeDuelFrontendSuppressedUntil)
-                return false;
             if (!QuestNativeDuelFrontendOnly || duelContainer == null || Program.instance == null)
                 return false;
 
             var core = Program.instance.ocgcore;
-            if (core == null)
-                return false;
-
-            var coreIsVisibleServant = Program.instance.currentServant == core || core.showing;
-            if (!coreIsVisibleServant)
+            if (!IsOcgCoreVisibleServant(core))
                 return false;
             if (core.currentMessage != GameMessage.Waiting)
                 return true;
@@ -2705,14 +2731,15 @@ namespace MDPro3
             }
         }
 
-        private void EnsureUiRenderTexture()
+        private bool EnsureUiRenderTexture()
         {
             var width = UiRenderTextureFixedWidth;
             var height = UiRenderTextureFixedHeight;
             if (uiRenderTexture != null
                 && uiRenderTextureWidth == width
-                && uiRenderTextureHeight == height)
-                return;
+                && uiRenderTextureHeight == height
+                && uiRenderTexture.IsCreated())
+                return false;
 
             if (uiRenderTexture != null)
             {
@@ -2735,6 +2762,7 @@ namespace MDPro3
 
             if (uiRenderPanelMaterial != null)
                 SetMaterialTexture(uiRenderPanelMaterial, uiRenderTexture);
+            return true;
         }
 
         private void ConfigureUiRenderPanel()
@@ -2751,14 +2779,17 @@ namespace MDPro3
             }
 
             EnsureWorldUiAnchor();
-            EnsureUiRenderTexture();
+            var renderTextureRecreated = EnsureUiRenderTexture();
             EnsureUiRenderPanel();
+            if (renderTextureRecreated)
+                ConfigureMdproCameras(true);
 
             if (uiRenderPanel == null)
                 return;
 
             if (!uiRenderPanel.activeSelf)
                 uiRenderPanel.SetActive(true);
+            RepairUiRenderPanelRenderer();
 
             var panelRotation = worldUiAnchor == null ? GetDuelBaseYawRotation() : worldUiAnchor.rotation;
             var anchorPosition = worldUiAnchor == null
@@ -2834,10 +2865,70 @@ namespace MDPro3
                 visibleGraphicCount);
         }
 
+        private void LogQuestMainMenuUiRecovery(string reason, int restoredCanvasCount)
+        {
+            var program = Program.instance;
+            var cameraManager = program == null ? null : program.camera_;
+            var uiCamera = cameraManager == null ? null : cameraManager.cameraUI;
+            var core = program == null ? null : program.ocgcore;
+            var activeRootCanvasCount = 0;
+            var enabledRootCanvasCount = 0;
+            var enabledRaycasterCount = 0;
+            var visibleGraphicCount = 0;
+
+            foreach (var canvas in FindObjectsOfType<Canvas>(true))
+            {
+                if (canvas == null || !canvas.isRootCanvas || !canvas.gameObject.activeInHierarchy)
+                    continue;
+
+                activeRootCanvasCount += 1;
+                if (canvas.enabled)
+                    enabledRootCanvasCount += 1;
+                var raycaster = canvas.GetComponent<GraphicRaycaster>();
+                if (raycaster != null && raycaster.enabled)
+                    enabledRaycasterCount += 1;
+
+                foreach (var graphic in canvas.GetComponentsInChildren<Graphic>(false))
+                {
+                    if (graphic != null && graphic.enabled && graphic.gameObject.activeInHierarchy && graphic.color.a > 0.01f)
+                        visibleGraphicCount += 1;
+                }
+            }
+
+            Debug.LogFormat(
+                "Quest main menu UI recovery. Reason={0}, RestoredLegacyCanvases={1}, SuppressedUntil={2:F2}, CurrentServant={3}, MenuShowing={4}, CoreShowing={5}, CoreMessage={6}, CoreCards={7}, PanelActive={8}, PanelRenderer={9}, PanelMaterial={10}, PanelTexture={11}, RT={12}x{13}/{14}, UICamera={15}, UICameraEnabled={16}, UICameraTarget={17}, ActiveRootCanvases={18}, EnabledRootCanvases={19}, EnabledRaycasters={20}, VisibleGraphics={21}, XrMask=0x{22:X8}",
+                reason,
+                restoredCanvasCount,
+                questNativeDuelFrontendSuppressedUntil,
+                program == null || program.currentServant == null ? "<null>" : program.currentServant.name,
+                program != null && program.menu != null && program.menu.showing,
+                core != null && core.showing,
+                core == null ? "<null>" : core.currentMessage.ToString(),
+                core == null || core.cards == null ? -1 : core.cards.Count,
+                uiRenderPanel != null && uiRenderPanel.activeInHierarchy,
+                uiRenderPanelRenderer != null && uiRenderPanelRenderer.enabled,
+                uiRenderPanelMaterial != null,
+                uiRenderPanelMaterial == null || uiRenderPanelMaterial.mainTexture == null ? "<null>" : uiRenderPanelMaterial.mainTexture.name,
+                uiRenderTextureWidth,
+                uiRenderTextureHeight,
+                uiRenderTexture != null && uiRenderTexture.IsCreated(),
+                uiCamera == null ? "<null>" : GetTransformPath(uiCamera.transform),
+                uiCamera != null && uiCamera.enabled && uiCamera.gameObject.activeInHierarchy,
+                uiCamera == null || uiCamera.targetTexture == null ? "<null>" : uiCamera.targetTexture.name,
+                activeRootCanvasCount,
+                enabledRootCanvasCount,
+                enabledRaycasterCount,
+                visibleGraphicCount,
+                xrCamera == null ? 0 : xrCamera.cullingMask);
+        }
+
         private void EnsureUiRenderPanel()
         {
             if (uiRenderPanel != null)
+            {
+                RepairUiRenderPanelRenderer();
                 return;
+            }
 
             uiRenderPanelMaterial = CreateColorMaterial(
                 "Quest UI Render Panel Material",
@@ -2859,6 +2950,34 @@ namespace MDPro3
                 uiRenderPanelRenderer.shadowCastingMode = ShadowCastingMode.Off;
                 uiRenderPanelRenderer.receiveShadows = false;
             }
+        }
+
+        private void RepairUiRenderPanelRenderer()
+        {
+            if (uiRenderPanel == null)
+                return;
+
+            if (uiRenderPanelRenderer == null)
+                uiRenderPanelRenderer = uiRenderPanel.GetComponent<MeshRenderer>();
+            if (uiRenderPanelRenderer == null)
+                return;
+
+            if (uiRenderPanelMaterial == null)
+            {
+                uiRenderPanelMaterial = CreateColorMaterial(
+                    "Quest UI Render Panel Material",
+                    Color.white,
+                    true);
+                ConfigureAlwaysVisibleOverlayMaterial(uiRenderPanelMaterial);
+            }
+
+            SetMaterialTexture(uiRenderPanelMaterial, uiRenderTexture);
+            if (uiRenderPanelRenderer.sharedMaterial != uiRenderPanelMaterial)
+                uiRenderPanelRenderer.sharedMaterial = uiRenderPanelMaterial;
+            if (!uiRenderPanelRenderer.enabled)
+                uiRenderPanelRenderer.enabled = true;
+            uiRenderPanelRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            uiRenderPanelRenderer.receiveShadows = false;
         }
 
         private static Mesh CreateUiRenderPanelMesh()
@@ -3128,12 +3247,13 @@ namespace MDPro3
             }
         }
 
-        private void RestoreLegacyDuelCanvases()
+        private int RestoreLegacyDuelCanvases()
         {
             if (suppressedLegacyDuelCanvases.Count == 0)
-                return;
+                return 0;
 
             var restored = new List<Canvas>();
+            var restoredCount = 0;
             foreach (var pair in suppressedLegacyDuelCanvases)
             {
                 var canvas = pair.Key;
@@ -3151,10 +3271,12 @@ namespace MDPro3
                         raycaster.enabled = pair.Value.raycasterEnabled;
                 }
                 restored.Add(canvas);
+                restoredCount += 1;
             }
 
             foreach (var canvas in restored)
                 suppressedLegacyDuelCanvases.Remove(canvas);
+            return restoredCount;
         }
 
         private static bool ShouldSuppressLegacyDuelCanvas(Canvas canvas)
@@ -3513,17 +3635,18 @@ namespace MDPro3
                 uiRenderPanel.SetActive(false);
         }
 
+        private static bool IsOcgCoreVisibleServant(OcgCore core)
+        {
+            return Program.instance != null
+                && core != null
+                && Program.instance.currentServant == core
+                && core.showing;
+        }
+
         private static bool IsQuestNativeDuelActive()
         {
-            if (Time.unscaledTime < questNativeDuelFrontendSuppressedUntil)
-                return false;
-
             var core = Program.instance == null ? null : Program.instance.ocgcore;
-            if (core == null)
-                return false;
-
-            var coreIsVisibleServant = Program.instance.currentServant == core || core.showing;
-            if (!coreIsVisibleServant)
+            if (!IsOcgCoreVisibleServant(core))
                 return false;
 
             if (core.currentMessage != GameMessage.Waiting)
