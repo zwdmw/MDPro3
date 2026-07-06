@@ -196,6 +196,13 @@ namespace MDPro3.UI
 
         public void Show()
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (QuestXrBootstrap.ShowQuestDuelButton(this))
+            {
+                transform.localScale = Vector3.zero;
+                return;
+            }
+#endif
             RefreshPosition();
             if (showing) return;
             showing = true;
@@ -203,6 +210,14 @@ namespace MDPro3.UI
         }
         public void Hide()
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (QuestXrBootstrap.HideQuestDuelButton(this))
+            {
+                showing = false;
+                transform.localScale = Vector3.zero;
+                return;
+            }
+#endif
             if (!showing) return;
             showing = false;
             transform.DOScale(0, transitionTime);
@@ -210,7 +225,14 @@ namespace MDPro3.UI
 
         void OnClick()
         {
+            Execute();
+        }
+
+        public void Execute()
+        {
             AudioManager.PlaySE("SE_DUEL_DECIDE");
+            if (response == null || response.Count == 0)
+                return;
 
             if (response[0] >= 0)
             {

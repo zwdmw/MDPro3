@@ -190,6 +190,8 @@ namespace MDPro3
         {
             if (showing)
             {
+                ClearStaleDuelInputBlockers();
+
                 if (TimelineManager.skippable
                     && UserInput.MouseLeftDown)
                 {
@@ -271,10 +273,10 @@ namespace MDPro3
                 #region HandOffset
                 if (GetMyHandCount() > 10)
                 {
-                    if (UserInput.HoverObject != null
-                        && UserInput.HoverObject.name == "CardModel"
-                        && UserInput.HoverObject.GetComponent<GameCardMono>().cookieCard.p.controller == 0
-                        && (UserInput.HoverObject.GetComponent<GameCardMono>().cookieCard.p.location & (uint)CardLocation.Hand) > 0
+                    var hoverCard = GameCard.GetHoveredCard();
+                    if (hoverCard != null
+                        && hoverCard.p.controller == 0
+                        && (hoverCard.p.location & (uint)CardLocation.Hand) > 0
                         && UserInput.MouseLeftDown
                         )
                     {
@@ -617,10 +619,11 @@ namespace MDPro3
             if (attackLine == null)
             {
                 var ie = ABLoader.LoadFromFileAsync("MasterDuel/Effects/Other/fxp_atk_select_arrow_001");
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 attackLine = ie.Current;
+                if (attackLine == null)
+                    attackLine = RuntimeDuelFallbackFactory.CreateAttackLine();
 
                 var lineManager = attackLine.GetComponent<ElementObjectManager>();
                 var line1 = lineManager.GetElement<LineRenderer>("arrowlimeRollover");
@@ -641,10 +644,11 @@ namespace MDPro3
             if (targetLine == null)
             {
                 var ie = ABLoader.LoadFromFileAsync("MasterDuel/Effects/Other/fxp_target_arrow_001");
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 targetLine = ie.Current;
+                if (targetLine == null)
+                    targetLine = RuntimeDuelFallbackFactory.CreateSimpleLine("FallbackTargetLine", new Color(1f, 0.85f, 0.2f, 0.95f));
                 var line = targetLine.transform.GetChild(0).GetComponent<LineRenderer>();
                 line.sortingLayerName = "DuelEffect_High";
                 line.material.renderQueue = 4000;
@@ -660,10 +664,11 @@ namespace MDPro3
             if (equipLine == null)
             {
                 var ie = ABLoader.LoadFromFileAsync("MasterDuel/Effects/Other/fxp_equip_arrow_001");
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 equipLine = ie.Current;
+                if (equipLine == null)
+                    equipLine = RuntimeDuelFallbackFactory.CreateSimpleLine("FallbackEquipLine", new Color(0.2f, 1f, 0.55f, 0.95f));
                 var line = equipLine.transform.GetChild(0).GetComponent<LineRenderer>();
                 line.sortingLayerName = "DuelEffect_High";
                 line.material.renderQueue = 4000;
@@ -677,10 +682,11 @@ namespace MDPro3
             if (myDice == null)
             {
                 var ie = ABLoader.LoadFromFolderAsync("MasterDuel/TimeLine/DuelDice");
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 myDice = ie.Current;
+                if (myDice == null || myDice.transform.childCount == 0)
+                    myDice = RuntimeDuelFallbackFactory.CreateDice("FallbackMyDice");
                 Destroy(myDice);
                 if (myDice.transform.GetChild(0).GetComponent<PlayableDirector>() == null)
                     myDice = myDice.transform.GetChild(1).gameObject;
@@ -692,10 +698,11 @@ namespace MDPro3
             if (opDice == null)
             {
                 var ie = ABLoader.LoadFromFolderAsync("MasterDuel/TimeLine/DuelDiceEn");
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 opDice = ie.Current;
+                if (opDice == null || opDice.transform.childCount == 0)
+                    opDice = RuntimeDuelFallbackFactory.CreateDice("FallbackOpDice");
                 Destroy(opDice);
                 if (opDice.transform.GetChild(0).GetComponent<PlayableDirector>() == null)
                     opDice = opDice.transform.GetChild(1).gameObject;
@@ -709,13 +716,11 @@ namespace MDPro3
             #region FieldSummonRightInfo
             if (fieldSummonRightInfo == null)
             {
-                var handle = Addressables.InstantiateAsync("FieldSummonRightInfo");
-                handle.Completed += (result) =>
+                AddressablesSafe.InstantiateAsync("FieldSummonRightInfo", Program.instance.container_3D, popupObject =>
                 {
-                    fieldSummonRightInfo = result.Result;
+                    fieldSummonRightInfo = popupObject;
                     fieldSummonRightInfo.SetActive(false);
-                    fieldSummonRightInfo.transform.SetParent(Program.instance.container_3D);
-                };
+                });
             }
             #endregion
 
@@ -862,6 +867,8 @@ namespace MDPro3
             while (enumerator.MoveNext())
                 yield return null;
             var matBack = enumerator.Current;
+            if (matBack == null)
+                matBack = RuntimeDuelFallbackFactory.CreateDuelBackground();
             matBack.transform.SetParent(Program.instance.container_3D, false);
             matBack.transform.localScale = Vector3.one * 2;
             allGameObjects.Add(matBack);
@@ -902,7 +909,6 @@ namespace MDPro3
                     ie = ABLoader.LoadFromFileAsync("MasterDuel/BG/timer/timer_013", true);
                 else
                     ie = ABLoader.LoadFromFileAsync("MasterDuel/BG/timer/timer_c001", true);
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 timer = ie.Current;
@@ -930,7 +936,6 @@ namespace MDPro3
                     ie = ABLoader.LoadFromFileAsync("MasterDuel/BG/Timer/PlayableGuide_C001_Near_Mat13", true);
                 else
                     ie = ABLoader.LoadFromFileAsync("MasterDuel/BG/Timer/PlayableGuide_C001_Near", true);
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 playableGuide0 = ie.Current;
@@ -938,7 +943,6 @@ namespace MDPro3
                     ie = ABLoader.LoadFromFileAsync("MasterDuel/BG/Timer/PlayableGuide_C001_Far_Mat13", true);
                 else
                     ie = ABLoader.LoadFromFileAsync("MasterDuel/BG/Timer/PlayableGuide_C001_Far", true);
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 playableGuide1 = ie.Current;
@@ -972,19 +976,21 @@ namespace MDPro3
 
             #region ¿¨×é
             var deckLoad = ABLoader.LoadFromFileAsync("MasterDuel/Timeline/DuelDeckAppearance", true);
-            StartCoroutine(deckLoad);
             while (deckLoad.MoveNext())
                 yield return null;
-            myDeck = deckLoad.Current.GetComponent<ElementObjectManager>();
+            var deckAppearance = deckLoad.Current;
+            if (deckAppearance == null)
+                deckAppearance = RuntimeDuelFallbackFactory.CreateDeckAppearance();
+            myDeck = deckAppearance.GetComponent<ElementObjectManager>();
             var sideManager = myDeck.GetElement<ElementObjectManager>("CardShuffleTop");
             sideManager.GetElement<MeshRenderer>("CardModel01_side").material = TextureManager.cardMatSide;
             sideManager.GetElement<MeshRenderer>("CardModel02_side").material = TextureManager.cardMatSide;
             sideManager.GetElement<MeshRenderer>("CardModel03_side").material = TextureManager.cardMatSide;
             sideManager.GetElement<MeshRenderer>("CardModel04_side").material = TextureManager.cardMatSide;
 
-            myExtra = Instantiate(deckLoad.Current).GetComponent<ElementObjectManager>();
-            opDeck = Instantiate(deckLoad.Current).GetComponent<ElementObjectManager>();
-            opExtra = Instantiate(deckLoad.Current).GetComponent<ElementObjectManager>();
+            myExtra = Instantiate(deckAppearance).GetComponent<ElementObjectManager>();
+            opDeck = Instantiate(deckAppearance).GetComponent<ElementObjectManager>();
+            opExtra = Instantiate(deckAppearance).GetComponent<ElementObjectManager>();
 
             myDeck.transform.SetParent(field0.transform, false);
             opDeck.transform.SetParent(field1.transform, false);
@@ -1007,7 +1013,6 @@ namespace MDPro3
             if (deck != null && !Config.GetBool("OverrideDeckAppearance", false))
             {
                 var ie = ABLoader.LoadProtectorMaterial(deck.Protector.ToString());
-                StartCoroutine(ie);
                 while (ie.MoveNext())
                     yield return null;
                 if (ie.Current != null)
@@ -1164,6 +1169,38 @@ namespace MDPro3
         #endregion
 
         #region Button Function
+        public void OnSetting()
+        {
+            if (Program.exitOnReturn || !showing)
+                return;
+            if (Program.instance == null || Program.instance.setting == null)
+                return;
+
+            Program.instance.currentServant = this;
+            var ui = Program.instance.ui_;
+            if (ui != null)
+            {
+                if (ui.currentSidePanel != null)
+                    ui.currentSidePanel.Hide(true);
+                if (Program.instance.currentSubServant == null && ui.blackBack != null)
+                    ui.blackBack.raycastTarget = false;
+            }
+
+            Program.instance.ShowSubServant(Program.instance.setting);
+        }
+
+        private void ClearStaleDuelInputBlockers()
+        {
+            var ui = Program.instance?.ui_;
+            if (ui == null)
+                return;
+
+            if (ui.currentSidePanel != null && !ui.currentSidePanel.showing)
+                ui.currentSidePanel = null;
+            if (Program.instance.currentSubServant == null && ui.blackBack != null && ui.blackBack.raycastTarget)
+                ui.blackBack.raycastTarget = false;
+        }
+
         public void OnStop()
         {
             pause = true;
@@ -1652,6 +1689,7 @@ namespace MDPro3
 
         public void Sleep(int framsIn100)
         {
+            framsIn100 = QuestXrBootstrap.AdjustQuestDuelSleep(framsIn100);
             var illustion = (int)(Program.TimePassed() + framsIn100 * 10f);
             if (illustion > MessageBeginTime) MessageBeginTime = illustion;
         }
@@ -5852,6 +5890,12 @@ namespace MDPro3
                     }
                     ES_min = min;
                     var filter = ~r.ReadUInt32();
+                    if (TryAutoSelectPlaceForQuest(filter, min))
+                    {
+                        hintObj.SetActive(false);
+                        break;
+                    }
+
                     foreach (var place in places)
                         place.HighlightThisZone(filter, min);
 
@@ -6974,6 +7018,127 @@ namespace MDPro3
 
         public List<PlaceSelector> places = new List<PlaceSelector>();
         List<GraveBehaviour> graves = new List<GraveBehaviour>();
+
+        bool TryAutoSelectPlaceForQuest(uint filter, int min)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (places == null || places.Count == 0 || min <= 0)
+                return false;
+
+            var candidates = new List<PlaceSelector>();
+            foreach (var place in places)
+                if (IsQuestAutoSelectablePlace(place, filter))
+                    candidates.Add(place);
+
+            if (candidates.Count < min)
+            {
+                Debug.LogFormat(
+                    "Quest auto place selection skipped: message={0}, min={1}, candidates={2}, filter=0x{3:X8}",
+                    currentMessage,
+                    min,
+                    candidates.Count,
+                    filter);
+                return false;
+            }
+
+            candidates.Sort((left, right) => GetQuestAutoPlaceScore(left).CompareTo(GetQuestAutoPlaceScore(right)));
+
+            var binaryMaster = new BinaryMaster();
+            var selected = new List<string>();
+            for (var index = 0; index < min; index++)
+            {
+                var place = candidates[index];
+                var response = new byte[3];
+                response[0] = isFirst ? (byte)place.p.controller : (byte)(1 - place.p.controller);
+                response[1] = (byte)place.p.location;
+                response[2] = (byte)place.p.sequence;
+                binaryMaster.writer.Write(response);
+                selected.Add(place.p.controller + ":" + place.p.location + ":" + place.p.sequence);
+            }
+
+            Debug.LogFormat(
+                "Quest auto place selection: message={0}, min={1}, selected={2}, filter=0x{3:X8}",
+                currentMessage,
+                min,
+                string.Join(",", selected),
+                filter);
+            SendReturn(binaryMaster.Get());
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        static bool IsQuestAutoSelectablePlace(PlaceSelector place, uint filter)
+        {
+            if (place == null)
+                return false;
+
+            var passController = place.p.controller == 0 ? filter & 0xFFFFu : filter >> 16;
+            if ((place.p.location & (uint)CardLocation.MonsterZone) > 0)
+            {
+                var monsterFilter = passController & 0x7Fu;
+                return (monsterFilter & (1u << (int)place.p.sequence)) > 0;
+            }
+
+            if ((place.p.location & (uint)CardLocation.SpellZone) > 0)
+            {
+                var spellFilter = (passController >> 8) & 0x3Fu;
+                return (spellFilter & (1u << (int)place.p.sequence)) > 0;
+            }
+
+            return false;
+        }
+
+        static int GetQuestAutoPlaceScore(PlaceSelector place)
+        {
+            if (place == null)
+                return int.MaxValue;
+
+            var score = place.p.controller == 0 ? 0 : 1000;
+            if ((place.p.location & (uint)CardLocation.SpellZone) > 0)
+                score += 100;
+            else if ((place.p.location & (uint)CardLocation.MonsterZone) == 0)
+                score += 500;
+
+            score += GetQuestAutoSequenceScore(place.p.sequence);
+            return score;
+        }
+
+        static int GetQuestAutoSequenceScore(uint sequence)
+        {
+            switch (sequence)
+            {
+                case 2:
+                    return 0;
+                case 1:
+                    return 1;
+                case 3:
+                    return 2;
+                case 0:
+                    return 3;
+                case 4:
+                    return 4;
+                case 5:
+                    return 5;
+                case 6:
+                    return 6;
+                default:
+                    return 100 + (int)sequence;
+            }
+        }
+
+        public bool IsSelectingFieldCard(GameCard card)
+        {
+            if (card == null || places == null)
+                return false;
+
+            foreach (var place in places)
+                if (place != null && place.cardSelecting && place.cookieCard == card)
+                    return true;
+
+            return false;
+        }
         void CreatePlaceSelector(GPS p)
         {
             var go = new GameObject("PlaceSelector");
@@ -6993,6 +7158,10 @@ namespace MDPro3
 
         void FieldSelect(string hint, List<GameCard> cards, int min, int max, bool exitable, bool sendable)
         {
+            if (currentMessage != GameMessage.SelectCounter
+                && QuestXrBootstrap.ShowQuestSelectCardPanel(hint, cards, min, max, exitable, sendable))
+                return;
+
             foreach (var place in places)
                 place.InitializeSelectCardInThisZone(cards);
             fieldHint = string.IsNullOrEmpty(hint) ? InterString.Get("ÇëÑ¡Ôñ¿¨Æ¬") : hint;
@@ -7200,41 +7369,44 @@ namespace MDPro3
 
         void ShowPopupYesOrNo(List<string> selections, Action confirmAction, Action cancelAction)
         {
-            var handler = Addressables.InstantiateAsync("PopupDuelYesOrNo");
-            handler.Completed += (result) =>
+            if (QuestXrBootstrap.ShowQuestYesOrNoPanel(selections, confirmAction, cancelAction))
+                return;
+
+            AddressablesSafe.InstantiateAsync("PopupDuelYesOrNo", popup, popupObject =>
             {
-                result.Result.transform.SetParent(popup, false);
-                var popupYesOrNo = result.Result.GetComponent<PopupDuelYesOrNo>();
+                var popupYesOrNo = popupObject.GetComponent<PopupDuelYesOrNo>();
                 popupYesOrNo.exitable = false;
                 popupYesOrNo.selections = selections;
                 popupYesOrNo.confirmAction = confirmAction;
                 popupYesOrNo.cancelAction = cancelAction;
                 popupYesOrNo.Show();
-            };
+            });
         }
 
         public void ShowPopupPhase(List<string> selections)
         {
-            var handler = Addressables.InstantiateAsync("PopupDuelPhase");
-            handler.Completed += (result) =>
+            if (QuestXrBootstrap.ShowQuestPhaseMenu(selections))
+                return;
+
+            AddressablesSafe.InstantiateAsync("PopupDuelPhase", popup, popupObject =>
             {
-                result.Result.transform.SetParent(popup, false);
-                var popupPhase = result.Result.GetComponent<PopupDuelPhase>();
+                var popupPhase = popupObject.GetComponent<PopupDuelPhase>();
                 popupPhase.exitable = true;
                 popupPhase.selections = selections;
                 popupPhase.Show();
-            };
+            });
         }
 
         public void ShowPopupSelectCard(string hint, List<GameCard> cards, int min, int max, bool exitable, bool sendable)
         {
             if (string.IsNullOrEmpty(hint))
                 hint = InterString.Get("ÇëÑ¡Ôñ¿¨Æ¬");
-            var handler = Addressables.InstantiateAsync("PopupDuelSelectCard");
-            handler.Completed += (result) =>
+            if (QuestXrBootstrap.ShowQuestSelectCardPanel(hint, cards, min, max, exitable, sendable))
+                return;
+
+            AddressablesSafe.InstantiateAsync("PopupDuelSelectCard", popup, popupObject =>
             {
-                result.Result.transform.SetParent(popup, false);
-                var popupSelectCard = result.Result.GetComponent<PopupDuelSelectCard>();
+                var popupSelectCard = popupObject.GetComponent<PopupDuelSelectCard>();
                 popupSelectCard.exitable = exitable;
                 popupSelectCard.hint = hint;
                 popupSelectCard.cards = cards;
@@ -7242,52 +7414,52 @@ namespace MDPro3
                 popupSelectCard.max = max;
                 popupSelectCard.sendable = sendable;
                 popupSelectCard.Show();
-            };
+            });
         }
 
         public void ShowPopupPosition(int code, int count, int option1 = 1, int option2 = 2)
         {
-            var handler = Addressables.InstantiateAsync("PopupDuelPosition");
-            handler.Completed += (result) =>
+            if (QuestXrBootstrap.ShowQuestPositionPanel(code, count, option1, option2))
+                return;
+
+            AddressablesSafe.InstantiateAsync("PopupDuelPosition", popup, popupObject =>
             {
-                result.Result.transform.SetParent(popup, false);
-                var popupPosition = result.Result.GetComponent<PopupDuelPosition>();
+                var popupPosition = popupObject.GetComponent<PopupDuelPosition>();
                 popupPosition.exitable = false;
                 popupPosition.count = count;
                 popupPosition.code = code;
                 popupPosition.option1 = option1;
                 popupPosition.option2 = option2;
                 popupPosition.Show();
-            };
+            });
         }
 
         public void ShowPopupSelection(List<string> selections, List<int> responses)
         {
-            var handler = Addressables.InstantiateAsync("PopupDuelSelection");
-            handler.Completed += (result) =>
+            if (QuestXrBootstrap.ShowQuestSelectionPanel(selections, responses))
+                return;
+
+            AddressablesSafe.InstantiateAsync("PopupDuelSelection", popup, popupObject =>
             {
-                result.Result.transform.SetParent(popup, false);
-                var popupSelection = result.Result.GetComponent<PopupDuelSelection>();
+                var popupSelection = popupObject.GetComponent<PopupDuelSelection>();
                 popupSelection.exitable = false;
                 popupSelection.selections = selections;
                 popupSelection.responses = responses;
                 popupSelection.Show();
-            };
+            });
         }
 
         public void ShowPopupInput(List<string> selections, Action<string> confirmAction, Action cancelAction, InputValidation.ValidationType type = InputValidation.ValidationType.None)
         {
-            var handler = Addressables.InstantiateAsync("PopupDuelInput");
-            handler.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupDuelInput", popup, popupObject =>
             {
-                result.Result.transform.SetParent(popup, false);
-                var popupInput = result.Result.GetComponent<PopupDuelInput>();
+                var popupInput = popupObject.GetComponent<PopupDuelInput>();
                 popupInput.selections = selections;
                 popupInput.confirmAction = confirmAction;
                 popupInput.cancelAction = cancelAction;
                 popupInput.validationType = type;
                 popupInput.Show();
-            };
+            });
         }
 
         public void SetDeckTop(GameCard card)
@@ -7324,42 +7496,44 @@ namespace MDPro3
             {
                 var code = topCard.GetData().Id;
                 targetMat = TextureManager.GetCardMaterial(code, true);
-                var task = TextureManager.LoadCardAsync(code, true);
+                var task =
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    TextureManager.LoadQuestFieldCardTextureAsync(code, true);
+#else
+                    TextureManager.LoadCardAsync(code, true);
+#endif
                 while (!task.IsCompleted)
                     yield return null;
-                targetMat.mainTexture = task.Result;
+                TextureManager.ApplyCardTextureToMaterial(targetMat, task.Result);
             }
             foreach (var r in deck.transform.GetComponentsInChildren<Renderer>(true))
                 if (r.name.EndsWith("back"))
                     r.material = targetMat;
         }
 
+        static void SetDeckVisualCount(ElementObjectManager deck, int count)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (RuntimeDuelFallbackFactory.TrySetFallbackDeckCount(deck, count))
+                return;
+#endif
+            var deckSetOffset = deck.GetElement<Transform>("CardShuffleTop");
+            if (count == 0)
+                deckSetOffset.localScale = Vector3.zero;
+            else
+                deckSetOffset.localScale = new Vector3(1, count, 1);
+        }
+
         public void RefreshBgState()
         {
             var myDeckCount = GetLocationCardCount(CardLocation.Deck, 0);
-            var deckSetOffset = myDeck.GetElement<Transform>("CardShuffleTop");
-            if (myDeckCount == 0)
-                deckSetOffset.localScale = Vector3.zero;
-            else
-                deckSetOffset.localScale = new Vector3(1, myDeckCount, 1);
+            SetDeckVisualCount(myDeck, myDeckCount);
             var myExtraCount = GetLocationCardCount(CardLocation.Extra, 0);
-            deckSetOffset = myExtra.GetElement<Transform>("CardShuffleTop");
-            if (myExtraCount == 0)
-                deckSetOffset.localScale = Vector3.zero;
-            else
-                deckSetOffset.localScale = new Vector3(1, myExtraCount, 1);
+            SetDeckVisualCount(myExtra, myExtraCount);
             var opDeckCount = GetLocationCardCount(CardLocation.Deck, 1);
-            deckSetOffset = opDeck.GetElement<Transform>("CardShuffleTop");
-            if (opDeckCount == 0)
-                deckSetOffset.localScale = Vector3.zero;
-            else
-                deckSetOffset.localScale = new Vector3(1, opDeckCount, 1);
+            SetDeckVisualCount(opDeck, opDeckCount);
             var opExtraCount = GetLocationCardCount(CardLocation.Extra, 1);
-            deckSetOffset = opExtra.GetElement<Transform>("CardShuffleTop");
-            if (opExtraCount == 0)
-                deckSetOffset.localScale = Vector3.zero;
-            else
-                deckSetOffset.localScale = new Vector3(1, opExtraCount, 1);
+            SetDeckVisualCount(opExtra, opExtraCount);
 
             if (GetLocationCardCount(CardLocation.Grave, 0) > 20)
             {

@@ -84,11 +84,10 @@ namespace MDPro3.UI
             }
             else
             {
-                var mat = TextureManager.GetCardMaterial(card0);
-                var task = TextureManager.LoadCardAsync(card0, true);
+                var task = TextureManager.LoadUiPortraitAsync(card0, true);
                 while (!task.IsCompleted)
                     yield return null;
-                cardImage0.material = mat;
+                cardImage0.material = null;
                 cardImage0.texture = task.Result;
             }
             cardImage0.color = Color.white;
@@ -103,11 +102,10 @@ namespace MDPro3.UI
             }
             else
             {
-                var mat = TextureManager.GetCardMaterial(card1);
-                var task = TextureManager.LoadCardAsync(card1, true);
+                var task = TextureManager.LoadUiPortraitAsync(card1, true);
                 while (!task.IsCompleted)
                     yield return null;
-                cardImage1.material = mat;
+                cardImage1.material = null;
                 cardImage1.texture = task.Result;
             }
             cardImage1.color = Color.white;
@@ -122,11 +120,10 @@ namespace MDPro3.UI
             }
             else
             {
-                var mat = TextureManager.GetCardMaterial(card2);
-                var task = TextureManager.LoadCardAsync(card2, true);
+                var task = TextureManager.LoadUiPortraitAsync(card2, true);
                 while (!task.IsCompleted)
                     yield return null;
-                cardImage2.material = mat;
+                cardImage2.material = null;
                 cardImage2.texture = task.Result;
             }
             cardImage2.color = Color.white;

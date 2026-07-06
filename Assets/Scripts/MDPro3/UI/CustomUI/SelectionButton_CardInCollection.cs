@@ -121,6 +121,13 @@ namespace MDPro3.UI
             while (!task.IsCompleted)
                 yield return null;
 
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                TextureManager.ApplyCardTextureToRawImage(imageCard, task.Result);
+                refreshCoroutine = null;
+                yield break;
+            }
+
             imageCard.texture = task.Result;
 
             if (rarity == CardRarity.Rarity.Normal)
@@ -145,6 +152,12 @@ namespace MDPro3.UI
                 return;
             if(tempMaterial != null)
                 Destroy(tempMaterial);
+
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                imageCard.material = null;
+                return;
+            }
 
             var rarity = CardRarity.GetRarity(CardCode);
             if(rarity == CardRarity.Rarity.Normal)

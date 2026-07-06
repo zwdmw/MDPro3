@@ -39,7 +39,7 @@ namespace MDPro3
             var text = File.ReadAllText(path);
             if (Config.GetBool("Expansions", true))
             {
-                foreach (var conf in Directory.GetFiles("Expansions", "*.conf"))
+                foreach (var conf in ZipHelper.GetExpansionFiles("*.conf"))
                     if(!conf.ToLower().EndsWith("lflist.conf"))
                         text += "\r\n" + File.ReadAllText(conf);
                 foreach (var zip in ZipHelper.zips)
@@ -65,7 +65,7 @@ namespace MDPro3
             string textForRender = File.ReadAllText(path);
             if (Config.Get("Expansions", "1") == "1")
             {
-                foreach (var conf in Directory.GetFiles("Expansions", "*.conf"))
+                foreach (var conf in ZipHelper.GetExpansionFiles("*.conf"))
                     textForRender += "\r\n" + File.ReadAllText(conf);
                 foreach (var zip in ZipHelper.zips)
                 {

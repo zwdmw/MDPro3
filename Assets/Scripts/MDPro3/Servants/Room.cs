@@ -237,6 +237,7 @@ namespace MDPro3
             if (noShuffleDeck) roomInfo += StringHelper.GetUnsafe(1230);//²»Ï´ÇÐ¿¨×é
             Manager.GetElement<TextMeshProUGUI>("RoomInfo").text = roomInfo;
 
+
             if (!Appearance.loaded)
                 return;
 
@@ -477,16 +478,22 @@ namespace MDPro3
         }
         public void StocMessage_SelectHand(BinaryReader r)
         {
+            if (fromSolo)
+            {
+                int result = soloLockHand ? 2 : Random.Range(1, 4);
+                Debug.Log("Room.StocMessage_SelectHand auto solo result=" + result);
+                TcpHelper.CtosMessage_HandResult(result);
+                return;
+            }
+
             if (soloLockHand || Config.Get("AutoRPS", "0") == "0")
             {
-                var handle = Addressables.InstantiateAsync("PopupRockPaperScissors");
-                handle.Completed += (result) =>
+                AddressablesSafe.InstantiateAsync("PopupRockPaperScissors", Program.instance.ui_.popup, popupObject =>
                 {
-                    result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                    var popupRPS = result.Result.GetComponent<UI.Popup.PopupRockPaperScissors>();
+                    var popupRPS = popupObject.GetComponent<UI.Popup.PopupRockPaperScissors>();
                     popupRPS.args = new List<string> { InterString.Get("²ÂÈ­") };
                     popupRPS.Show();
-                };
+                });
             }
             else
                 TcpHelper.CtosMessage_HandResult(Random.Range(1, 4));
@@ -494,6 +501,13 @@ namespace MDPro3
 
         public void StocMessage_SelectTp(BinaryReader r)
         {
+            if (fromSolo)
+            {
+                Debug.Log("Room.StocMessage_SelectTp auto solo first=True");
+                GoFirst(true);
+                return;
+            }
+
             List<string> selections = new List<string>
             {
                 Program.instance.currentServant == Program.instance.room ?
@@ -553,6 +567,7 @@ namespace MDPro3
 
         public void StocMessage_JoinGame(BinaryReader r)
         {
+            Debug.Log("Room.StocMessage_JoinGame");
             lfList = r.ReadUInt32();
             rule = r.ReadByte();
             mode = r.ReadByte();
@@ -569,6 +584,7 @@ namespace MDPro3
 
             for (int i = 0; i < 4; i++)
                 players[i] = null;
+            Debug.LogFormat("Room.JoinGame rule={0}, mode={1}, lp={2}, hand={3}, draw={4}", rule, mode, startLp, startHand, drawCount);
             Program.instance.ShiftToServant(Program.instance.room);
         }
 
@@ -588,6 +604,7 @@ namespace MDPro3
 
         public void StocMessage_DuelStart(BinaryReader r)
         {
+            Debug.Log("Room.StocMessage_DuelStart");
             needSide = false;
             joinWithReconnect = true;
             if (Program.instance.editDeck.showing)

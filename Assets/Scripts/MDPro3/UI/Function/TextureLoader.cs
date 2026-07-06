@@ -21,6 +21,7 @@ namespace MDPro3
 
         private static readonly ConcurrentDictionary<int, TextureData> _cachedArts = new();
         private static readonly ConcurrentDictionary<int, TextureData> _cachedCards = new();
+        private const string importedCardFacePath = "Picture/Card/";
 
         public const int MAX_LOADING_THREADS = 16;
         private static readonly ConcurrentDictionary<int, Task<Texture2D>> _loadingCoroutines = new();
@@ -106,7 +107,24 @@ namespace MDPro3
             else if (File.Exists(path + Program.pngExpansion))
                 path += Program.pngExpansion;
             else if (File.Exists(Program.artPath + code.ToString() + Program.jpgExpansion))
-                path = Program.artPath + Program.slash + code.ToString() + Program.jpgExpansion;
+                path = Program.artPath + code.ToString() + Program.jpgExpansion;
+            else if (File.Exists(Program.artPath + code.ToString() + Program.pngExpansion))
+                path = Program.artPath + code.ToString() + Program.pngExpansion;
+            else if (TryResolveExpansionPicturePath("art", code, out var expansionArtPath))
+                path = expansionArtPath;
+            else if (TryResolveExpansionPicturePath("pics", code, out var expansionCardPath))
+            {
+                var expansionCardTask = LoadPicFromFileAsync(expansionCardPath);
+                await TaskUtility.WaitUntil(() => expansionCardTask.IsCompleted);
+                var expansionArtTask = ConvertCardPictureToArt(code, expansionCardTask.Result);
+                await TaskUtility.WaitUntil(() => expansionArtTask.IsCompleted);
+
+                textureData.texture = expansionArtTask.Result;
+                textureData.loaded = true;
+                if (expansionArtTask.Result != null)
+                    return expansionArtTask.Result;
+                return TextureManager.container.unknownArt.texture;
+            }
             else
             {
                 Task<Texture2D> loadTask;
@@ -162,15 +180,40 @@ namespace MDPro3
             };
             _cachedCards.TryAdd(code, textureData);
 
+            var cardFacePath = ResolveImportedCardFacePath(code);
+            if (!string.IsNullOrEmpty(cardFacePath))
+            {
+                var fileTask = LoadPicFromFileAsync(cardFacePath);
+                await TaskUtility.WaitUntil(() => fileTask.IsCompleted);
+                if (!Application.isPlaying)
+                    return null;
+
+                if (fileTask.Result != null)
+                {
+                    fileTask.Result.name = "ImportedCardFace_" + code;
+                    textureData.texture = fileTask.Result;
+                    textureData.loaded = true;
+                    return fileTask.Result;
+                }
+            }
+
             var data = CardsManager.Get(code, true);
             if (data.Id == 0)
+            {
+                textureData.texture = TextureManager.container.unknownCard.texture;
+                textureData.loaded = true;
                 return TextureManager.container.unknownCard.texture;
+            }
 
             var task = LoadArtAsync(code, false);
             await TaskUtility.WaitUntil(() => task.IsCompleted);
 
             if (!Program.instance.cardRenderer.RenderCard(code, task.Result))
+            {
+                textureData.texture = TextureManager.container.unknownCard.texture;
+                textureData.loaded = true;
                 return TextureManager.container.unknownCard.texture;
+            }
             var returnValue = new Texture2D(RenderTexture.active.width, RenderTexture.active.height, TextureFormat.RGB24, true);
             returnValue.ReadPixels(new Rect(0, 0, RenderTexture.active.width, RenderTexture.active.height), 0, 0);
             returnValue.Apply();
@@ -182,6 +225,22 @@ namespace MDPro3
 
             DeleteArt(code);
             return returnValue;
+        }
+
+        private static string ResolveImportedCardFacePath(int code)
+        {
+            foreach (var folder in new[] { importedCardFacePath, Program.cardPicPath })
+            {
+                var jpgPath = folder + code + Program.jpgExpansion;
+                if (File.Exists(jpgPath))
+                    return jpgPath;
+
+                var pngPath = folder + code + Program.pngExpansion;
+                if (File.Exists(pngPath))
+                    return pngPath;
+            }
+
+            return null;
         }
 
         private static void DeleteArt(int code)
@@ -241,6 +300,49 @@ namespace MDPro3
             return null;
         }
 
+        private static bool TryResolveExpansionPicturePath(string folderName, int code, out string path)
+        {
+            path = null;
+            if (string.IsNullOrEmpty(folderName))
+                return false;
+
+            var baseFolder = Path.Combine(Program.expansionsPath, folderName).Replace('\\', '/').TrimEnd('/') + "/";
+            foreach (var extension in new[] { Program.jpgExpansion, Program.pngExpansion, ".jpeg" })
+            {
+                var candidate = baseFolder + code + extension;
+                if (File.Exists(candidate))
+                {
+                    path = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static async Task<Texture2D> ConvertCardPictureToArt(int code, Texture2D texture)
+        {
+            if (texture == null)
+                return null;
+
+            var data = CardsManager.Get(code);
+            Task<Texture2D> task;
+            if (code >= 120000000 && code < 130000000)
+            {
+                if (data.HasType(CardType.Monster))
+                    task = GetArtFromRushDuelMonsterCard(texture);
+                else
+                    task = GetArtFromRushDuelSpellCard(texture);
+            }
+            else if (data.HasType(CardType.Pendulum))
+                task = GetArtFromPendulumCard(texture);
+            else
+                task = GetArtFromCard(texture);
+
+            await TaskUtility.WaitUntil(() => task.IsCompleted);
+            return task.Result;
+        }
+
         private static async Task<Texture2D> LoadArtFromZipPics(int code)
         {
             Texture2D returnValue = new Texture2D(0, 0);
@@ -262,19 +364,7 @@ namespace MDPro3
                             await TaskUtility.WaitOneFrame();
 
                             returnValue.LoadImage(stream.ToArray());
-                            Task<Texture2D> task;
-                            if (code >= 120000000 && code < 130000000)
-                            {
-                                if (data.HasType(CardType.Monster))
-                                    task = GetArtFromRushDuelMonsterCard(returnValue);
-                                else
-                                    task = GetArtFromRushDuelSpellCard(returnValue);
-                            }
-                            else if (data.HasType(CardType.Pendulum))
-                                task = GetArtFromPendulumCard(returnValue);
-                            else
-                                task = GetArtFromCard(returnValue);
-
+                            var task = ConvertCardPictureToArt(code, returnValue);
                             await TaskUtility.WaitUntil(() => task.IsCompleted);
                             return task.Result;
                         }
@@ -286,6 +376,22 @@ namespace MDPro3
 
         public static IEnumerator LoadCardToRawImage(int code, RawImage rawImage)
         {
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                if (rawImage != null)
+                {
+                    rawImage.material = null;
+                    rawImage.texture = TextureManager.container.GetCardUnloadTexture(CardsManager.Get(code));
+                }
+
+                var plainTask = LoadCardAsync(code, false);
+                while (!plainTask.IsCompleted)
+                    yield return null;
+
+                TextureManager.ApplyCardTextureToRawImage(rawImage, plainTask.Result);
+                yield break;
+            }
+
             rawImage.material = TextureManager.GetCardMaterial(code);
             rawImage.material
                 .SetTexture("_LoadingTex", TextureManager.container

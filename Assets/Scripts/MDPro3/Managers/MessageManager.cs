@@ -26,21 +26,18 @@ namespace MDPro3
         {
             base.Initialize();
             instance = this;
-            var handle = Addressables.LoadAssetAsync<GameObject>("MessageCast");
-            handle.Completed += (result) =>
+            AddressablesSafe.LoadAssetAsync<GameObject>("MessageCast", asset =>
             {
-                messageCast = result.Result;
-            };
-            handle = Addressables.LoadAssetAsync<GameObject>("MessageToast");
-            handle.Completed += (result) =>
+                messageCast = asset;
+            });
+            AddressablesSafe.LoadAssetAsync<GameObject>("MessageToast", asset =>
             {
-                messageToast = result.Result;
-            };
-            handle = Addressables.LoadAssetAsync<GameObject>("MessageCard");
-            handle.Completed += (result) =>
+                messageToast = asset;
+            });
+            AddressablesSafe.LoadAssetAsync<GameObject>("MessageCard", asset =>
             {
-                messageCard = result.Result;
-            };
+                messageCard = asset;
+            });
         }
         public override void PerFrameFunction()
         {

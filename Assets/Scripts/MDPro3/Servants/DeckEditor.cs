@@ -67,8 +67,8 @@ namespace MDPro3
         }
         private void ShiftToResponseRegion()
         {
-            deckView.SetCursor(_ResponseRegion == ResponseRegion.Deck);
-            cardCollectionView.SetCursor(_ResponseRegion == ResponseRegion.Collection);
+            deckView?.SetCursor(_ResponseRegion == ResponseRegion.Deck);
+            cardCollectionView?.SetCursor(_ResponseRegion == ResponseRegion.Collection);
         }
 
         public enum Condition
@@ -132,15 +132,20 @@ namespace MDPro3
 
                 useMobileLayout = PropertyOverrider.NeedMobileLayout();
                 var address = useMobileLayout ? "DeckEditUIMobile" : "DeckEditUI";
-                var handle = Addressables.InstantiateAsync(address);
-                handle.Completed += (result) =>
+                AddressablesSafe.InstantiateAsync(address, transform, uiObject =>
                 {
-                    UIManager.Translate(result.Result);
-                    result.Result.transform.SetParent(transform, false);
+                    UIManager.Translate(uiObject);
                     base.ApplyShowArrangement(preDepth);
                     UIManager.SetCanvasMatch(GetCanvasMatch(), transitionTime);
 
-                    managerUI = transform.GetChild(0).GetComponent<ElementObjectManager>();
+                    managerUI = uiObject.GetComponent<ElementObjectManager>();
+                    if (managerUI == null)
+                        managerUI = uiObject.GetComponentInChildren<ElementObjectManager>(true);
+                    if (managerUI == null)
+                    {
+                        Debug.LogError("DeckEditor: instantiated DeckEditUI has no ElementObjectManager: " + uiObject.name);
+                        return;
+                    }
                     managerOverHeader = managerUI.GetElement<ElementObjectManager>("OverHeader");
                     managerHeader = managerUI.GetElement<ElementObjectManager>("Header");
                     //managerFooter = managerUI.GetElement<ElementObjectManager>("TemplateFooterDesc");
@@ -158,7 +163,7 @@ namespace MDPro3
                     InitializeHeader();
 
                     ShowBackButton();
-                };
+                });
             }
             else
                 base.ApplyShowArrangement(preDepth);
@@ -374,6 +379,11 @@ namespace MDPro3
 
         private void InitializeDeckView()
         {
+            if (deckView == null)
+            {
+                Debug.LogError("DeckEditor: DeckView element is missing from DeckEditUI.");
+                return;
+            }
             deckView.SetNoItemButtonNavigationEvent(MoveDirection.Right, () =>
             {
                 UserInput.NextSelectionIsAxis = true;
@@ -503,12 +513,18 @@ namespace MDPro3
 
         private void InitializeCardCollectionView()
         {
+            if (cardCollectionView == null)
+            {
+                Debug.LogError("DeckEditor: CardCollectionView element is missing from DeckEditUI.");
+                return;
+            }
             cardCollectionView.SetNoItemButtonNavigationEvent(MoveDirection.Left, () =>
             {
                 UserInput.NextSelectionIsAxis = true;
                 SelectLastDeckViewItem();
             });
             inputSearch = cardCollectionView.GetInputField();
+            cardCollectionView.PrintSearchCards();
         }
 
         public void BookmarkCard(int code)

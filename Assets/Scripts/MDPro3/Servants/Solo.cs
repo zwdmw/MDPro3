@@ -75,7 +75,8 @@ namespace MDPro3
         }
         public override void SelectLastSelectable()
         {
-            EventSystem.current.SetSelectedGameObject(lastSoloItem.gameObject);
+            if (lastSoloItem != null)
+                EventSystem.current.SetSelectedGameObject(lastSoloItem.gameObject);
         }
         protected override bool NeedResponseInput()
         {
@@ -146,9 +147,9 @@ namespace MDPro3
                     {
                         string deckName = "";
                         deckName = newBot.command.Split(new string[] { "Deck=", " Dialog=" }, StringSplitOptions.RemoveEmptyEntries)[1].Replace("'", "").Replace(" ", "");
-                        if(File.Exists("Data/WindBot/Decks/Ai_" + deckName + Program.ydkExpansion)) 
+                        if(File.Exists("Data/Windbot/Decks/AI_" + deckName + Program.ydkExpansion)) 
                         {
-                            var aiDeck = new Deck("Data/WindBot/Decks/Ai_" + deckName + Program.ydkExpansion);
+                            var aiDeck = new Deck("Data/Windbot/Decks/AI_" + deckName + Program.ydkExpansion);
                             if(aiDeck.Main.Count > 0)
                                 newBot.main0 = aiDeck.Main[0];
                         }
@@ -202,12 +203,13 @@ namespace MDPro3
         }
         private IEnumerator SelectZero()
         {
-            while(superScrollView == null || superScrollView.items.Count == 0)
-                yield break;
+            while (superScrollView == null || superScrollView.items.Count == 0 || superScrollView.items[0].gameObject == null)
+                yield return null;
             var item0 = superScrollView.items[0].gameObject.GetComponent<SelectionToggle_Solo>();
-            while(!item0.refreshed)
+            while (item0 == null || !item0.refreshed)
                 yield return null;
             item0.SetToggleOn();
+            Debug.LogFormat("Solo.SelectZero selected AI index={0}", item0.index);
             yield return new WaitForSecondsRealtime(2f);
             if(!showing)
                 transform.GetChild(0).gameObject.SetActive(false);
@@ -243,6 +245,15 @@ namespace MDPro3
         }
         public void OnPlay()
         {
+
+            if (lastSoloItem == null)
+            {
+                Debug.LogWarning("Solo.OnPlay ignored: no AI item is ready yet.");
+                MessageManager.Cast(InterString.Get("AI列表尚未加载完成，请稍后再试。"));
+                return;
+            }
+
+            Debug.LogFormat("Solo.OnPlay submit AI index={0}", lastSoloItem.index);
             lastSoloItem.PublicSubmit();
         }
         public void SelectLastSoloItem()
@@ -252,9 +263,12 @@ namespace MDPro3
         }
         public void StartAIForSolo(int aiCode, bool diyDeck)
         {
+            Debug.LogFormat("Solo.StartAIForSolo aiCode={0}, diyDeck={1}", aiCode, diyDeck);
             string aiCommand = GetWindBotCommand(aiCode, diyDeck);
             if (!string.IsNullOrEmpty(aiCommand))
                 Launch(aiCommand, toggleLockHand.isOn, toggleNoCheck.isOn, toggleNoShuffle.isOn);
+            else
+                Debug.LogWarning("Solo.StartAIForSolo canceled: empty AI command.");
         }
         public void StartAIForRoom(int aiCode, bool diyDeck)
         {
@@ -280,8 +294,37 @@ namespace MDPro3
             }
             return "";
         }
+        private string GetFallbackWindbotDialog()
+        {
+            var config = Language.GetConfig();
+            var suffix = "EN";
+            if (config == "ge-DE")
+                suffix = "DE";
+            else if (config == "es-ES")
+                suffix = "ES";
+            else if (config == "fr-FR")
+                suffix = "FR";
+            else if (config == "it-IT")
+                suffix = "IT";
+            else if (config == "ja-JP")
+                suffix = "JP";
+            else if (config == "ko-KR")
+                suffix = "KR";
+            else if (config == "pt-PT")
+                suffix = "PT";
+            else if (config == "zh-CN")
+                suffix = "zh-CN";
+            else if (config == "zh-TW")
+                suffix = "zh-TW";
+
+            var candidate = "Universal." + suffix;
+            if (File.Exists(windbotDialogsPath + candidate + ".json"))
+                return candidate;
+            return "Universal.EN";
+        }
         public void StartWindBot(string command, string ip, string port, string password, bool lockHand, int delay)
         {
+            Debug.LogFormat("Solo.StartWindBot ip={0}, port={1}, delay={2}, lockHand={3}, command={4}", ip, port, delay, lockHand, command);
             command = command.Replace("'", "\"");
             if (lockHand)
                 command += " Hand=1";
@@ -297,25 +340,35 @@ namespace MDPro3
                     var path = args[i][7..];
                     if(!File.Exists(windbotDialogsPath + path + ".json"))
                     {
-                        var config = Language.GetConfig();
-                        if (config == "en-US")//WindBot use en-US as default;
-                            config = "default";
-                        args[i] = "Dialog=" + config;
+                        args[i] = "Dialog=" + GetFallbackWindbotDialog();
                     }
                     break;
                 }
             }
 
-            (new Thread(() => { Thread.Sleep(delay); WindBot.Program.Main(args); })).Start();
+            (new Thread(() =>
+            {
+                try
+                {
+                    Thread.Sleep(delay);
+                    WindBot.Program.Main(args);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                }
+            })).Start();
         }
         public void Launch(string command, bool lockHand, bool noCheck, bool noShuffle)
         {
             port = inputPort.text;
-            if (string.IsNullOrEmpty(port) || int.Parse(port) <= 0 || int.Parse(port) > 65535)
+            if (string.IsNullOrEmpty(port) || !int.TryParse(port, out var portNumber) || portNumber <= 0 || portNumber > 65535)
             {
                 port = "7911";
                 inputPort.text = port;
+                portNumber = 7911;
             }
+            Debug.LogFormat("Solo.Launch port={0}, lockHand={1}, noCheck={2}, noShuffle={3}, command={4}", port, lockHand, noCheck, noShuffle, command);
 
             string lp = inputLP.text;
             if (string.IsNullOrEmpty(lp) /*|| lp == "0"*/)
@@ -327,8 +380,9 @@ namespace MDPro3
             if (string.IsNullOrEmpty(draw) /*|| draw == "0"*/)
                 draw = "5";
             string args = port + " -1 5 0 F " + (noCheck ? "T " : "F ") + (noShuffle ? "T " : "F ") + lp + " " + hand + " " + draw + " 0 0";
-            if (TcpHelper.IsPortAvailable(int.Parse(port)))
+            if (TcpHelper.IsPortAvailable(portNumber))
             {
+                Debug.LogFormat("Solo.Launch starting local server args={0}", args);
                 YgoServer.StartServer(args);
                 Room.fromSolo = true;
                 if (lockHand)
@@ -341,6 +395,7 @@ namespace MDPro3
             }
             else
             {
+                Debug.LogWarningFormat("Solo.Launch port unavailable: {0}", port);
                 MessageManager.messageFromSubString = InterString.Get("端口被占用， 请尝试修改端口后再尝试。端口号应大于0，小于65535。");
             }
         }

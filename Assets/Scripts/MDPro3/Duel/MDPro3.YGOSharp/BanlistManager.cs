@@ -52,8 +52,15 @@ namespace MDPro3.YGOSharp
             current.Name = EmptyBanlistName;
             Banlists.Add(current);
 
-            Program.instance.editDeck.banlist = Banlists[0];
-            Program.instance.editDeck.SetBanlistName(Program.instance.editDeck.banlist.Name);
+            if (Program.instance != null && Program.instance.editDeck != null)
+            {
+                Program.instance.editDeck.banlist = Banlists[0];
+                Program.instance.editDeck.SetBanlistName(Program.instance.editDeck.banlist.Name);
+            }
+            else
+            {
+                UnityEngine.Debug.LogWarning("BanlistManager: Program.editDeck is not assigned; skipped deck editor banlist binding.");
+            }
         }
 
         public static void InitializeFromReader(StreamReader reader)

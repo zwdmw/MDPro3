@@ -30,8 +30,7 @@ namespace MDPro3.UI
             backTop.sizeDelta = new Vector2(backTop.sizeDelta.x, (1100 - sizeDelta.y) / 2);
             backBotton.sizeDelta = new Vector2(backBotton.sizeDelta.x, (1100 - sizeDelta.y) / 2);
 
-            var handle = Addressables.LoadAssetAsync<GameObject>("PopupSelectionItem");
-            handle.Completed += (result) =>
+            AddressablesSafe.LoadAssetAsync<GameObject>("PopupSelectionItem", itemPrefab =>
             {
                 var superScrollView = new SuperScrollView
                 (
@@ -40,7 +39,7 @@ namespace MDPro3.UI
                 90,
                 16,
                 0,
-                result.Result,
+                itemPrefab,
                 ItemOnListRefresh,
                 scrollRect
                 );
@@ -51,7 +50,7 @@ namespace MDPro3.UI
                     tasks.Add(task);
                 }
                 superScrollView.Print(tasks);
-            };
+            });
         }
 
         void OnClick()

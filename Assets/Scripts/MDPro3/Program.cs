@@ -103,10 +103,19 @@ namespace MDPro3
                 InitializeRest();
             else
             {
+                items = Resources.Load<Items>("Items");
+                if (items != null)
+                {
+                    InitializeRest();
+                    return;
+                }
+
                 var handle = Addressables.LoadAssetAsync<Items>("Items");
                 handle.Completed += (result) =>
                 {
                     items = result.Result;
+                    if (items == null)
+                        items = Resources.Load<Items>("Items");
                     InitializeRest();
                 };
             }
@@ -120,6 +129,7 @@ namespace MDPro3
             InitializeAllManagers();
             InitializeAllServants();
             ReadParams();
+            StartCoroutine(ResourceSmokeTestAsync());
 
             //VoiceHelper.ExportAllCardsNotFound();
         }
@@ -187,7 +197,10 @@ namespace MDPro3
                     Config.Set("DeckInUse", deck);
                     Config.Save();
                 }
+                if (args[i].ToLower() == "--codex-auto-solo")
+                    Debug.LogWarning("Ignoring deprecated --codex-auto-solo. Use the Solo menu manually.");
             }
+
 
             if (join)
             {
@@ -213,6 +226,63 @@ namespace MDPro3
             }
         }
 
+        IEnumerator ResourceSmokeTestAsync()
+        {
+            yield return null;
+
+            const int testCode = 89631139;
+            var language = MDPro3.Utility.Language.GetConfig();
+            var cardDatabasePath = localesPath + language + "/cards.cdb";
+            if (!File.Exists(cardDatabasePath))
+                cardDatabasePath = localesPath + "zh-CN/cards.cdb";
+            var stringsPath = localesPath + language + "/strings.conf";
+            if (!File.Exists(stringsPath))
+                stringsPath = localesPath + "zh-CN/strings.conf";
+            var artPath = Program.artPath + testCode + jpgExpansion;
+
+            var card = CardsManager.Get(testCode, true);
+            Debug.LogFormat(
+                "MDPro3 resource check: cwd='{0}', persistent='{1}', db='{2}' exists={3}, strings='{4}' exists={5}, art='{6}' exists={7}, cards={8}, card[{9}] id={10} name='{11}'",
+                Environment.CurrentDirectory,
+                Application.persistentDataPath,
+                cardDatabasePath,
+                File.Exists(cardDatabasePath),
+                stringsPath,
+                File.Exists(stringsPath),
+                artPath,
+                File.Exists(artPath),
+                CardsManager._cards.Count,
+                testCode,
+                card.Id,
+                card.Name);
+
+            while (TextureManager.container == null)
+                yield return null;
+
+            var artTask = TextureManager.LoadArtAsync(testCode, true);
+            while (!artTask.IsCompleted)
+                yield return null;
+            var art = artTask.Result;
+            Debug.LogFormat(
+                "MDPro3 resource check: art[{0}] loaded={1} size={2}x{3} foundArt={4}",
+                testCode,
+                art != null,
+                art == null ? 0 : art.width,
+                art == null ? 0 : art.height,
+                TextureManager.lastCardFoundArt);
+
+            var cardTask = TextureManager.LoadCardAsync(testCode, true);
+            while (!cardTask.IsCompleted)
+                yield return null;
+            var cardTexture = cardTask.Result;
+            Debug.LogFormat(
+                "MDPro3 resource check: renderedCard[{0}] loaded={1} size={2}x{3} renderOk={4}",
+                testCode,
+                cardTexture != null,
+                cardTexture == null ? 0 : cardTexture.width,
+                cardTexture == null ? 0 : cardTexture.height,
+                TextureManager.lastCardRenderSucceed);
+        }
         public void InitializeForDataChange()
         {
             ZipHelper.Initialize();

@@ -33,6 +33,7 @@ namespace MDPro3.UI
         public PopupDuelSelectCard manager;
 
         public GameCard card;
+        private Material descriptionMaterial;
         static Color opColor = new Color(0.9f, 0, 0, 1);
 
         public bool selected;
@@ -135,14 +136,21 @@ namespace MDPro3.UI
         IEnumerator RefreshCard(int code)
         {
             refreshed = false;
+            cardFace.material = null;
             cardFace.texture = TextureManager.container.unknownCard.texture;
             var task = TextureManager.LoadCardAsync(code, true);
             while (!task.IsCompleted)
                 yield return null;
             var mat = TextureManager.GetCardMaterial(code);
-            cardFace.material = mat;
-            cardFace.material.mainTexture = task.Result;
-            cardFace.texture = task.Result;
+            descriptionMaterial = mat;
+            descriptionMaterial.mainTexture = task.Result;
+
+            var portraitTask = TextureManager.LoadUiPortraitAsync(code, true);
+            while (!portraitTask.IsCompleted)
+                yield return null;
+
+            cardFace.material = null;
+            cardFace.texture = portraitTask.Result != null ? portraitTask.Result : task.Result;
             refreshed = true;
         }
 
@@ -173,7 +181,7 @@ namespace MDPro3.UI
                     manager.arrow.SetActive(false);
             }
 
-            Program.instance.ocgcore.description.Show(card, cardFace.material);
+            Program.instance.ocgcore.description.Show(card, descriptionMaterial ?? cardFace.material);
 
             if (selected)
             {

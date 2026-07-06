@@ -110,6 +110,7 @@ namespace MDPro3
         Dictionary<int, string> names = new Dictionary<int, string>();
         Dictionary<int, string> descriptions = new Dictionary<int, string>();
         Dictionary<string, Sprite> cachedIcons = new Dictionary<string, Sprite>();
+        static Sprite fallbackIcon;
 
         static Items instance;
         public static bool initialized = false;
@@ -160,19 +161,73 @@ namespace MDPro3
 
         void Load()
         {
-            LoadData(Program.localesPath + language + "/IDS_ITEM.bytes");
-            LoadData(Program.localesPath + language + "/IDS_ITEMDESC.bytes");
+            LoadData("IDS_ITEM", 0);
+            LoadData("IDS_ITEMDESC", 1);
         }
-        void LoadData(string path)
-        {
-            int type = 0;
-            if (path.EndsWith("IDS_ITEMDESC.bytes"))
-                type = 1;
 
+        void LoadData(string fileName, int type)
+        {
+            var textPath = Program.localesPath + language + "/IDS/" + fileName + ".txt";
+            if (File.Exists(textPath))
+            {
+                LoadTextData(textPath, type);
+                return;
+            }
+
+            var bytesPath = Program.localesPath + language + "/" + fileName + ".bytes";
+            if (File.Exists(bytesPath))
+                LoadBinaryData(bytesPath, type);
+            else
+                Debug.LogError("Items Load: Missing data file " + textPath + " or " + bytesPath);
+        }
+
+        void LoadTextData(string path, int type)
+        {
+            var dic = new Dictionary<int, string>();
+            int currentId = -1;
+            var content = new StringBuilder();
+            var lines = File.ReadAllLines(path, Encoding.UTF8);
+
+            foreach (var line in lines)
+            {
+                if (line.StartsWith("[") && line.EndsWith("]"))
+                {
+                    AddTextItem(dic, currentId, content);
+                    currentId = -1;
+                    var idStart = line.LastIndexOf(".ID", StringComparison.Ordinal);
+                    if (idStart >= 0)
+                    {
+                        var idText = line.Substring(idStart + 3, line.Length - idStart - 4);
+                        if (!int.TryParse(idText, out currentId))
+                            currentId = -1;
+                    }
+                    continue;
+                }
+
+                if (currentId < 0)
+                    continue;
+                if (content.Length > 0)
+                    content.AppendLine();
+                content.Append(line);
+            }
+
+            AddTextItem(dic, currentId, content);
+            ApplyData(dic, type);
+        }
+
+        void AddTextItem(Dictionary<int, string> dic, int id, StringBuilder content)
+        {
+            if (id >= 0)
+                dic[id] = content.ToString();
+            content.Clear();
+        }
+
+        void LoadBinaryData(string path, int type)
+        {
             var bytes = File.ReadAllBytes(path);
             var languageBytes = Encoding.UTF8.GetBytes(language);
             int start = 0;
-            for (int i = 0; i < bytes.Length; i++)
+            for (int i = 0; i <= bytes.Length - languageBytes.Length; i++)
             {
                 bool pass = true;
                 for (int j = 0; j < languageBytes.Length; j++)
@@ -185,7 +240,7 @@ namespace MDPro3
                 }
                 if (pass)
                 {
-                    start = i + 5;
+                    start = i + languageBytes.Length;
                     break;
                 }
             }
@@ -213,13 +268,18 @@ namespace MDPro3
                     length = bytes[i] - 0xB0 + 16;
                 }
                 else
+                {
                     Debug.LogErrorFormat("Items Load: Unknown Lentgh {0:X}", bytes[i]);
+                    break;
+                }
 
                 var offset = 1;
                 if (length > 31)
                     offset = 2;
                 if (length > 255)
                     offset = 3;
+                if (i + offset + length > bytes.Length)
+                    break;
 
                 var newBytes = new byte[length];
                 Array.Copy(bytes, i + offset, newBytes, 0, length);
@@ -235,14 +295,18 @@ namespace MDPro3
             var dic = new Dictionary<int, string>();
             for (int i = 0; i < ids.Count && i < values.Count; i++)
                 if (maps.TryGetValue(ids[i], out var id))
-                    dic.Add(id, values[i]);
+                    dic[id] = values[i];
 
-            if (type == 0)
-                names = dic;
-            else if(type == 1)
-                descriptions = dic;
+            ApplyData(dic, type);
         }
 
+        void ApplyData(Dictionary<int, string> dic, int type)
+        {
+            if (type == 0)
+                names = dic;
+            else if (type == 1)
+                descriptions = dic;
+        }
         string GetName(int code, string mName)
         {
             names.TryGetValue(code, out var returnValue);
@@ -457,17 +521,50 @@ namespace MDPro3
             {
                 if (cachedIcons.ContainsKey(id))
                 {
-                    yield return cachedIcons[id];
+                    var cachedIcon = cachedIcons[id];
+                    if (cachedIcon != null)
+                    {
+                        yield return cachedIcon;
+                        yield break;
+                    }
+
+                    cachedIcons.Remove(id);
+                }
+            }
+
+            var key = CodeToIconPath(id);
+            var locationHandle = Addressables.LoadResourceLocationsAsync(key, typeof(Sprite));
+            while (!locationHandle.IsDone)
+                yield return null;
+
+            if (locationHandle.Result == null || locationHandle.Result.Count == 0)
+            {
+                Debug.LogWarning("Items Load Icon Missing: " + key + ", fallback to " + noneIconPath);
+                Addressables.Release(locationHandle);
+                key = noneIconPath;
+                locationHandle = Addressables.LoadResourceLocationsAsync(key, typeof(Sprite));
+                while (!locationHandle.IsDone)
+                    yield return null;
+
+                if (locationHandle.Result == null || locationHandle.Result.Count == 0)
+                {
+                    Addressables.Release(locationHandle);
+                    yield return CacheAndReturnFallbackIcon(id);
                     yield break;
                 }
             }
 
-            var handle = Addressables.LoadAssetAsync<Sprite>(CodeToIconPath(id));
+            var handle = Addressables.LoadAssetAsync<Sprite>(key);
+            Addressables.Release(locationHandle);
             while (!handle.IsDone)
                 yield return null;
 
             if (handle.Result == null)
+            {
+                Addressables.Release(handle);
+                yield return CacheAndReturnFallbackIcon(id);
                 yield break;
+            }
 
             Sprite returnValue;
             lock (cachedIcons)
@@ -486,7 +583,36 @@ namespace MDPro3
 
             yield return returnValue;
         }
+        private Sprite CacheAndReturnFallbackIcon(string id)
+        {
+            var icon = GetFallbackIcon();
+            lock (cachedIcons)
+            {
+                if (!cachedIcons.ContainsKey(id))
+                    cachedIcons.Add(id, icon);
+            }
+            return icon;
+        }
 
+        private static Sprite GetFallbackIcon()
+        {
+            if (fallbackIcon != null)
+                return fallbackIcon;
+
+            var texture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            var pixels = new Color[16];
+            for (var i = 0; i < pixels.Length; i++)
+                pixels[i] = new Color(0.18f, 0.18f, 0.18f, 1f);
+            texture.SetPixels(pixels);
+            texture.Apply();
+            texture.name = "MDPro3FallbackIcon";
+            texture.hideFlags = HideFlags.DontUnloadUnusedAsset;
+
+            fallbackIcon = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+            fallbackIcon.name = "MDPro3FallbackIcon";
+            fallbackIcon.hideFlags = HideFlags.DontUnloadUnusedAsset;
+            return fallbackIcon;
+        }
         public static string lastRandomFrameID;
         public IEnumerator<Sprite> LoadConcreteItemIconAsync(string id, ItemType type, int player = 0)
         {

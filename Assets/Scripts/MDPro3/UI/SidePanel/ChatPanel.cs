@@ -19,7 +19,7 @@ namespace MDPro3.UI
         private GameObject chatItemOp;
         private GameObject chatItemSystem;
         private List<GameObject> chatItems = new();
-        private SortedDictionary<int, string> cachedDialog = new();
+        private List<KeyValuePair<int, string>> cachedDialog = new();
 
         protected override void Awake()
         {
@@ -29,16 +29,22 @@ namespace MDPro3.UI
             handle.Completed += (result) =>
             {
                 chatItemMe = result.Result;
+                if (chatItemMe == null)
+                    chatItemMe = Resources.Load<GameObject>("ChatItemMe");
             };
             var handle2 = Addressables.LoadAssetAsync<GameObject>("ChatItemOp");
             handle2.Completed += (result) =>
             {
                 chatItemOp = result.Result;
+                if (chatItemOp == null)
+                    chatItemOp = Resources.Load<GameObject>("ChatItemOp");
             };
             var handle3 = Addressables.LoadAssetAsync<GameObject>("ChatItemSystem");
             handle3.Completed += (result) =>
             {
                 chatItemSystem = result.Result;
+                if (chatItemSystem == null)
+                    chatItemSystem = Resources.Load<GameObject>("ChatItemSystem");
             };
         }
 
@@ -114,7 +120,7 @@ namespace MDPro3.UI
         {
             if (Room.coreShowing == 1)
             {
-                cachedDialog.Add(player, content);
+                cachedDialog.Add(new KeyValuePair<int, string>(player, content));
                 return;
             }
             if (Room.coreShowing == 2 && cachedDialog.Count > 0)

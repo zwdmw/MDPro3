@@ -319,13 +319,16 @@ namespace MDPro3.UI
                 return false;
             if(UIManager.InputBlocker != null)
                 return false;
-            if(Program.instance.ui_.currentPopup != null)
+            var ui = Program.instance?.ui_;
+            if (ui == null)
                 return false;
-            if (Program.instance.ui_.currentPopupB != null)
+            if(ui.currentPopup != null)
                 return false;
-            if (Program.instance.ui_.subMenu.showing)
+            if (ui.currentPopupB != null)
                 return false;
-            if(Program.instance.ui_.currentSidePanel != null)
+            if (ui.subMenu != null && ui.subMenu.showing)
+                return false;
+            if(ui.currentSidePanel != null)
                 return false;
             return true;
         }

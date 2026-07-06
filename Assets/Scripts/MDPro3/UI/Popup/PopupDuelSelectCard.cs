@@ -76,12 +76,11 @@ namespace MDPro3.UI
             }
             scrollView.content.sizeDelta = new Vector2(150 * cards.Count, 220);
 
-            var handle = Addressables.LoadAssetAsync<GameObject>("PopupDuelSelectCardItem");
-            handle.Completed += (result) =>
+            AddressablesSafe.LoadAssetAsync<GameObject>("PopupDuelSelectCardItem", itemPrefab =>
             {
                 for (int i = 0; i < cards.Count; i++)
                 {
-                    var card = Instantiate(result.Result);
+                    var card = Instantiate(itemPrefab);
                     card.transform.SetParent(scrollView.content, false);
                     card.GetComponent<RectTransform>().anchoredPosition = new Vector2(i * 150, -220);
                     var mono = card.GetComponent<PopupDuelSelectCardItem>();
@@ -119,7 +118,7 @@ namespace MDPro3.UI
                     title.text = hint + "-0/" + max;
                 else
                     title.text = hint;
-            };
+            });
         }
 
         public override void Show()

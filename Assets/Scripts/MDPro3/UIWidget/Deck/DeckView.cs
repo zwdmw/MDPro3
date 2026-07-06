@@ -1,6 +1,5 @@
 using MDPro3.YGOSharp;
 using MDPro3.YGOSharp.OCGWrapper.Enums;
-using Mono.Cecil.Cil;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -824,8 +823,7 @@ namespace MDPro3.UI
                 if (count == TextureLoader.MAX_LOADING_THREADS)
                 {
                     count = 0;
-                    while (!handler.refreshed)
-                        yield return null;
+                    yield return WaitForCardRefresh(handler);
                 }
             }
             yield return new WaitForSeconds(0.1f);
@@ -836,8 +834,7 @@ namespace MDPro3.UI
                 if (count == TextureLoader.MAX_LOADING_THREADS)
                 {
                     count = 0;
-                    while (!handler.refreshed)
-                        yield return null;
+                    yield return WaitForCardRefresh(handler);
                 }
             }
             yield return new WaitForSeconds(0.1f);
@@ -848,8 +845,7 @@ namespace MDPro3.UI
                 if (count == TextureLoader.MAX_LOADING_THREADS)
                 {
                     count = 0;
-                    while (!handler.refreshed)
-                        yield return null;
+                    yield return WaitForCardRefresh(handler);
                 }
             }
             yield return new WaitForSeconds(0.1f);
@@ -864,7 +860,21 @@ namespace MDPro3.UI
                 EventSystem.current.SetSelectedGameObject(cards[0].gameObject);
         }
 
+        protected IEnumerator WaitForCardRefresh(SelectionButton_CardInDeck handler)
+        {
+            var timeout = 5f;
+            while (handler != null && !handler.refreshed && timeout > 0f)
+            {
+                timeout -= Time.unscaledDeltaTime;
+                yield return null;
+            }
 
+            if (handler != null && !handler.refreshed)
+            {
+                handler.refreshed = true;
+                Debug.LogWarning("DeckView: card refresh timed out for " + handler.Data?.Id);
+            }
+        }
         protected virtual void ChangeGridSpacing(DeckLocation location)
         {
             if ((location & DeckLocation.MainDeck) > 0)

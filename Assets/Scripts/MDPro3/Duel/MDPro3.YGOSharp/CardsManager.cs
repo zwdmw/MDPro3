@@ -31,7 +31,7 @@ namespace MDPro3.YGOSharp
             LoadCDB(databaseFullPath);
             if (Config.Get("Expansions", "1") == "1")
             {
-                foreach (var cdb in Directory.GetFiles("Expansions", "*.cdb"))
+                foreach (var cdb in ZipHelper.GetExpansionDatabaseFiles())
                     LoadCDB(cdb);
                 foreach (var zip in ZipHelper.zips)
                 {
@@ -64,7 +64,7 @@ namespace MDPro3.YGOSharp
             LoadCDB(databaseFullPath, true);
             if (Config.Get("Expansions", "1") == "1")
             {
-                foreach (var cdb in Directory.GetFiles("Expansions", "*.cdb"))
+                foreach (var cdb in ZipHelper.GetExpansionDatabaseFiles())
                     LoadCDB(cdb, true);
                 foreach (var zip in ZipHelper.zips)
                 {

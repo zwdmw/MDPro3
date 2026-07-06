@@ -192,7 +192,10 @@ namespace MDPro3
             if (Program.exitOnReturn)
                 return;
 
-            Program.instance.ShiftToServant(Program.instance.setting);
+            if (Program.instance.currentServant == Program.instance.ocgcore)
+                Program.instance.ShowSubServant(Program.instance.setting);
+            else
+                Program.instance.ShiftToServant(Program.instance.setting);
         }
         public override void OnExit()
         {

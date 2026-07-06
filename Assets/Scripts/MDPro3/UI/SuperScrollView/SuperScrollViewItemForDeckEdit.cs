@@ -157,6 +157,14 @@ namespace MDPro3.UI
             while(!task.IsCompleted)
                 yield return null;
 
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                TextureManager.ApplyCardTextureToRawImage(face, task.Result);
+                enummerator = null;
+                refreshed = true;
+                yield break;
+            }
+
             var mat = TextureManager.GetCardMaterial(code, false);
             mat.mainTexture = task.Result;
 

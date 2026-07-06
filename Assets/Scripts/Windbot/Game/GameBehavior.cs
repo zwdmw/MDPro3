@@ -171,6 +171,7 @@ namespace WindBot.Game
             foreach (NamedCard card in Deck.SideCards)
                 deck.Write(card.Id);
             Connection.Send(deck);
+            Logger.WriteLine("GameBehavior joined game, sent deck main+extra=" + (Deck.Cards.Count + Deck.ExtraCards.Count) + ", side=" + Deck.SideCards.Count);
             _ai.OnJoinGame();
         }
 
@@ -202,6 +203,7 @@ namespace WindBot.Game
             _room.IsHost = ((type >> 4) & 0xF) != 0;
             _room.IsReady[pos] = true;
             Connection.Send(CtosMessage.HsReady);
+            Logger.WriteLine("GameBehavior type changed pos=" + pos + ", isHost=" + _room.IsHost + ", sent HsReady");
         }
 
         private void OnPlayerEnter(BinaryReader packet)
@@ -210,6 +212,7 @@ namespace WindBot.Game
             int pos = packet.ReadByte();
             if (pos < 8)
                 _room.Names[pos] = name;
+            Logger.WriteLine("GameBehavior player enter pos=" + pos + ", name=" + name);
         }
 
         private void OnPlayerChange(BinaryReader packet)
@@ -238,7 +241,10 @@ namespace WindBot.Game
             }
 
             if (_room.IsHost && _room.IsReady[0] && _room.IsReady[1])
+            {
+                Logger.WriteLine("GameBehavior both players ready, sent HsStart");
                 Connection.Send(CtosMessage.HsStart);
+            }
         }
 
         private void OnSelectHand(BinaryReader packet)

@@ -146,10 +146,13 @@ namespace MDPro3
         }
         public override void SelectLastSelectable()
         {
-            EventSystem.current.SetSelectedGameObject(lastSelectedDeckItem.gameObject);
+            if (EventSystem.current != null && lastSelectedDeckItem != null)
+                EventSystem.current.SetSelectedGameObject(lastSelectedDeckItem.gameObject);
         }
         protected override bool NeedResponseInput()
         {
+            if (inputField == null)
+                return false;
             if (inputField.isFocused)
                 return false;
             if(buttonLayoutSwitching) 
@@ -271,12 +274,19 @@ namespace MDPro3
                         "0",//For Delete
                         deck.Value.deckId
                     };
-                    if (deck.Value.Pickup.Count > 0)
-                        task[2] = deck.Value.Pickup[0].ToString();
-                    if (deck.Value.Pickup.Count > 1)
-                        task[3] = deck.Value.Pickup[1].ToString();
-                    if (deck.Value.Pickup.Count > 2)
-                        task[4] = deck.Value.Pickup[2].ToString();
+                    var coverCards = deck.Value.Pickup
+                        .Concat(deck.Value.Main)
+                        .Concat(deck.Value.Extra)
+                        .Where(code => code > 0)
+                        .Distinct()
+                        .Take(3)
+                        .ToList();
+                    if (coverCards.Count > 0)
+                        task[2] = coverCards[0].ToString();
+                    if (coverCards.Count > 1)
+                        task[3] = coverCards[1].ToString();
+                    if (coverCards.Count > 2)
+                        task[4] = coverCards[2].ToString();
                     tasks.Add(task);
                 }
                 superScrollView.Print(tasks);

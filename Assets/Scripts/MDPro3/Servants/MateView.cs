@@ -8,6 +8,7 @@ using MDPro3.YGOSharp;
 using MDPro3.UI;
 using MDPro3.UI.PropertyOverrider;
 using System.Text.RegularExpressions;
+using System.IO;
 using TMPro;
 using UnityEngine.EventSystems;
 
@@ -224,6 +225,11 @@ namespace MDPro3
                     tasks.Add(task);
                 }
             }
+            foreach (var model in CustomGlbMateLoader.EnumerateModels())
+            {
+                if (string.IsNullOrEmpty(search) || model.name.Contains(search) || model.code.ToString().Contains(search))
+                    tasks.Add(new[] { model.code.ToString(), model.name });
+            }
             foreach (var mate in Program.items.mates)
             {
                 if ((!string.IsNullOrEmpty(mate.name) && mate.name.Contains(search)))
@@ -292,10 +298,11 @@ namespace MDPro3
         IEnumerator LoadMateAsync(int code)
         {
             var ie = ABLoader.LoadMateAsync(code);
-            StartCoroutine(ie);
             while (ie.MoveNext())
                 yield return null;
             mate = ie.Current;
+            if (mate == null)
+                yield break;
             Tools.ChangeLayer(mate.gameObject, targetCamera.gameObject.layer);
             yield return new WaitForSeconds(0.1f);
             AudioManager.ResetSESource();

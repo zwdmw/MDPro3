@@ -18,7 +18,13 @@ namespace MDPro3.UI
 
         protected virtual void Awake()
         {
-            width = window.rect.width;
+            if (window == null)
+                window = GetComponent<RectTransform>();
+            if (window == null && transform.childCount > 0)
+                window = transform.GetChild(0).GetComponent<RectTransform>();
+            if (window != null)
+                width = window.rect.width;
+
             if (shadow != null)
             {
                 shadow.alpha = 0f;
@@ -27,7 +33,9 @@ namespace MDPro3.UI
                     button.onClick.AddListener(() => Hide());
             }
             Hide(true);
-            GetComponent<CanvasGroup>().alpha = 1f;
+
+            if (TryGetComponent<CanvasGroup>(out var canvasGroup))
+                canvasGroup.alpha = 1f;
         }
 
         protected virtual bool NeedResponse()
@@ -48,20 +56,26 @@ namespace MDPro3.UI
         {
             showing = true;
 
-            if (!Program.instance.room.showing)
+            if (Program.instance != null && Program.instance.room != null && !Program.instance.room.showing)
                 AudioManager.PlaySE("SE_MENU_SLIDE_01");
             gameObject.SetActive(true);
-            window.DOAnchorPosX(0f, transitionTime)/*.SetEase(Ease.Linear)*/;
+            if (window != null)
+            {
+                window.DOKill();
+                window.DOAnchorPosX(0f, transitionTime)/*.SetEase(Ease.Linear)*/;
+            }
             if (shadow != null)
             {
+                shadow.DOKill();
                 shadow.DOFade(shadowAlpha, transitionTime);
                 shadow.blocksRaycasts = true;
             }
 
-            if (takeOverInput)
+            if (takeOverInput && Program.instance != null)
             {
-                lastPanel = Program.instance.ui_.currentSidePanel;
-                Program.instance.ui_.currentSidePanel = this;
+                lastPanel = Program.instance.ui_?.currentSidePanel;
+                if (Program.instance.ui_ != null)
+                    Program.instance.ui_.currentSidePanel = this;
             }
         }
 
@@ -69,13 +83,19 @@ namespace MDPro3.UI
         {
             showing = false;
 
-            if (!Program.instance.room.showing)
+            if (Program.instance != null && Program.instance.room != null && !Program.instance.room.showing)
                 AudioManager.PlaySE("SE_MENU_SLIDE_02");
+            if (window == null)
+            {
+                gameObject.SetActive(false);
+                return;
+            }
+            window.DOKill();
             window.DOAnchorPosX(width + SafeAreaAdapter.GetSafeAreaRightOffset(), instant ? 0f : transitionTime)
                 //.SetEase(Ease.Linear)
                 .OnComplete(() =>
             {
-                if (Program.instance.ui_.currentSidePanel == this)
+                if (Program.instance?.ui_ != null && Program.instance.ui_.currentSidePanel == this)
                 {
                     Program.instance.ui_.currentSidePanel = null;
                     if(lastPanel != null && callLast)
@@ -85,10 +105,9 @@ namespace MDPro3.UI
             });
             if (shadow != null)
             {
-                shadow.DOFade(0f, transitionTime).OnComplete(() =>
-                {
-                    shadow.blocksRaycasts = false;
-                });
+                shadow.DOKill();
+                shadow.blocksRaycasts = false;
+                shadow.DOFade(0f, instant ? 0f : transitionTime);
             }
         }
     }

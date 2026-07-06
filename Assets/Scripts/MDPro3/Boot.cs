@@ -8,6 +8,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.ResourceProviders;
+using UnityEngine.SceneManagement;
+using MDPro3.Utility;
 
 namespace MDPro3
 {
@@ -29,12 +31,23 @@ namespace MDPro3
         {
             Application.targetFrameRate = 0;
 
+#if !UNITY_EDITOR && !UNITY_ANDROID
+            var appRoot = Directory.GetParent(Application.dataPath)?.FullName;
+            if (!string.IsNullOrEmpty(appRoot))
+            {
+                Environment.CurrentDirectory = appRoot;
+                Directory.SetCurrentDirectory(appRoot);
+                Debug.Log("MDPro3 working directory: " + appRoot);
+            }
+#endif
+
 #if !UNITY_EDITOR && UNITY_ANDROID
             Environment.CurrentDirectory = Application.persistentDataPath;
             Directory.SetCurrentDirectory(Application.persistentDataPath);
+            BetterStreamingAssets.Initialize();
+            QuestRuntimeResourceDiagnostics.LogStartupState();
             if (VersionCheck())
             {
-                BetterStreamingAssets.Initialize();
                 var paths = BetterStreamingAssets.GetFiles("\\", "*.zip");
                 foreach (var zip in paths)
                     zips.Add(Path.GetFileName(zip).Replace(".zip", ""));
@@ -74,11 +87,15 @@ namespace MDPro3
             {
                 Directory.CreateDirectory(Program.dataPath);
                 Config.Initialize(Program.configPath);
+                ApplyQuestRuntimeDefaults();
+                Config.Save();
                 return true;
             }
             else
             {
                 Config.Initialize(Program.configPath);
+                ApplyQuestRuntimeDefaults();
+                Config.Save();
                 if(Config.Get("Version", "Version") == "Version")
                     return true;
                 InterString.Initialize();
@@ -95,21 +112,21 @@ namespace MDPro3
                 {
                     //Program.ClearDirectoryRecursively(new DirectoryInfo("Android/MonsterCutin"));
                     //Program.ClearDirectoryRecursively(new DirectoryInfo("Android/MasterDuel/Mate"));
-                    Directory.Delete("Android/MonsterCutin", true);
-                    Directory.Delete("Android/MasterDuel/Mate", true);
+                    DeleteDirectoryIfExists("Android/MonsterCutin");
+                    DeleteDirectoryIfExists("Android/MasterDuel/Mate");
                 }
             }
 
             IEnumerator enumerator;
             foreach (string zip in zips)
             {
-                if (Config.Get(zip + "_install", "0") == "0")
+                if (ShouldInstallPayload(zip))
                 {
                     enumerator = Check(zip);
-                    StartCoroutine(enumerator);
                     while (enumerator.MoveNext())
                         yield return enumerator.Current;
                     Config.Set(zip + "_install", "1");
+                    Config.Set(zip + "_install_build", GetPayloadBuildStamp());
                     Config.Save();
                     GC.Collect();
                 }
@@ -118,35 +135,114 @@ namespace MDPro3
             StartCoroutine(LoadMainSceneAsync());
         }
 
+        bool ShouldInstallPayload(string zip)
+        {
+            if (PayloadAppearsInstalled(zip))
+            {
+                if (Config.Get(zip + "_install", "0") == "0"
+                    || Config.Get(zip + "_install_build", "") != GetPayloadBuildStamp())
+                {
+                    Config.Set(zip + "_install", "1");
+                    Config.Set(zip + "_install_build", GetPayloadBuildStamp());
+                    Config.Save();
+                }
+                return false;
+            }
+
+            if (Config.Get(zip + "_install", "0") == "0")
+                return true;
+
+            var installedBuild = Config.Get(zip + "_install_build", "");
+            if (installedBuild != GetPayloadBuildStamp())
+                return true;
+
+            return false;
+        }
+
+        static string GetPayloadBuildStamp()
+        {
+            return Application.version;
+        }
+
+        bool PayloadAppearsInstalled(string zip)
+        {
+            if (string.IsNullOrEmpty(zip))
+                return false;
+
+            switch (zip)
+            {
+                case "Data":
+                    return File.Exists(Path.Combine(Program.dataPath, "items.txt"))
+                        && File.Exists(Path.Combine(Program.dataPath, "cards_Lite.json"));
+                case "Deck":
+                    return DirectoryHasFile("Deck", "*.ydk", SearchOption.TopDirectoryOnly);
+                case "Puzzle":
+                    return DirectoryHasFile("Puzzle", "*.lua", SearchOption.TopDirectoryOnly);
+                case "Picture_Closeup":
+                    return File.Exists(Path.Combine("Picture", "Closeup", "89631139.png"))
+                        || DirectoryHasFile(Path.Combine("Picture", "Closeup"), "*.png", SearchOption.TopDirectoryOnly);
+                case "Picture_Art3D":
+                    return DirectoryHasFile(Path.Combine("Picture", "Art3D"), "*.glb", SearchOption.TopDirectoryOnly);
+                case "Android":
+                    return Directory.Exists(Path.Combine("Android", "MasterDuel"));
+                case "Sound":
+                    return DirectoryHasFile("Sound", "*", SearchOption.AllDirectories);
+            }
+
+            var outputFolder = zip.Contains("_") ? zip.Split('_')[0] : zip;
+            return Directory.Exists(outputFolder) && DirectoryHasFile(outputFolder, "*", SearchOption.AllDirectories);
+        }
+
+        static bool DirectoryHasFile(string path, string pattern, SearchOption searchOption)
+        {
+            if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
+                return false;
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(path, pattern, searchOption))
+                    return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("Payload file check failed for " + path + ": " + ex.Message);
+            }
+
+            return false;
+        }
         IEnumerator Check(string type)
         {
-            title = InterString.Get("正在读取[?]", type + ".zip");
+            var zipName = type + ".zip";
+            title = InterString.Get("正在读取[?]", zipName);
             nowNum = 0;
             totalNum = 0;
+            progressBar.value = 0;
 
-            string filePath = Application.streamingAssetsPath + Program.slash + type + ".zip";
-            var www = new WWW(filePath);
-            while (!www.isDone)
-            {
-                float progress = Mathf.Clamp01(www.progress / 0.9f);
-                progressBar.value = progress;
-                yield return null;
-            }
-            title = InterString.Get("正在解压[?]", type + ".zip");
-            byte[] bytes = www.bytes;
             var outPath = "";
             if (type.Contains("_"))
                 outPath = type.Split('_')[0];
             if (outPath.Length > 0 && !Directory.Exists(outPath))
                 Directory.CreateDirectory(outPath);
-            IEnumerator enumerator = ExtractZipFile(bytes, outPath);
-            StartCoroutine(enumerator);
-            while (enumerator.MoveNext())
+
+            title = InterString.Get("正在解压[?]", zipName);
+            using (var zipStream = OpenStreamingAssetRead(zipName))
             {
-                yield return enumerator.Current;
+                IEnumerator enumerator = ExtractZipStream(zipStream, outPath);
+                while (enumerator.MoveNext())
+                {
+                    yield return enumerator.Current;
+                }
             }
         }
 
+        Stream OpenStreamingAssetRead(string path)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            return BetterStreamingAssets.OpenRead(path);
+#else
+            return File.OpenRead(Path.Combine(Application.streamingAssetsPath, path));
+#endif
+        }
         IEnumerator LoadMainSceneAsync()
         {
             nowNum = 0;
@@ -155,6 +251,7 @@ namespace MDPro3
 
             Config.Initialize(Program.configPath);
             Config.Set("Version", Application.version[..5]);
+            ApplyQuestRuntimeDefaults();
             Config.Save();
 
             title = InterString.Get("正在初始化");
@@ -164,22 +261,27 @@ namespace MDPro3
                 progressBar.value = ini.PercentComplete;
                 yield return null;
             }
+            AddressablesResourceAliases.Register();
 
             title = InterString.Get("正在读取数据");
-            var handle = Addressables.LoadAssetAsync<Items>("Items");
-            while (!handle.IsDone)
+            Program.items = Resources.Load<Items>("Items");
+            if (Program.items == null)
             {
-                progressBar.value = handle.PercentComplete;
-                yield return null;
+                var handle = Addressables.LoadAssetAsync<Items>("Items");
+                while (!handle.IsDone)
+                {
+                    progressBar.value = handle.PercentComplete;
+                    yield return null;
+                }
+                Program.items = handle.Result;
             }
-            Program.items = handle.Result;
 
             title = InterString.Get("正在进入游戏");
-            var load = Addressables.LoadSceneAsync("SceneMain");
-            while (!load.IsDone)
+            var load = SceneManager.LoadSceneAsync("Main");
+            while (!load.isDone)
             {
                 yield return null;
-                progressBar.value = load.PercentComplete;
+                progressBar.value = load.progress;
             }
         }
 
@@ -195,10 +297,27 @@ namespace MDPro3
 
         IEnumerator ExtractZipFile(byte[] data, string outFolder)
         {
-            ZipFile zf = null;
             using (MemoryStream mstrm = new MemoryStream(data))
             {
-                zf = new ZipFile(mstrm);
+                IEnumerator enumerator = ExtractZipStream(mstrm, outFolder);
+                while (enumerator.MoveNext())
+                    yield return enumerator.Current;
+            }
+        }
+
+        IEnumerator ExtractZipStream(Stream data, string outFolder)
+        {
+            ZipFile zf = null;
+            var outputRoot = string.IsNullOrEmpty(outFolder) ? Directory.GetCurrentDirectory() : Path.GetFullPath(outFolder);
+            if (!Directory.Exists(outputRoot))
+                Directory.CreateDirectory(outputRoot);
+            var outputRootWithSlash = outputRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            byte[] buffer = new byte[81920];
+
+            try
+            {
+                zf = new ZipFile(data);
+                zf.IsStreamOwner = false;
                 int count = 0;
                 foreach (ZipEntry zipEntry in zf)
                     count++;
@@ -209,28 +328,55 @@ namespace MDPro3
                 {
                     nowNum++;
                     if (!zipEntry.IsFile)
-                    {
                         continue;
-                    }
-                    string entryFileName = zipEntry.Name;
-                    byte[] buffer = new byte[4096];
-                    Stream zipStream = zf.GetInputStream(zipEntry);
-                    string fullZipToPath = Path.Combine(outFolder, entryFileName);
+
+                    string entryFileName = zipEntry.Name.Replace('\\', '/');
+                    string fullZipToPath = Path.GetFullPath(Path.Combine(outputRoot, entryFileName));
+                    if (!fullZipToPath.StartsWith(outputRootWithSlash, System.StringComparison.OrdinalIgnoreCase))
+                        throw new IOException("Zip entry escapes output folder: " + entryFileName);
+
                     string directoryName = Path.GetDirectoryName(fullZipToPath);
                     if (directoryName.Length > 0)
                         Directory.CreateDirectory(directoryName);
+                    using (Stream zipStream = zf.GetInputStream(zipEntry))
                     using (FileStream streamWriter = File.Create(fullZipToPath))
                     {
                         StreamUtils.Copy(zipStream, streamWriter, buffer);
                     }
                     yield return null;
                 }
-                if (zf != null)
-                {
-                    zf.IsStreamOwner = true;
-                    zf.Close();
-                }
             }
+            finally
+            {
+                if (zf != null)
+                    zf.Close();
+            }
+        }
+        void ApplyQuestRuntimeDefaults()
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            var previousLanguage = Config.Get(Language.ConfigName, Language.SimplifiedChinese);
+            var previousCardLanguage = Config.Get(Language.CardConfigName, Language.SimplifiedChinese);
+            Config.Set(Language.ConfigName, Language.SimplifiedChinese);
+            Config.Set(Language.CardConfigName, Language.SimplifiedChinese);
+            if (previousLanguage != Language.SimplifiedChinese || previousCardLanguage != Language.SimplifiedChinese)
+            {
+                Debug.LogFormat(
+                    "Quest runtime language override: Language {0}->{1}, CardLanguage {2}->{3}",
+                    previousLanguage,
+                    Language.SimplifiedChinese,
+                    previousCardLanguage,
+                    Language.SimplifiedChinese);
+            }
+
+            if (Config.Get("QuestCloseupDefaultsV3", "0") == "0")
+            {
+                Config.SetBool("DuelCloseup", false);
+                Config.SetBool("WatchCloseup", false);
+                Config.SetBool("ReplayCloseup", false);
+                Config.Set("QuestCloseupDefaultsV3", "1");
+            }
+#endif
         }
 
         bool VersionCheck()
@@ -244,10 +390,10 @@ namespace MDPro3
 
             if(firstInstall)
             {
-                if(installVersion.Length > 5 || !installVersion.EndsWith("0"))
+                if((installVersion.Length > 5 || !installVersion.EndsWith("0")) && !HasAndroidFirstInstallPayload())
                 {
                     title = "不能直接安装更新包。Can not install update apk directly.";
-                    Directory.Delete(Program.dataPath);
+                    DeleteDirectoryIfExists(Program.dataPath);
                     return false;
                 }
                 else
@@ -325,6 +471,38 @@ namespace MDPro3
         {
             string textInt = version.Substring(0, 1) + version.Substring(2, 1) + version.Substring(4, 1);
             return int.Parse(textInt);
+        }
+
+        bool HasAndroidFirstInstallPayload()
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            return BetterStreamingAssets.FileExists("Data.zip") || HasExternalRuntimePayload();
+#else
+            return false;
+#endif
+        }
+
+        bool HasExternalRuntimePayload()
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            bool hasData = File.Exists(Path.Combine(Program.dataPath, "items.txt"))
+                && File.Exists(Path.Combine(Program.dataPath, "lflist.conf"))
+                && File.Exists(Path.Combine(Program.dataPath, "cards_Lite.json"));
+            bool hasWindbot = Directory.Exists(Path.Combine(Program.dataPath, "Windbot", "Decks"))
+                && Directory.Exists(Path.Combine(Program.dataPath, "Windbot", "Dialogs"));
+            bool hasAndroid = Directory.Exists(Path.Combine("Android", "MasterDuel"));
+            if (!hasData || !hasWindbot || !hasAndroid)
+                Debug.LogWarning($"Quest external runtime payload incomplete. Data={hasData}, Windbot={hasWindbot}, Android={hasAndroid}, cwd={Directory.GetCurrentDirectory()}");
+            return hasData && hasWindbot && hasAndroid;
+#else
+            return false;
+#endif
+        }
+
+        void DeleteDirectoryIfExists(string path)
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, true);
         }
     }
 }

@@ -157,10 +157,9 @@ namespace MDPro3
             subBlackAlpha = 0.9f;
             base.Initialize();
             inputPlayerName.onEndEdit.AddListener(SavePlayerName);
-
-            AssetBundle ab = AssetBundle.LoadFromFile(Program.root + "MasterDuel/Frame/ProfileFrameMat1030001");
-            matForFace = ab.LoadAsset<Material>("ProfileFrameMat1030001");
-            ab.Unload(false);
+            matForFace = ABLoader.LoadMaterialFromFile(
+                Program.root + "MasterDuel/Frame/ProfileFrameMat1030001",
+                "ProfileFrameMat1030001");
             var handle = Addressables.LoadAssetAsync<GameObject>("ItemAppearance");
             handle.Completed += (result) =>
             {

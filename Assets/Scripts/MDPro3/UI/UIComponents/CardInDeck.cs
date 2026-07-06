@@ -113,6 +113,13 @@ namespace MDPro3.UI
             while (!task.IsCompleted)
                 yield return null;
 
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                TextureManager.ApplyCardTextureToRawImage(GetComponent<RawImage>(), task.Result);
+                refreshed = true;
+                yield break;
+            }
+
             GetComponent<RawImage>().material = TextureManager.GetCardMaterial(Code, true);
             GetComponent<RawImage>().material.mainTexture = task.Result;
             GetComponent<RawImage>().texture = task.Result;

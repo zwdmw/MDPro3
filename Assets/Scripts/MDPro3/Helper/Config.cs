@@ -50,6 +50,32 @@ namespace MDPro3
                     translations.Add(s);
                 }
             }
+            ApplyQuestLanguageDefaultsIfNeeded();
+        }
+
+        private static void ApplyQuestLanguageDefaultsIfNeeded()
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (string.IsNullOrEmpty(Application.identifier)
+                || Application.identifier.IndexOf("quest", StringComparison.OrdinalIgnoreCase) < 0)
+                return;
+
+            var previousLanguage = Get(Language.ConfigName, Language.SimplifiedChinese);
+            var previousCardLanguage = Get(Language.CardConfigName, Language.SimplifiedChinese);
+            if (previousLanguage == Language.SimplifiedChinese
+                && previousCardLanguage == Language.SimplifiedChinese)
+                return;
+
+            Set(Language.ConfigName, Language.SimplifiedChinese);
+            Set(Language.CardConfigName, Language.SimplifiedChinese);
+            Save();
+            Debug.LogFormat(
+                "Quest config language override: Language {0}->{1}, CardLanguage {2}->{3}",
+                previousLanguage,
+                Language.SimplifiedChinese,
+                previousCardLanguage,
+                Language.SimplifiedChinese);
+#endif
         }
 
         public static bool Have(string original)

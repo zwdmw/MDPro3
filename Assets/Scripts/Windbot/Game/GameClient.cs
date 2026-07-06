@@ -48,6 +48,7 @@ namespace WindBot.Game
 
             Connection.Connected += OnConnected;
             Connection.PacketReceived += OnPacketReceived;
+            Connection.Disconnected += OnDisconnected;
 
             IPAddress target_address;
             try
@@ -60,11 +61,13 @@ namespace WindBot.Game
                 target_address = _hostEntry.AddressList.FirstOrDefault(findIPv4 => findIPv4.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
             }
 
+            Logger.WriteLine("GameClient connecting to " + target_address + ":" + _serverPort + ", version=0x" + _proVersion.ToString("X4"));
             Connection.Connect(target_address, _serverPort);
         }
 
         private void OnConnected()
         {
+            Logger.WriteLine("GameClient connected, sending PlayerInfo/JoinGame for " + Username);
             BinaryWriter packet = GamePacketFactory.Create(CtosMessage.PlayerInfo);
             packet.WriteUnicode(Username, 20);
             Connection.Send(packet);
@@ -73,8 +76,13 @@ namespace WindBot.Game
             packet = GamePacketFactory.Create(CtosMessage.JoinGame);
             packet.Write(_proVersion);
             packet.Write(junk);
-            packet.WriteUnicode(_roomInfo, 30);
+            packet.WriteUnicode(_roomInfo, 20);
             Connection.Send(packet);
+        }
+
+        private void OnDisconnected(System.Exception ex)
+        {
+            Logger.WriteErrorLine("GameClient disconnected: " + (ex == null ? "remote closed" : ex.ToString()));
         }
 
         public void Tick()

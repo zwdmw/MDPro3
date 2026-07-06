@@ -1,6 +1,8 @@
+using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using UnityEngine;
 
 namespace MDPro3.Net
 {
@@ -20,16 +22,33 @@ namespace MDPro3.Net
             if(ServerRunning())
                 StopServer();
 
+            Debug.Log("YgoServer.StartServer args=" + args);
             serverThread = new Thread(() =>
             {
-                Dll.start_server(args);
+                try
+                {
+                    var result = Dll.start_server(args);
+                    Debug.Log("YgoServer.start_server returned " + result);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                }
             });
             serverThread.Start();
+            Debug.Log("YgoServer server thread started");
         }
 
         public static void StopServer()
         {
-            Dll.stop_server();
+            try
+            {
+                Dll.stop_server();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("YgoServer.StopServer failed: " + ex);
+            }
             serverThread?.Abort();
         }
 

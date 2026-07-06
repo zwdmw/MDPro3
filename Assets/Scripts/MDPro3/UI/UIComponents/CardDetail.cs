@@ -104,8 +104,14 @@ namespace MDPro3
 
             if (mat != null)
             {
-                manager.GetElement<RawImage>("Card").texture = cardFace;
-                manager.GetElement<RawImage>("Card").material = mat;
+                var cardImage = manager.GetElement<RawImage>("Card");
+                if (TextureManager.ShouldUsePlainCardUiTextures())
+                    TextureManager.ApplyCardTextureToRawImage(cardImage, cardFace);
+                else
+                {
+                    cardImage.texture = cardFace;
+                    cardImage.material = mat;
+                }
             }
             else
             {
@@ -245,8 +251,14 @@ namespace MDPro3
                 yield return null;
             mat.mainTexture = task.Result;
 
-            manager.GetElement<RawImage>("Card").material = mat;
-            manager.GetElement<RawImage>("Card").texture = task.Result;
+            var cardImage = manager.GetElement<RawImage>("Card");
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+                TextureManager.ApplyCardTextureToRawImage(cardImage, task.Result);
+            else
+            {
+                cardImage.material = mat;
+                cardImage.texture = task.Result;
+            }
 
             loadEnumerator = null;
         }
@@ -324,11 +336,18 @@ namespace MDPro3
         IEnumerator saveEnumerator;
         IEnumerator SaveCardsAsync(List<int> cards)
         {
-            var handle = Addressables.InstantiateAsync("PopupProgress");
-            while (!handle.IsDone)
+            GameObject progressObject = null;
+            var loaded = false;
+            AddressablesSafe.InstantiateAsync("PopupProgress", Program.instance.ui_.popup, popupObject =>
+            {
+                progressObject = popupObject;
+                loaded = true;
+            }, () => loaded = true);
+            while (!loaded)
                 yield return null;
-            handle.Result.transform.SetParent(Program.instance.ui_.popup, false);
-            var popupProgress = handle.Result.GetComponent<UI.Popup.PopupProgress>();
+            if (progressObject == null)
+                yield break;
+            var popupProgress = progressObject.GetComponent<UI.Popup.PopupProgress>();
             popupProgress.args = new List<string> { InterString.Get("ø®Õº±£¥Ê÷–") };
             popupProgress.cancelAction = StopSaving;
             popupProgress.text.text = string.Empty;

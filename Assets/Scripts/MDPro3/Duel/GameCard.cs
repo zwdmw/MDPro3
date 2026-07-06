@@ -83,10 +83,13 @@ namespace MDPro3
         {
             if (model != null)
             {
-                hover = UserInput.HoverObject == manager.GetElement("CardModel");
+                hover = IsHoveringThisCard();
                 if (!hover) hoving = false;
 
-                if (hover && UserInput.MouseLeftUp && !Program.instance.ocgcore.handCardDraged)
+                if (hover
+                    && UserInput.MouseLeftUp
+                    && !Program.instance.ocgcore.handCardDraged
+                    && !Program.instance.ocgcore.IsSelectingFieldCard(this))
                     OnClick();
                 else if (!hover && UserInput.MouseLeftUp)
                 {
@@ -126,6 +129,63 @@ namespace MDPro3
             }
         }
 
+        private bool IsHoveringThisCard()
+        {
+            var hoverObject = UserInput.HoverObject;
+            if (hoverObject == null || model == null || manager == null)
+                return false;
+
+            var cardModel = manager.GetElement("CardModel");
+            if (hoverObject == cardModel)
+                return true;
+
+            var hoverTransform = hoverObject.transform;
+            if (cardModel != null && hoverTransform.IsChildOf(cardModel.transform))
+                return true;
+
+            if (hoverTransform.IsChildOf(model.transform))
+                return true;
+
+            return GetHoveredCard() == this;
+        }
+
+        public static GameCard GetHoveredCard()
+        {
+            var hoverObject = UserInput.HoverObject;
+            if (hoverObject == null)
+                return null;
+
+            var cardMono = hoverObject.GetComponent<GameCardMono>()
+                ?? hoverObject.GetComponentInParent<GameCardMono>()
+                ?? hoverObject.GetComponentInChildren<GameCardMono>();
+            if (cardMono != null && cardMono.cookieCard != null)
+                return cardMono.cookieCard;
+
+            var hoverTransform = hoverObject.transform;
+            var core = Program.instance?.ocgcore;
+            if (core?.cards == null)
+                return null;
+
+            foreach (var card in core.cards)
+                if (card != null && card.model != null && hoverTransform.IsChildOf(card.model.transform))
+                    return card;
+
+            return null;
+        }
+
+        private void DisableCloseupClickColliders()
+        {
+            if (manager == null)
+                return;
+
+            var closeup = manager.GetElement("Closeup");
+            if (closeup == null)
+                return;
+
+            foreach (var collider in closeup.GetComponentsInChildren<Collider>(true))
+                collider.enabled = false;
+        }
+
         public Material GetMaterial()
         {
             if (model == null)
@@ -137,6 +197,18 @@ namespace MDPro3
         {
             if (model == null)
                 return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            Debug.LogFormat(
+                "Quest GameCard.OnClick: id={0}, buttons={1}, location={2}, controller={3}, message={4}, phase={5}, myTurn={6}, popup={7}",
+                data.Id,
+                buttons == null ? -1 : buttons.Count,
+                p == null ? 0 : p.location,
+                p == null ? 0 : p.controller,
+                Program.instance?.ocgcore == null ? "<none>" : Program.instance.ocgcore.currentMessage.ToString(),
+                Program.instance?.ocgcore == null ? "<none>" : Program.instance.ocgcore.phase.ToString(),
+                Program.instance?.ocgcore != null && Program.instance.ocgcore.myTurn,
+                Program.instance?.ocgcore?.currentPopup != null);
+#endif
             if ((p.location & (uint)CardLocation.Hand) == 0)
                 AudioManager.PlaySE("SE_DUEL_SELECT");
             Program.instance.ocgcore.description.Show(this, GetMaterial());
@@ -179,6 +251,7 @@ namespace MDPro3
 
             var cardMono = manager.GetElement<GameCardMono>("CardModel");
             cardMono.cookieCard = this;
+            DisableCloseupClickColliders();
 
             var cardParmUp = ABLoader.LoadFromFile("MasterDuel/Effects/eff_prm/fxp_cardparm_up_001", true);
             var cardParmDown = ABLoader.LoadFromFile("MasterDuel/Effects/eff_prm/fxp_cardparm_down_001", true);
@@ -291,14 +364,19 @@ namespace MDPro3
             cardFace.material = TextureManager.GetCardMaterial(data.Id);
             cardFace.material.renderQueue = 2999;
 
-            var task = TextureManager.LoadCardAsync(data.Id, true);
+            var task =
+#if UNITY_ANDROID && !UNITY_EDITOR
+                TextureManager.LoadQuestFieldCardTextureAsync(data.Id, true);
+#else
+                TextureManager.LoadCardAsync(data.Id, true);
+#endif
             while (!task.IsCompleted)
                 yield return null;
 
             if (model == null)
                 yield break;
 
-            cardFace.material.mainTexture = task.Result;
+            TextureManager.ApplyCardTextureToMaterial(cardFace.material, task.Result);
             SetDisabled();
         }
 
@@ -821,6 +899,92 @@ namespace MDPro3
                 return false;
         }
 
+        bool NeedShowFieldMonsterVisual()
+        {
+            if (model == null)
+                return false;
+            if (data.Id <= 0)
+                return false;
+            if (!data.HasType(CardType.Monster))
+                return false;
+            if ((p.location & (uint)CardLocation.MonsterZone) == 0)
+                return false;
+            if ((p.location & (uint)CardLocation.Overlay) > 0)
+                return false;
+            if ((p.position & (uint)CardPosition.FaceUp) == 0)
+                return false;
+            return true;
+        }
+
+        void RefreshFieldMonsterVisual()
+        {
+            if (model == null || manager == null)
+                return;
+
+            var closeupOffset = manager.GetElement<Transform>("CloseupOffset");
+            if (closeupOffset == null)
+                return;
+
+            var visual = closeupOffset.GetComponent<CustomFieldMonsterVisual>();
+            if (visual == null)
+                visual = closeupOffset.gameObject.AddComponent<CustomFieldMonsterVisual>();
+            visual.ModelReady = OnFieldMonsterModelReady;
+            visual.ModelUnavailable = OnFieldMonsterModelUnavailable;
+
+            var shouldShow = NeedShowFieldMonsterVisual();
+            var hasModel = shouldShow && CustomFieldMonsterVisual.HasModel(data.Id);
+            visual.Refresh(data.Id, hasModel);
+
+            RefreshFieldMonsterImage(shouldShow && !hasModel && NeedShowCloseup());
+        }
+
+        void OnFieldMonsterModelReady(int code)
+        {
+            if (data.Id == code)
+                RefreshFieldMonsterImage(false);
+        }
+
+        void OnFieldMonsterModelUnavailable(int code)
+        {
+            if (data.Id == code)
+                RefreshFieldMonsterVisual();
+        }
+
+        void RefreshFieldMonsterImage(bool visible)
+        {
+            if (manager == null)
+                return;
+
+            var closeup = manager.GetElement("Closeup");
+            if (closeup == null)
+                return;
+
+            if (!visible)
+            {
+                closeup.SetActive(false);
+                closeupShowing = false;
+                closeupCode = 0;
+                return;
+            }
+
+            var renderer = closeup.GetComponent<MeshRenderer>();
+            if (renderer == null)
+                return;
+
+            if (renderer.material.mainTexture == null || closeupCode != data.Id)
+            {
+                closeupShowing = false;
+                closeupCode = 0;
+            }
+
+            if (!closeupShowing)
+            {
+                closeupShowing = true;
+                closeupCode = data.Id;
+                StartCoroutine(Program.instance.texture_.LoadFieldMonsterImageAsync(data.Id, renderer));
+            }
+        }
+
         public static bool NeedStrongSummon(Card data)
         {
             if (data.HasType(CardType.Link))
@@ -951,6 +1115,7 @@ namespace MDPro3
                     CreateModel();
                     ModelAt(p);
                     ShowFaceDownCardOrNot(NeedShowFaceDownCard());
+                    RefreshLabel();
                     if (IsFaceDownOnSpellZone())
                         setOverTurn = true;
                 }
@@ -1411,6 +1576,7 @@ namespace MDPro3
                         && (cacheP.location & (uint)CardLocation.Extra) == 0)
                         Program.instance.ocgcore.SetDeckTop(this);
                     ShowFaceDownCardOrNot(NeedShowFaceDownCard());
+                    RefreshLabel();
                 });
 
             SummonPass:
@@ -1505,6 +1671,7 @@ namespace MDPro3
                     CreateModel();
                     ModelAt(p);
                     ShowFaceDownCardOrNot(NeedShowFaceDownCard());
+                    RefreshLabel();
                     if (IsFaceDownOnSpellZone())
                         setOverTurn = true;
                 }
@@ -1936,6 +2103,7 @@ namespace MDPro3
                         && (cacheP.location & (uint)CardLocation.Extra) == 0)
                         Program.instance.ocgcore.SetDeckTop(this);
                     ShowFaceDownCardOrNot(NeedShowFaceDownCard());
+                    RefreshLabel();
                 });
 
             SummonPass:
@@ -2016,6 +2184,8 @@ namespace MDPro3
             {
                 inAnimation = false;
                 OcgCore.messagePass = true;
+                ShowFaceDownCardOrNot(NeedShowFaceDownCard());
+                RefreshLabel();
             });
         }
         void SequenceNormalSummon(Sequence sequence, Vector3 position, Vector3 angle, float interval, float timeBefore = 0)
@@ -2041,6 +2211,8 @@ namespace MDPro3
             {
                 inAnimation = false;
                 OcgCore.messagePass = true;
+                ShowFaceDownCardOrNot(NeedShowFaceDownCard());
+                RefreshLabel();
             });
         }
 
@@ -2754,6 +2926,17 @@ namespace MDPro3
         {
             if (model == null || buttons.Count == 0)
                 return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            Debug.LogFormat(
+                "Quest GameCard.CreateButtons: id={0}, buttons={1}, location={2}, controller={3}, message={4}, phase={5}, myTurn={6}",
+                data.Id,
+                buttons.Count,
+                p == null ? 0 : p.location,
+                p == null ? 0 : p.controller,
+                Program.instance?.ocgcore == null ? "<none>" : Program.instance.ocgcore.currentMessage.ToString(),
+                Program.instance?.ocgcore == null ? "<none>" : Program.instance.ocgcore.phase.ToString(),
+                Program.instance?.ocgcore != null && Program.instance.ocgcore.myTurn);
+#endif
             buttons.Sort((x, y) => x.type.CompareTo(y.type));
             for (int i = 0; i < buttons.Count; i++)
             {
@@ -2826,6 +3009,7 @@ namespace MDPro3
         {
             if(model == null) 
                 return;
+            RefreshFieldMonsterVisual();
             if ((p.location & (uint)CardLocation.Onfield) == 0 || (p.position & (uint)CardPosition.FaceUp) == 0)
             {
                 HideLabel();
@@ -3373,28 +3557,14 @@ namespace MDPro3
         }
 
         bool closeupShowing;
+        int closeupCode;
         public void ShowLabel()
         {
             labelShowing = true;
             Transform labelRoot = manager.GetElement<Transform>("StatusLabelRoot");
             labelRoot.gameObject.SetActive(true);
             labelRoot.DOScale(1, 0.2f).SetEase(Ease.InCubic);
-            if (NeedShowCloseup())
-            {
-                var renderer = manager.GetElement<MeshRenderer>("Closeup");
-                if(renderer.material.mainTexture == null)
-                    closeupShowing = false;
-                if (!closeupShowing)
-                {
-                    closeupShowing = true;
-                    StartCoroutine(Program.instance.texture_.LoadCloseupAsync(data.Id, renderer));
-                }
-            }
-            else
-            {
-                closeupShowing = false;
-                manager.GetElement("Closeup").SetActive(false);
-            }
+            RefreshFieldMonsterVisual();
 
             HideHiddenLabel();
         }
@@ -3405,6 +3575,7 @@ namespace MDPro3
             labelRoot.DOScale(0, 0.2f).SetEase(Ease.OutCubic).OnComplete(() => labelRoot.gameObject.SetActive(false));
             manager.GetElement("Closeup").SetActive(false);
             closeupShowing = false;
+            closeupCode = 0;
         }
 
         public void ShowHiddenLabel()
@@ -3479,7 +3650,7 @@ namespace MDPro3
                 return false;
             if ((p.position & (uint)CardPosition.FaceDown) > 0)
                 return false;
-            if(!File.Exists(Program.closeupPath + data.Id + Program.pngExpansion))
+            if(!data.HasType(CardType.Monster))
                 return false;
             return true;
         }
@@ -3552,6 +3723,7 @@ namespace MDPro3
                 face.transform.localEulerAngles = new Vector3(180f, 0f, -180f);
                 manager.GetElement("EffectDisquiet").SetActive(false);
             }
+            RefreshFieldMonsterVisual();
         }
         public void ShowDisquiet()
         {

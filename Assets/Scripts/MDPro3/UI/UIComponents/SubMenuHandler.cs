@@ -25,27 +25,23 @@ namespace MDPro3.UI
                 var currentHeight = height;
                 if (action == null)
                 {
-                    var handle = Addressables.InstantiateAsync("SubMenuTitle");
-                    handle.Completed += (result) =>
+                    AddressablesSafe.InstantiateAsync("SubMenuTitle", scrollRect.content, menuObject =>
                     {
-                        var rect = result.Result.GetComponent<RectTransform>();
-                        rect.SetParent(scrollRect.content, false);
+                        var rect = menuObject.GetComponent<RectTransform>();
                         rect.anchoredPosition = new Vector2(0f, currentHeight);
                         rect.GetComponent<Text>().text = text;
-                    };
+                    });
                 }
                 else
                 {
-                    var handle = Addressables.InstantiateAsync("SubMenuButton");
-                    handle.Completed += (result) =>
+                    AddressablesSafe.InstantiateAsync("SubMenuButton", scrollRect.content, menuObject =>
                     {
-                        var rect = result.Result.GetComponent<RectTransform>();
-                        rect.SetParent(scrollRect.content, false);
+                        var rect = menuObject.GetComponent<RectTransform>();
                         rect.anchoredPosition = new Vector2(0f, currentHeight);
                         rect.GetChild(0).GetComponent<Button>().onClick.AddListener(() => { action.Invoke(); });
                         rect.GetChild(0).GetComponent<Button>().onClick.AddListener(() => Hide());
                         rect.GetChild(0).GetChild(0).GetComponent<Text>().text = text;
-                    };
+                    });
                 }
                 if (action == null)
                 {

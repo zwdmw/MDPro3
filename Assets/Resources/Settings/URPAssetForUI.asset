@@ -20,12 +20,12 @@ MonoBehaviour:
   - {fileID: 11400000, guid: e807adf31d68d224680ba73301b4a8d2, type: 2}
   m_DefaultRendererIndex: 0
   m_RequireDepthTexture: 0
-  m_RequireOpaqueTexture: 1
+  m_RequireOpaqueTexture: 0
   m_OpaqueDownsampling: 0
-  m_SupportsTerrainHoles: 1
-  m_SupportsHDR: 1
+  m_SupportsTerrainHoles: 0
+  m_SupportsHDR: 0
   m_HDRColorBufferPrecision: 0
-  m_MSAA: 4
+  m_MSAA: 1
   m_RenderScale: 1
   m_UpscalingFilter: 0
   m_FsrOverrideSharpness: 0
@@ -100,9 +100,9 @@ MonoBehaviour:
       m_Keys: []
       m_Values: 
   m_PrefilteringModeMainLightShadows: 0
-  m_PrefilteringModeAdditionalLight: 3
+  m_PrefilteringModeAdditionalLight: 4
   m_PrefilteringModeAdditionalLightShadows: 0
-  m_PrefilterXRKeywords: 1
+  m_PrefilterXRKeywords: 0
   m_PrefilteringModeForwardPlus: 0
   m_PrefilteringModeDeferredRendering: 0
   m_PrefilteringModeScreenSpaceOcclusion: 0

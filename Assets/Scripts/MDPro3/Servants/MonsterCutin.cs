@@ -272,7 +272,9 @@ namespace MDPro3
                 diy = isDiy;
             }
 
-            loader.transform.SetParent(Program.instance.container_2D, false);
+            var questWorldCutin = QuestXrBootstrap.PrepareQuestMonsterCutin(loader);
+            if (!questWorldCutin)
+                loader.transform.SetParent(Program.instance.container_2D, false);
             Destroy(loader, 1.6f);
 
             if (!diy)
@@ -297,7 +299,10 @@ namespace MDPro3
                 back = ABLoader.LoadFromFile("MasterDuel/Timeline/summon/summonmonster/04backeff/summonmonster_bgwid_s2", true);
             else//4
                 back = ABLoader.LoadFromFile("MasterDuel/Timeline/summon/summonmonster/04backeff/summonmonster_bgdve_s2", true);
-            back.transform.SetParent(Program.instance.container_2D, false);
+            if (questWorldCutin)
+                QuestXrBootstrap.PrepareQuestMonsterCutin(back);
+            else
+                back.transform.SetParent(Program.instance.container_2D, false);
             Transform eff_flame = back.transform.Find("Eff_Flame");
             eff_flame.localScale = new Vector3(2.76f, 1.55f, 1f);
             eff_flame.gameObject.AddComponent<AutoScaleOnce>();
@@ -318,7 +323,10 @@ namespace MDPro3
             else
                 nameBar = ABLoader.LoadFromFile("MasterDuel/Timeline/summon/summonmonster/01text/summonmonster_name_far", true);
 
-            nameBar.transform.SetParent(Program.instance.container_2D, false);
+            if (questWorldCutin)
+                QuestXrBootstrap.PrepareQuestMonsterCutin(nameBar);
+            else
+                nameBar.transform.SetParent(Program.instance.container_2D, false);
             var manager = nameBar.GetComponent<ElementObjectManager>();
             var tmp = manager.GetElement<ExtendedTextMeshPro>("Monster_Name_TMP");
             tmp.font = Program.instance.ui_.tmpFont;
@@ -399,7 +407,10 @@ namespace MDPro3
 
             //front Effect
             var frontEffect = ABLoader.LoadFromFile("MasterDuel/Timeline/summon/summonmonster/02fronteff/summonmonster_thunder_power", true);
-            frontEffect.transform.SetParent(Program.instance.container_2D, false);
+            if (questWorldCutin)
+                QuestXrBootstrap.PrepareQuestMonsterCutin(frontEffect);
+            else
+                frontEffect.transform.SetParent(Program.instance.container_2D, false);
             Destroy(frontEffect, 1.6f);
         }
 

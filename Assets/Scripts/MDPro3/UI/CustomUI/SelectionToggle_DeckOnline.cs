@@ -46,9 +46,10 @@ namespace MDPro3.UI
             var cardImage0 = Manager.GetElement<RawImage>("CardImage0");
             if (card0 != 0)
             {
-                var task = TextureManager.LoadCardAsync(card0, true);
+                var task = TextureManager.LoadUiPortraitAsync(card0, true);
                 while (!task.IsCompleted)
                     yield return null;
+                cardImage0.material = null;
                 cardImage0.texture = task.Result;
                 //var mat = TextureManager.GetCardMaterial(card0);
                 //cardImage0.material = mat;
@@ -69,9 +70,10 @@ namespace MDPro3.UI
             var cardImage1 = Manager.GetElement<RawImage>("CardImage1");
             if (card1 != 0)
             {
-                var task = TextureManager.LoadCardAsync(card1, true);
+                var task = TextureManager.LoadUiPortraitAsync(card1, true);
                 while (!task.IsCompleted)
                     yield return null;
+                cardImage1.material = null;
                 cardImage1.texture = task.Result;
                 //var mat = TextureManager.GetCardMaterial(card1);
                 //cardImage1.material = mat;
@@ -92,9 +94,10 @@ namespace MDPro3.UI
             var cardImage2 = Manager.GetElement<RawImage>("CardImage2");
             if (card2 != 0)
             {
-                var task = TextureManager.LoadCardAsync(card2, true);
+                var task = TextureManager.LoadUiPortraitAsync(card2, true);
                 while (!task.IsCompleted)
                     yield return null;
+                cardImage2.material = null;
                 cardImage2.texture = task.Result;
                 //var mat = TextureManager.GetCardMaterial(card2);
                 //cardImage2.material = mat;

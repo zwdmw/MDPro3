@@ -295,87 +295,73 @@ namespace MDPro3
         #region Popup
         public static void ShowPopupSelection(List<string> selections, Action decideAction, Action cancelAction = null)
         {
-            var handle = Addressables.InstantiateAsync("PopupSelection");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupSelection", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupSelection = result.Result.GetComponent<UI.Popup.PopupSelection>();
+                var popupSelection = popupObject.GetComponent<UI.Popup.PopupSelection>();
                 popupSelection.args = selections;
                 popupSelection.decideAction = decideAction;
                 popupSelection.quitAction = cancelAction;
                 popupSelection.Show();
-            };
+            });
         }
         public static void ShowPopupYesOrNo(List<string> selections, Action decideAction, Action cancelAction)
         {
-            var handle = Addressables.InstantiateAsync("PopupYesOrNo");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupYesOrNo", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupYesOrNo = result.Result.GetComponent<UI.Popup.PopupYesOrNo>();
+                var popupYesOrNo = popupObject.GetComponent<UI.Popup.PopupYesOrNo>();
                 popupYesOrNo.args = selections;
                 popupYesOrNo.decideAction = decideAction;
                 popupYesOrNo.cancelAction = cancelAction;
                 popupYesOrNo.Show();
-            };
+            });
         }
         public static void ShowPopupConfirm(List<string> selections)
         {
-            var handle = Addressables.InstantiateAsync("PopupConfirm");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupConfirm", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupConfirm = result.Result.GetComponent<UI.Popup.PopupConfirm>();
+                var popupConfirm = popupObject.GetComponent<UI.Popup.PopupConfirm>();
                 popupConfirm.args = selections;
                 popupConfirm.Show();
-            };
+            });
         }
         public static void ShowPopupInput(List<string> selections, Action<string> decideAction, Action cancelAction, TmpInputValidation.ValidationType type = TmpInputValidation.ValidationType.None)
         {
-            var handle = Addressables.InstantiateAsync("PopupInput");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupInput", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupInput = result.Result.GetComponent<UI.Popup.PopupInput>();
+                var popupInput = popupObject.GetComponent<UI.Popup.PopupInput>();
                 popupInput.args = selections;
                 popupInput.decideAction = decideAction;
                 popupInput.cancelAction = cancelAction;
                 popupInput.validationType = type;
                 popupInput.Show();
-            };
+            });
         }
         public static void ShowPopupFilter()
         {
-            var handle = Addressables.InstantiateAsync("PopupSearchFilter");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupSearchFilter", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupSearchFilter = result.Result.GetComponent<UI.Popup.PopupSearchFilter>();
+                var popupSearchFilter = popupObject.GetComponent<UI.Popup.PopupSearchFilter>();
                 popupSearchFilter.Show();
-            };
+            });
         }
         public static void ShowPopupText(List<string> selections, HorizontalAlignmentOptions alignment = HorizontalAlignmentOptions.Center)
         {
-            var handle = Addressables.InstantiateAsync("PopupText");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupText", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupText = result.Result.GetComponent<UI.Popup.PopupText>();
+                var popupText = popupObject.GetComponent<UI.Popup.PopupText>();
                 popupText.alignment = alignment;
                 popupText.args = selections;
                 popupText.Show();
-            };
+            });
         }
         public static void ShowPopupServer(List<string> selections)
         {
-            var handle = Addressables.InstantiateAsync("PopupServer");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupServer", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupServer = result.Result.GetComponent<PopupServer>();
+                var popupServer = popupObject.GetComponent<PopupServer>();
                 popupServer.selections = selections;
                 popupServer.Show();
-            };
+            });
         }
         #endregion
 
@@ -400,14 +386,12 @@ namespace MDPro3
 
         public static void ShowCardExpand(int code)
         {
-            var handle = Addressables.InstantiateAsync("CardExpand");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("CardExpand", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var handler = result.Result.GetComponent<CardExpand>();
+                var handler = popupObject.GetComponent<CardExpand>();
                 InputBlocker = handler;
                 handler.Show(code);
-            };
+            });
         }
 
         #endregion

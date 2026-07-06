@@ -17,10 +17,34 @@ namespace MDPro3.UI
 
         void Update()
         {
+            if (director == null)
+            {
+                director = GetComponent<PlayableDirector>();
+                if (director == null)
+                {
+                    CompleteOnce();
+                    return;
+                }
+            }
+
             if (director.state != PlayState.Playing)
             {
-                action?.Invoke();
-                enabled = false;
+                CompleteOnce();
+            }
+        }
+
+        void CompleteOnce()
+        {
+            enabled = false;
+            var callback = action;
+            action = null;
+            try
+            {
+                callback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex, this);
             }
         }
     }

@@ -17,6 +17,7 @@ namespace MDPro3.UI
         public Text chainText;
         public GameObject target;
         public Button button;
+        private Material descriptionMaterial;
 
         static Color myColor = Color.cyan;
         static Color opColor = Color.red;
@@ -72,6 +73,7 @@ namespace MDPro3.UI
 
         IEnumerator RefreshFace()
         {
+            face.material = null;
             face.texture = TextureManager.container.unknownCard.texture;
             var code = card.GetData().Id;
             if (code != 0)
@@ -81,9 +83,15 @@ namespace MDPro3.UI
                     yield return null;
 
                 var mat = TextureManager.GetCardMaterial(code);
-                face.material = mat;
-                face.material.mainTexture = task.Result;
-                face.texture = task.Result;
+                descriptionMaterial = mat;
+                descriptionMaterial.mainTexture = task.Result;
+
+                var portraitTask = TextureManager.LoadUiPortraitAsync(code, false);
+                while (!portraitTask.IsCompleted)
+                    yield return null;
+
+                face.material = null;
+                face.texture = portraitTask.Result != null ? portraitTask.Result : task.Result;
             }
             else
             {
@@ -114,7 +122,7 @@ namespace MDPro3.UI
 
         void OnClick()
         {
-            Program.instance.ocgcore.description.Show(card, face.material);
+            Program.instance.ocgcore.description.Show(card, descriptionMaterial ?? face.material);
         }
     }
 }

@@ -220,8 +220,16 @@ namespace MDPro3.UI
 
         public void PrintSearchCards(string text = "")
         {
+            if (filters.Count > 0 && filters.Count < 21)
+            {
+                Debug.LogWarning("CardCollectionView: invalid filter state, reset filters.");
+                filters.Clear();
+            }
+
             var cards = new List<int>();
             var results = CardsManager.Search(InputSearch.text, filters, DeckEditor.banlist, packName);
+            if (results.Count == 0 && CardsManager._cards.Count == 0)
+                Debug.LogError("CardCollectionView: card database is empty.");
             switch (_SortOrder)
             {
                 case SortOrder.ByType:
@@ -308,13 +316,11 @@ namespace MDPro3.UI
 
         public void ShowFilters()
         {
-            var handle = Addressables.InstantiateAsync("PopupSearchFilter");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupSearchFilter", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                var popupSearchFilter = result.Result.GetComponent<UI.Popup.PopupSearchFilter>();
+                var popupSearchFilter = popupObject.GetComponent<UI.Popup.PopupSearchFilter>();
                 popupSearchFilter.Show();
-            };
+            });
         }
 
         public void ResetFilters()
@@ -329,12 +335,10 @@ namespace MDPro3.UI
 
         public void ShowSortOrder()
         {
-            var handle = Addressables.InstantiateAsync("PopupSearchOrder");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupSearchOrder", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                result.Result.GetComponent<UI.Popup.PopupSearchOrder>().Show();
-            };
+                popupObject.GetComponent<UI.Popup.PopupSearchOrder>().Show();
+            });
         }
 
         public void ActivateInputField()

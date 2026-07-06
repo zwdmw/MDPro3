@@ -48,10 +48,13 @@ namespace MDPro3
             linkThread = new Thread(() => 
             {
                 bool joined = false;
+                Debug.LogFormat("TcpHelper.LinkStart begin ip={0}, port={1}, local={2}", ipString, portString, local);
                 if (local)
                 {
+                    var attempts = 0;
                     while (YgoServer.ServerRunning() && !joined)
                     {
+                        attempts++;
                         try
                         {
                             joined = Join(ipString, name, portString, pswString, doWhenSuccess);
@@ -63,11 +66,14 @@ namespace MDPro3
                         }
                         Thread.Sleep(100);
                     }
+                    if (!joined)
+                        Debug.LogWarningFormat("TcpHelper.LinkStart local join ended without success. serverRunning={0}, attempts={1}", YgoServer.ServerRunning(), attempts);
                 }
                 else
                 {
-                    Join(ipString, name, portString, pswString, doWhenSuccess);
+                    joined = Join(ipString, name, portString, pswString, doWhenSuccess);
                 }
+                Debug.LogFormat("TcpHelper.LinkStart end joined={0}", joined);
                 canJoin = true;
             });
             linkThread.Start();
@@ -105,6 +111,7 @@ namespace MDPro3
             }
             catch (Exception e)
             {
+                Debug.LogWarningFormat("TcpHelper.Join failed ip={0}, port={1}: {2}", ipString, portString, e);
                 //MessageManager.messageFromSubString = "JoinError: " + e;
                 return false;
             }
@@ -142,8 +149,9 @@ namespace MDPro3
                 }
                 onDisConnected = true;
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.LogWarningFormat("TcpHelper.Receiver stopped: {0}", ex);
                 onDisConnected = true;
             }
         }
@@ -177,10 +185,6 @@ namespace MDPro3
                             {
                                 case StocMessage.GameMsg:
                                     Program.instance.room.StocMessage_GameMsg(r);
-                                    var p = new Package();
-                                    p.Function = r.ReadByte();
-                                    p.Data = new BinaryMaster(r.ReadToEnd());
-                                    Program.instance.ocgcore.AddPackage(p);
                                     break;
                                 case StocMessage.ErrorMsg:
                                     Program.instance.room.StocMessage_ErrorMsg(r);
@@ -249,7 +253,7 @@ namespace MDPro3
                         }
                         catch (Exception e)
                         {
-                            // Program.DEBUGLOG(e);
+                            Debug.LogException(e);
                         }
 
                     datas.Clear();

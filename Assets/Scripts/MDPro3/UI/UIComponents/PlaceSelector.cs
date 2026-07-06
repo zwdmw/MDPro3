@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using MDPro3.YGOSharp.OCGWrapper.Enums;
 using static MDPro3.GameCard;
 
@@ -68,8 +69,8 @@ namespace MDPro3.UI
                     selectPush = ABLoader.LoadFromFile("MasterDuel/Effects/hitghlight/fxp_hl_select/fxp_hl_select_card_push_001", true);
                     selectCard = ABLoader.LoadFromFile("MasterDuel/Effects/hitghlight/fxp_hl_select/fxp_hl_select_card_001", true);
                     selectCardPush = ABLoader.LoadFromFile("MasterDuel/Effects/hitghlight/fxp_hl_select/fxp_hl_select_card_push_001", true);
-                    select.transform.localScale = Vector3.one * 0.8f;
-                    selectPush.transform.localScale = Vector3.one * 0.8f;
+                    SetLocalScaleIfNotNull(select, Vector3.one * 0.8f);
+                    SetLocalScaleIfNotNull(selectPush, Vector3.one * 0.8f);
                 }
                 else
                 {
@@ -80,32 +81,32 @@ namespace MDPro3.UI
                     selectCard = ABLoader.LoadFromFile("MasterDuel/Effects/hitghlight/fxp_hl_select/fxp_hl_select_card_001", true);
                     selectCardPush = ABLoader.LoadFromFile("MasterDuel/Effects/hitghlight/fxp_hl_select/fxp_hl_select_card_push_001", true);
                 }
-                selectCard.transform.localScale = Vector3.one * 0.8f;
-                selectCardPush.transform.localScale = Vector3.one * 0.8f;
+                SetLocalScaleIfNotNull(selectCard, Vector3.one * 0.8f);
+                SetLocalScaleIfNotNull(selectCardPush, Vector3.one * 0.8f);
                 disable = new GameObject("Disable");
                 CreateSelectButton();
             }
 
+            if (highlight == null)
+                highlight = CreateFallbackEffect("FallbackPlaceHighlight", collider.size, new Color(0.22f, 0.95f, 1f, 0.32f));
+            EnsureSelectFallbacks(collider.size);
             highlight.transform.SetParent(transform, false);
+            highlight.SetActive(false);
             transform.localPosition = GetCardPosition(p);
-            if (select != null)
+            if (select != null || selectPush != null || selectCard != null || selectCardPush != null)
             {
-                select.transform.SetParent(transform, false);
-                selectPush.transform.SetParent(transform, false);
-                selectCard.transform.SetParent(transform, false);
-                selectCardPush.transform.SetParent(transform, false);
-                var main = select.GetComponent<ParticleSystem>().main;
-                main.playOnAwake = true;
-                main = selectPush.GetComponent<ParticleSystem>().main;
-                main.playOnAwake = true;
-                main = selectCard.GetComponent<ParticleSystem>().main;
-                main.playOnAwake = true;
-                main = selectCardPush.GetComponent<ParticleSystem>().main;
-                main.playOnAwake = true;
-                select.SetActive(false);
-                selectPush.SetActive(false);
-                selectCard.SetActive(false);
-                selectCardPush.SetActive(false);
+                SetParentIfNotNull(select, transform);
+                SetParentIfNotNull(selectPush, transform);
+                SetParentIfNotNull(selectCard, transform);
+                SetParentIfNotNull(selectCardPush, transform);
+                EnablePlayOnAwakeIfPresent(select);
+                EnablePlayOnAwakeIfPresent(selectPush);
+                EnablePlayOnAwakeIfPresent(selectCard);
+                EnablePlayOnAwakeIfPresent(selectCardPush);
+                SetActiveIfNotNull(select, false);
+                SetActiveIfNotNull(selectPush, false);
+                SetActiveIfNotNull(selectCard, false);
+                SetActiveIfNotNull(selectCardPush, false);
             }
             if (disable != null)
             {
@@ -113,22 +114,129 @@ namespace MDPro3.UI
                 disable.transform.localEulerAngles = new Vector3(90, 0, 0);
                 disable.transform.localScale = new Vector3(3, 3, 1);
                 var spriteRenderer = disable.AddComponent<SpriteRenderer>();
-                spriteRenderer.sprite = TextureManager.container.CardAffectDisable;
-                disable.SetActive(false);
+                if (TextureManager.container != null)
+                    spriteRenderer.sprite = TextureManager.container.CardAffectDisable;
+                SetActiveIfNotNull(disable, false);
             }
         }
 
+
+        private void EnsureSelectFallbacks(Vector3 colliderSize)
+        {
+            if (disable == null)
+                return;
+
+            if (select == null)
+                select = CreateFallbackEffect("FallbackPlaceSelect", colliderSize, new Color(1f, 0.92f, 0.12f, 0.45f));
+            if (selectPush == null)
+                selectPush = CreateFallbackEffect("FallbackPlaceSelectPush", colliderSize, new Color(0.3f, 1f, 0.3f, 0.48f));
+            if (selectCard == null)
+                selectCard = CreateFallbackEffect("FallbackCardSelect", colliderSize, new Color(1f, 0.92f, 0.12f, 0.45f));
+            if (selectCardPush == null)
+                selectCardPush = CreateFallbackEffect("FallbackCardSelectPush", colliderSize, new Color(0.3f, 1f, 0.3f, 0.48f));
+        }
+
+        private static GameObject CreateFallbackEffect(string name, Vector3 colliderSize, Color color)
+        {
+            var obj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            obj.name = name;
+            var collider = obj.GetComponent<Collider>();
+            if (collider != null)
+                Destroy(collider);
+
+            obj.transform.localPosition = new Vector3(0f, 0.04f, 0f);
+            obj.transform.localScale = new Vector3(
+                Mathf.Max(colliderSize.x, 1f),
+                0.035f,
+                Mathf.Max(colliderSize.z, 1f));
+
+            var renderer = obj.GetComponent<MeshRenderer>();
+            if (renderer != null)
+            {
+                renderer.sharedMaterial = CreateFallbackMaterial(name + "Material", color);
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+
+            return obj;
+        }
+
+        private static Material CreateFallbackMaterial(string name, Color color)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Unlit/Color")
+                ?? Shader.Find("Sprites/Default")
+                ?? Shader.Find("Standard");
+            if (shader == null)
+                return null;
+
+            var material = new Material(shader) { name = name };
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", color);
+            if (material.HasProperty("_Cull"))
+                material.SetFloat("_Cull", (float)CullMode.Off);
+            if (material.HasProperty("_Surface"))
+                material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite"))
+                material.SetFloat("_ZWrite", 0f);
+            material.renderQueue = (int)RenderQueue.Transparent;
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            return material;
+        }
+
+        private static void SetActiveIfNotNull(GameObject obj, bool active)
+        {
+            if (obj != null)
+                obj.SetActive(active);
+        }
+
+        private static void SetParentIfNotNull(GameObject obj, Transform parent)
+        {
+            if (obj != null)
+                obj.transform.SetParent(parent, false);
+        }
+
+        private static void SetLocalScaleIfNotNull(GameObject obj, Vector3 scale)
+        {
+            if (obj != null)
+                obj.transform.localScale = scale;
+        }
+
+        private static void SetLocalEulerAnglesIfNotNull(GameObject obj, Vector3 eulerAngles)
+        {
+            if (obj != null)
+                obj.transform.localEulerAngles = eulerAngles;
+        }
+
+        private static void EnablePlayOnAwakeIfPresent(GameObject obj)
+        {
+            var particle = obj == null ? null : obj.GetComponent<ParticleSystem>();
+            if (particle == null)
+                return;
+
+            var main = particle.main;
+            main.playOnAwake = true;
+        }
         bool countShowing;
 
         private void Update()
         {
             hover = false;
-            if (UserInput.HoverObject == gameObject)
+            var hoveredCard = GameCard.GetHoveredCard();
+            if (UserInput.HoverObject == gameObject
+                || (cardSelecting && cookieCard != null && hoveredCard == cookieCard))
                 hover = true;
 
             if (hover)
             {
-                highlight.SetActive(true);
+                SetActiveIfNotNull(highlight, true);
                 if (UserInput.MouseLeftDown)
                     OnClick();
                 if ((p.location & (uint)CardLocation.Onfield) == 0 && !countShowing)
@@ -139,7 +247,7 @@ namespace MDPro3.UI
             }
             else
             {
-                highlight.SetActive(false);
+                SetActiveIfNotNull(highlight, false);
                 if (UserInput.MouseLeftDown)
                     HideButtons();
                 if (countShowing)
@@ -150,9 +258,9 @@ namespace MDPro3.UI
             }
 
             if (UserInput.HoverObject == gameObject)
-                highlight.SetActive(true);
+                SetActiveIfNotNull(highlight, true);
             else
-                highlight.SetActive(false);
+                SetActiveIfNotNull(highlight, hover);
         }
 
 
@@ -165,14 +273,14 @@ namespace MDPro3.UI
                 if (!selected)
                 {
                     selected = true;
-                    select.SetActive(false);
-                    selectPush.SetActive(false);
-                    selectPush.SetActive(true);
+                    SetActiveIfNotNull(select, false);
+                    SetActiveIfNotNull(selectPush, false);
+                    SetActiveIfNotNull(selectPush, true);
                 }
                 else
                 {
                     selected = false;
-                    select.SetActive(true);
+                    SetActiveIfNotNull(select, true);
                 }
                 var selectedCount = 0;
                 foreach(var place in Program.instance.ocgcore.places)
@@ -199,10 +307,10 @@ namespace MDPro3.UI
                 if (Program.instance.ocgcore.currentMessage == GameMessage.SelectCounter)
                 {
                     if (!cardUnselectable)
-                        selectButton.Show();
+                        selectButton?.Show();
                 }
                 else if (!cardSelected && !cardUnselectable && !cardPreselected)
-                    selectButton.Show();
+                    SelectCardInThisZone();
                 else if (cardSelected && !cardUnselectable && !cardPreselected)
                     UnselectCardInThisZone();
                 var card = FindCardInThisPlace();
@@ -276,10 +384,16 @@ namespace MDPro3.UI
             if (buttonsCreated || Program.instance.ocgcore.returnAction != null || buttons.Count == 0)
                 return;
 
+            var prefab = Program.instance?.ocgcore?.container?.duelButton;
+            if (prefab == null)
+                return;
+
             for (int i = 0; i < buttons.Count; i++)
             {
-                var obj = Instantiate(Program.instance.ocgcore.container.duelButton);
+                var obj = Instantiate(prefab);
                 var mono = obj.GetComponent<DuelButton>();
+                if (mono == null)
+                    continue;
                 buttonObjs.Add(mono);
                 mono.response = buttons[i].response;
                 mono.hint = buttons[i].hint;
@@ -296,8 +410,14 @@ namespace MDPro3.UI
 
         void CreateSelectButton()
         {
-            var obj = Instantiate(Program.instance.ocgcore.container.duelButton);
+            var prefab = Program.instance?.ocgcore?.container?.duelButton;
+            if (prefab == null)
+                return;
+
+            var obj = Instantiate(prefab);
             selectButton = obj.GetComponent<DuelButton>();
+            if (selectButton == null)
+                return;
             selectButton.response.Add(-3);
             selectButton.hint = "";
             selectButton.type = ButtonType.Select;
@@ -314,13 +434,13 @@ namespace MDPro3.UI
         public void ShowButtons()
         {
             foreach (var button in buttonObjs)
-                button.Show();
+                button?.Show();
         }
 
         public void HideButtons()
         {
             foreach (var button in buttonObjs)
-                button.Hide();
+                button?.Hide();
             if (selectButton != null)
                 selectButton.Hide();
         }
@@ -328,7 +448,8 @@ namespace MDPro3.UI
         public void ClearButtons()
         {
             foreach (var go in buttonObjs)
-                Destroy(go.gameObject);
+                if (go != null)
+                    Destroy(go.gameObject);
             buttonObjs.Clear();
             buttons.Clear();
             buttonsCreated = false;
@@ -340,11 +461,11 @@ namespace MDPro3.UI
             if (selecting)
             {
                 selecting = false;
-                select.SetActive(false);
+                SetActiveIfNotNull(select, false);
                 if (selected)
                 {
-                    selectPush.SetActive(false);
-                    selectPush.SetActive(true);
+                    SetActiveIfNotNull(selectPush, false);
+                    SetActiveIfNotNull(selectPush, true);
                     selected = false;
                 }
             }
@@ -352,7 +473,7 @@ namespace MDPro3.UI
             {
                 cardSelecting = false;
                 cardSelected = false;
-                selectCard.SetActive(false);
+                SetActiveIfNotNull(selectCard, false);
                 cookieCard = null;
                 cardUnselectable = false;
                 cardPreselected = false;
@@ -408,7 +529,7 @@ namespace MDPro3.UI
                 {
                     cardPreselected = true;
                     cardSelected = true;
-                    selectCard.SetActive(false);
+                    SetActiveIfNotNull(selectCard, false);
                 }
             }
         }
@@ -418,9 +539,9 @@ namespace MDPro3.UI
             cardSelected = true;
 
             if (Program.instance.ocgcore.currentMessage != GameMessage.SelectCounter)
-                selectCard.SetActive(false);
-            selectCardPush.SetActive(false);
-            selectCardPush.SetActive(true);
+                SetActiveIfNotNull(selectCard, false);
+            SetActiveIfNotNull(selectCardPush, false);
+            SetActiveIfNotNull(selectCardPush, true);
             Program.instance.ocgcore.FieldSelectRefresh(cookieCard);
         }
 
@@ -435,13 +556,13 @@ namespace MDPro3.UI
         public void CardInThisZoneSelectable()
         {
             cardUnselectable = false;
-            selectCard.SetActive(true);
+            SetActiveIfNotNull(selectCard, true);
         }
 
         public void CardInThisZoneUnselectable()
         {
             cardUnselectable = true;
-            selectCard.SetActive(false);
+            SetActiveIfNotNull(selectCard, false);
         }
 
         public void HighlightThisZone(uint place, int min, bool needConfirm = false)
@@ -483,20 +604,20 @@ namespace MDPro3.UI
 
         public void ShowSelectZoneHighlight()
         {
-            select.SetActive(true);
+            SetActiveIfNotNull(select, true);
         }
         public void ShowSelectCardHighlight()
         {
-            selectCard.SetActive(true);
+            SetActiveIfNotNull(selectCard, true);
             if ((cookieCard.p.position & (uint)CardPosition.Attack) > 0)
             {
-                selectCard.transform.localEulerAngles = Vector3.zero;
-                selectCardPush.transform.localEulerAngles = Vector3.zero;
+                SetLocalEulerAnglesIfNotNull(selectCard, Vector3.zero);
+                SetLocalEulerAnglesIfNotNull(selectCardPush, Vector3.zero);
             }
             else
             {
-                selectCard.transform.localEulerAngles = new Vector3(0, 90, 0);
-                selectCardPush.transform.localEulerAngles = new Vector3(0, 90, 0);
+                SetLocalEulerAnglesIfNotNull(selectCard, new Vector3(0, 90, 0));
+                SetLocalEulerAnglesIfNotNull(selectCardPush, new Vector3(0, 90, 0));
             }
 
         }
@@ -546,6 +667,8 @@ namespace MDPro3.UI
             if ((location & p.location) > 0 && controller == p.controller)
             {
                 hintObj = ABLoader.LoadFromFile("MasterDuel/Effects/hitghlight/fxp_hl_exdeck_001", true);
+                if (hintObj == null)
+                    hintObj = CreateFallbackEffect("FallbackPlaceHint", new Vector3(3f, 1f, 3f), new Color(0.7f, 1f, 0.2f, 0.35f));
                 hintObj.transform.SetParent(transform, false);
                 int cardCount = Program.instance.ocgcore.GetLocationCardCount((CardLocation)location, controller);
                 hintObj.transform.localScale = new Vector3(1.1f, cardCount * 0.1f, 1.1f);
@@ -575,9 +698,9 @@ namespace MDPro3.UI
                 order += 8;
             order += (int)p.sequence;
             if ((filter & (1 << order)) > 0)
-                disable.SetActive(true);
+                SetActiveIfNotNull(disable, true);
             else
-                disable.SetActive(false);
+                SetActiveIfNotNull(disable, false);
         }
 
         public bool InTheSameLine(GPS gps)

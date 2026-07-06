@@ -22,12 +22,13 @@ namespace MDPro3.UI
             get { return _data; }
             set
             {
+                if (value == null)
+                    value = new Card();
                 if(_data == null || value.Id != _data.Id)
                 {
                     if(_data != null)
                         TextureLoader.DeleteCard(_data.Id);
                     _data = value;
-                    SetIcons();
                     Refresh();
                 }
             }
@@ -79,7 +80,8 @@ namespace MDPro3.UI
 
         private void OnDestroy()
         {
-            TextureLoader.DeleteCard(Data.Id);
+            if (Data != null)
+                TextureLoader.DeleteCard(Data.Id);
             Destroy(cardMat);
         }
 
@@ -98,28 +100,43 @@ namespace MDPro3.UI
 
         public void Refresh()
         {
+            if (refreshCoroutine != null)
+                StopCoroutine(refreshCoroutine);
             refreshCoroutine = StartCoroutine(RefreshAsync());
         }
 
         private IEnumerator RefreshAsync()
         {
             refreshed = false;
-            while (TextureManager.container == null)
-                yield return null;
+            try
+            {
+                while (TextureManager.container == null)
+                    yield return null;
 
-            var imageCard = Manager.GetElement<RawImage>("ImageCard");
-            imageCard.texture = TextureManager.container.GetCardUnloadTexture(Data);
+                SetIcons();
 
-            var task = TextureLoader.LoadCardAsync(Data.Id, true);
-            while (!task.IsCompleted)
-                yield return null;
+                var imageCard = Manager.GetElement<RawImage>("ImageCard");
+                imageCard.texture = TextureManager.container.GetCardUnloadTexture(Data);
 
-            cardMat = TextureManager.GetCardMaterial(Data.Id, false);
-            imageCard.material = cardMat;
-            imageCard.texture = task.Result;
+                var task = TextureLoader.LoadCardAsync(Data.Id, true);
+                while (!task.IsCompleted)
+                    yield return null;
 
-            refreshCoroutine = null;
-            refreshed = true;
+                if (TextureManager.ShouldUsePlainCardUiTextures())
+                {
+                    TextureManager.ApplyCardTextureToRawImage(imageCard, task.Result);
+                    yield break;
+                }
+
+                cardMat = TextureManager.GetCardMaterial(Data.Id, false);
+                imageCard.material = cardMat;
+                imageCard.texture = task.Result;
+            }
+            finally
+            {
+                refreshCoroutine = null;
+                refreshed = true;
+            }
         }
 
         public void RefreshRarity(int code)
@@ -127,6 +144,11 @@ namespace MDPro3.UI
             if (code != Data.Id)
                 return;
             Destroy(cardMat);
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                Manager.GetElement<RawImage>("ImageCard").material = null;
+                return;
+            }
             cardMat = TextureManager.GetCardMaterial(Data.Id, false);
             Manager.GetElement<RawImage>("ImageCard").material = cardMat;
         }

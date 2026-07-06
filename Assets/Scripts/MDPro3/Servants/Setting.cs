@@ -96,7 +96,7 @@ namespace MDPro3
             }
             RefreshCharacterName();
 
-            if (Program.instance.currentServant == Program.instance.ocgcore)
+            if (Program.instance.currentServant == Program.instance.ocgcore || Program.instance.ocgcore.showing)
             {
                 Program.instance.currentSubServant = this;
                 UIManager.ShowFPSRight();
@@ -153,7 +153,7 @@ namespace MDPro3
         {
             base.ApplyHideArrangement(nextDepth);
             Save();
-            if (Program.instance.currentServant == Program.instance.ocgcore)
+            if (Program.instance.currentServant == Program.instance.ocgcore || Program.instance.ocgcore.showing)
                 UIManager.ShowFPSLeft();
         }
 

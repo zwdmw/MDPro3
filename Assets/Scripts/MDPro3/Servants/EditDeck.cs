@@ -1518,12 +1518,10 @@ namespace MDPro3
         public SortOrder sortOrder = SortOrder.ByType;
         public void OnSearchSort()
         {
-            var handle = Addressables.InstantiateAsync("PopupSearchOrder");
-            handle.Completed += (result) =>
+            AddressablesSafe.InstantiateAsync("PopupSearchOrder", Program.instance.ui_.popup, popupObject =>
             {
-                result.Result.transform.SetParent(Program.instance.ui_.popup, false);
-                result.Result.GetComponent<UI.Popup.PopupSearchOrder>().Show();
-            };
+                popupObject.GetComponent<UI.Popup.PopupSearchOrder>().Show();
+            });
         }
 
         public void BookCard()

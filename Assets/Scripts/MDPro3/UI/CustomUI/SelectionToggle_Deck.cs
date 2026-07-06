@@ -25,6 +25,7 @@ namespace MDPro3.UI
         protected IEnumerator enumeratorCase;
         private List<Tweener> pickupTweens = new();
         private List<Tweener> pickdownTweens = new();
+        private static readonly Dictionary<int, Sprite> cachedCoverSprites = new();
 
         protected override void Awake()
         {
@@ -102,12 +103,46 @@ namespace MDPro3.UI
             for (int i = 0; i < transform.GetSiblingIndex(); i++)
                 yield return null;
 
+            var coverCode = card0 != 0 ? card0 : card1 != 0 ? card1 : card2;
+            if (coverCode != 0)
+            {
+                while (TextureManager.container == null)
+                    yield return null;
+
+                if (!cachedCoverSprites.TryGetValue(coverCode, out var coverSprite) || coverSprite == null)
+                {
+                    var task = TextureManager.LoadUiPortraitAsync(coverCode, true);
+                    while (!task.IsCompleted)
+                        yield return null;
+
+                    var texture = task.Result;
+                    if (texture != null)
+                    {
+                        coverSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+                        coverSprite.name = "DeckCover_" + coverCode;
+                        cachedCoverSprites[coverCode] = coverSprite;
+                    }
+                }
+
+                if (coverSprite != null)
+                {
+                    var deckImage = Manager.GetElement<Image>("DeckImage");
+                    deckImage.sprite = coverSprite;
+                    deckImage.preserveAspect = true;
+                    yield break;
+                }
+            }
+
             var casePath = deckCase.ToString();
             var load = Program.items.LoadItemIconAsync(casePath, Items.ItemType.Case);
             while (load.MoveNext())
                 yield return null;
             if (load.Current != null)
-                Manager.GetElement<Image>("DeckImage").sprite = load.Current;
+            {
+                var deckImage = Manager.GetElement<Image>("DeckImage");
+                deckImage.sprite = load.Current;
+                deckImage.preserveAspect = true;
+            }
         }
 
         protected override IEnumerator RefreshAsync()
@@ -122,9 +157,10 @@ namespace MDPro3.UI
             var cardImage0 = Manager.GetElement<RawImage>("CardImage0");
             if (card0 != 0)
             {
-                var task = TextureManager.LoadCardAsync(card0, true);
+                var task = TextureManager.LoadUiPortraitAsync(card0, true);
                 while (!task.IsCompleted)
                     yield return null;
+                cardImage0.material = null;
                 cardImage0.texture = task.Result;
                 //var mat = TextureManager.GetCardMaterial(card0);
                 //cardImage0.material = mat;
@@ -145,9 +181,10 @@ namespace MDPro3.UI
             var cardImage1 = Manager.GetElement<RawImage>("CardImage1");
             if (card1 != 0)
             {
-                var task = TextureManager.LoadCardAsync(card1, true);
+                var task = TextureManager.LoadUiPortraitAsync(card1, true);
                 while (!task.IsCompleted)
                     yield return null;
+                cardImage1.material = null;
                 cardImage1.texture = task.Result;
                 //var mat = TextureManager.GetCardMaterial(card1);
                 //cardImage1.material = mat;
@@ -168,9 +205,10 @@ namespace MDPro3.UI
             var cardImage2 = Manager.GetElement<RawImage>("CardImage2");
             if (card2 != 0)
             {
-                var task = TextureManager.LoadCardAsync(card2, true);
+                var task = TextureManager.LoadUiPortraitAsync(card2, true);
                 while (!task.IsCompleted)
                     yield return null;
+                cardImage2.material = null;
                 cardImage2.texture = task.Result;
                 //var mat = TextureManager.GetCardMaterial(card2);
                 //cardImage2.material = mat;

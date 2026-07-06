@@ -507,6 +507,23 @@ namespace MDPro3.UI
 
         protected virtual IEnumerator SetCardTextureAsync()
         {
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                if (tempMaterial != null)
+                    DestroyImmediate(tempMaterial);
+
+                ImageCard.material = null;
+                ImageCard.texture = TextureManager.container
+                    .GetCardUnloadTexture(CardsManager.Get(Card.Id));
+
+                var plainTask = TextureLoader.LoadCardAsync(Card.Id, true);
+                while (!plainTask.IsCompleted)
+                    yield return null;
+
+                TextureManager.ApplyCardTextureToRawImage(ImageCard, plainTask.Result);
+                yield break;
+            }
+
             if (normalMat == null)
                 normalMat = TextureManager.GetCardMaterial(-1);
             normalMat.SetTexture("_LoadingTex", TextureManager.container
@@ -554,6 +571,12 @@ namespace MDPro3.UI
 
             if (tempMaterial != null)
                 DestroyImmediate(tempMaterial);
+
+            if (TextureManager.ShouldUsePlainCardUiTextures())
+            {
+                ImageCard.material = null;
+                return;
+            }
 
             if (rarity == CardRarity.Rarity.Normal)
             {

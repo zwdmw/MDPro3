@@ -66,6 +66,18 @@ namespace MDPro3.UI
                 Program.instance.solo.StartAIForRoom(index, diyDeck);
         }
 
+        protected override void OnClick()
+        {
+            AudioManager.PlaySE(Selectable.interactable ? SoundLabelClick : SoundLabelClickInactive);
+            if (!Selectable.interactable)
+                return;
+
+            if (SetToResponser)
+                Program.instance.currentServant.Selected = Selectable;
+
+            SetToggleOn();
+        }
+
         public void PublicSubmit()
         {
             CallSubmitEvent();

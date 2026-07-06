@@ -4,10 +4,10 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.DualShock;
+using UnityEngine.InputSystem.UI;
 
 #if !UNITY_ANDROID || UNITY_EDITOR
 using UnityEngine.InputSystem.Switch;
-using UnityEngine.InputSystem.UI;
 #endif
 
 namespace MDPro3
@@ -63,6 +63,13 @@ namespace MDPro3
         public static bool MouseLeftUp;
         public static bool MouseRightUp;
         public static bool MouseMiddleUp;
+
+        private static bool pointerOverrideActive;
+        private static Vector2 pointerOverrideMousePos;
+        private static bool pointerOverrideLeftPressing;
+        private static bool lastPointerOverrideLeftPressing;
+        private static bool pointerRayOverrideActive;
+        private static Ray pointerOverrideRay;
 
         public delegate void MouseMoveAction();
         public static event MouseMoveAction OnMouseMovedAction;
@@ -135,7 +142,7 @@ namespace MDPro3
         private void Update()
         {
             MoveInput = moveAction.ReadValue<Vector2>();
-            MousePos = mouseAction.ReadValue<Vector2>();
+            MousePos = pointerOverrideActive ? pointerOverrideMousePos : mouseAction.ReadValue<Vector2>();
             LeftScrollWheel = leftScrollAction.ReadValue<Vector2>();
             RightScrollWheel = rightScrollAction.ReadValue<Vector2>();
 
@@ -167,17 +174,24 @@ namespace MDPro3
             WasRightTriggerPressed = rightTriggerAction.WasPressedThisFrame();
 
             #region Mouse
-            MouseLeftDown = leftClickAction.WasPressedThisFrame();
+            MouseLeftDown = pointerOverrideActive
+                ? pointerOverrideLeftPressing && !lastPointerOverrideLeftPressing
+                : leftClickAction.WasPressedThisFrame();
             MouseRightDown = rightClickAction.WasPressedThisFrame();
             MouseMiddleDown = middleClickAction.WasPressedThisFrame();
-            MouseLeftPressing = leftClickAction.IsPressed();
+            MouseLeftPressing = pointerOverrideActive
+                ? pointerOverrideLeftPressing
+                : leftClickAction.IsPressed();
             MouseMiddlePressing = middleClickAction.IsPressed();
             MouseRightPressing = rightClickAction.IsPressed();
-            MouseLeftUp = leftClickAction.WasReleasedThisFrame();
+            MouseLeftUp = pointerOverrideActive
+                ? !pointerOverrideLeftPressing && lastPointerOverrideLeftPressing
+                : leftClickAction.WasReleasedThisFrame();
             MouseRightUp = rightClickAction.WasReleasedThisFrame();
             MouseMiddleUp = middleClickAction.WasReleasedThisFrame();
 
             lastMousePos = MousePos;
+            lastPointerOverrideLeftPressing = pointerOverrideActive && pointerOverrideLeftPressing;
             #endregion
 
             #region Navigation
@@ -292,14 +306,89 @@ namespace MDPro3
 
             #region Hover Object
             HoverObject = null;
-            if (Program.instance.camera_.cameraMain.gameObject.activeInHierarchy
+            var mainCamera = Program.instance?.camera_?.cameraMain;
+            if (pointerRayOverrideActive)
+            {
+                HoverObject = ResolveHoverObject(pointerOverrideRay);
+            }
+            else if (mainCamera != null
+                && mainCamera.gameObject.activeInHierarchy
+                && EventSystem.current != null
                 && !EventSystem.current.IsPointerOverGameObject())
             {
-                Ray ray = Program.instance.camera_.cameraMain.ScreenPointToRay(MousePos);
-                if (Physics.Raycast(ray, out var hit))
-                    HoverObject = hit.collider.gameObject;
+                Ray ray = mainCamera.ScreenPointToRay(MousePos);
+                HoverObject = ResolveHoverObject(ray);
             }
             #endregion
+        }
+
+        public static void SetPointerOverride(Vector2 mousePos, bool leftPressing)
+        {
+            pointerOverrideActive = true;
+            pointerRayOverrideActive = false;
+            pointerOverrideMousePos = mousePos;
+            pointerOverrideLeftPressing = leftPressing;
+        }
+
+        public static void SetWorldPointerOverride(Ray ray, Vector2 mousePos, bool leftPressing)
+        {
+            pointerOverrideActive = true;
+            pointerRayOverrideActive = true;
+            pointerOverrideRay = ray;
+            pointerOverrideMousePos = mousePos;
+            pointerOverrideLeftPressing = leftPressing;
+        }
+
+        public static void ClearPointerOverride()
+        {
+            pointerOverrideActive = false;
+            pointerRayOverrideActive = false;
+            pointerOverrideLeftPressing = false;
+            lastPointerOverrideLeftPressing = false;
+        }
+
+        private static GameObject ResolveHoverObject(Ray ray)
+        {
+            var hits = Physics.RaycastAll(ray);
+            if (hits == null || hits.Length == 0)
+                return null;
+
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            GameObject fallback = null;
+            foreach (var hit in hits)
+            {
+                var hitObject = hit.collider == null ? null : hit.collider.gameObject;
+                if (hitObject == null || ShouldIgnorePhysicsHit(hitObject))
+                    continue;
+
+                var cardMono = hitObject.GetComponent<GameCardMono>()
+                    ?? hitObject.GetComponentInParent<GameCardMono>();
+                if (cardMono != null && cardMono.cookieCard != null)
+                    return cardMono.gameObject;
+
+                var place = hitObject.GetComponent<UI.PlaceSelector>()
+                    ?? hitObject.GetComponentInParent<UI.PlaceSelector>();
+                if (place != null)
+                    return place.gameObject;
+
+                if (fallback == null)
+                    fallback = hitObject;
+            }
+
+            return fallback;
+        }
+
+        private static bool ShouldIgnorePhysicsHit(GameObject hitObject)
+        {
+            if (hitObject.GetComponentInParent<CustomFieldMonsterVisual>() != null)
+                return true;
+
+            var name = hitObject.name;
+            return name == "Closeup"
+                || name.StartsWith("QuestDuelGroundCollider", StringComparison.Ordinal)
+                || name.StartsWith("FieldMonsterGLB", StringComparison.Ordinal)
+                || name == "Model";
         }
 
         private void MouseMovedEvent()

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -15,9 +16,11 @@ namespace MDPro3
 
         public static bool godMode;
 
+        private const int DefaultScriptBufferSize = 1024 * 256;
         private static string error = "Error occurred.";
 
         private static IntPtr _buffer;
+        private static int _bufferSize;
 
         private object locker = new object();
 
@@ -25,7 +28,11 @@ namespace MDPro3
 
         public PercyOCG()
         {
-            _buffer = Marshal.AllocHGlobal(1024 * 256); // 256 KiB
+            if (_buffer == IntPtr.Zero)
+            {
+                _bufferSize = DefaultScriptBufferSize;
+                _buffer = Marshal.AllocHGlobal(_bufferSize);
+            }
             error = InterString.Get("YGOPro旧版的回放崩溃了！您可以选择使用永不崩溃的新版回放。");
             ygopro = new Ygopro(ReceiveHandler, CardHandler, ScriptHandler, ChatHandler);
             //ygopro.m_log = a => UnityEngine.Debug.Log(a);
@@ -57,20 +64,19 @@ namespace MDPro3
             ScriptData ret;
             ret.buffer = IntPtr.Zero;
             ret.len = 0;
-            var fileName2 = fileName.TrimStart('.', '/');
+            var fileName2 = NormalizeScriptPath(fileName);
 
-            if (fileName.StartsWith(Program.puzzlePath) || fileName.StartsWith(Program.tempFolder))
+            if (!string.IsNullOrEmpty(fileName)
+                && (fileName.StartsWith(Program.puzzlePath) || fileName.StartsWith(Program.tempFolder)))
             {
                 if (File.Exists(fileName))
-                {
-                    content = File.ReadAllBytes(fileName);
-                    Marshal.Copy(content, 0, _buffer, content.Length);
-                    ret.buffer = _buffer;
-                    ret.len = content.Length;
-                }
+                    return CreateScriptData(File.ReadAllBytes(fileName));
             }
             else
             {
+                if (TryReadLooseScript(fileName2, out content))
+                    return CreateScriptData(content);
+
                 foreach (var zip in ZipHelper.zips)
                     if (zip.ContainsEntry(fileName2))
                     {
@@ -78,17 +84,70 @@ namespace MDPro3
                         var e = zip[fileName2];
                         e.Extract(ms);
                         content = ms.ToArray();
-                        var subcontent = new byte[30];
-                        for (int i = 0; i < 30; i++)
-                            subcontent[i] = content[i];
-
-                        Marshal.Copy(content, 0, _buffer, content.Length);
-                        ret.buffer = _buffer;
-                        ret.len = content.Length;
-                        break;
+                        return CreateScriptData(content);
                     }
             }
             return ret;
+        }
+
+        private static string NormalizeScriptPath(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return string.Empty;
+
+            return fileName.Replace('\\', '/').TrimStart('.', '/');
+        }
+
+        private static bool TryReadLooseScript(string scriptPath, out byte[] content)
+        {
+            content = null;
+            if (string.IsNullOrWhiteSpace(scriptPath))
+                return false;
+
+            var candidates = new List<string>
+            {
+                scriptPath,
+                Path.Combine(Program.expansionsPath, scriptPath).Replace('\\', '/'),
+                Program.expansionsPath + scriptPath.Replace('/', '\\')
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(candidate) || !File.Exists(candidate))
+                    continue;
+
+                content = File.ReadAllBytes(candidate);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static ScriptData CreateScriptData(byte[] content)
+        {
+            ScriptData ret;
+            ret.buffer = IntPtr.Zero;
+            ret.len = 0;
+            if (content == null || content.Length == 0)
+                return ret;
+
+            EnsureScriptBuffer(content.Length);
+            Marshal.Copy(content, 0, _buffer, content.Length);
+            ret.buffer = _buffer;
+            ret.len = content.Length;
+            return ret;
+        }
+
+        private static void EnsureScriptBuffer(int requiredSize)
+        {
+            if (_buffer != IntPtr.Zero && _bufferSize >= requiredSize)
+                return;
+
+            if (_buffer != IntPtr.Zero)
+                Marshal.FreeHGlobal(_buffer);
+
+            _bufferSize = Math.Max(DefaultScriptBufferSize, requiredSize);
+            _buffer = Marshal.AllocHGlobal(_bufferSize);
         }
         private void ChatHandler(string result)
         {
