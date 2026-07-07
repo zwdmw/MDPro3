@@ -18,10 +18,10 @@ namespace MDPro3
         private const float PanelScale = 0.014f;
         private const float SmallPanelScale = 0.016f;
         private const float HudScale = 0.017f;
-        private const float FloorHudScale = 0.038f;
-        private const float ControlHudScale = 0.030f;
+        private const float FloorHudScale = 0.041f;
+        private const float ControlHudScale = 0.033f;
         private const float CardInfoScale = 0.021f;
-        private const float DuelLogPanelScale = 0.039f;
+        private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
         private const float QuestBoardScaleX = 1.38f;
@@ -109,14 +109,18 @@ namespace MDPro3
         private TextMeshProUGUI lifeHudText;
         private Canvas controlHudCanvas;
         private RectTransform controlHudRect;
+        private RectTransform phaseTrackRoot;
         private RectTransform phaseHudButtonRoot;
         private RectTransform systemHudButtonRoot;
         private readonly List<GameObject> phaseHudRows = new List<GameObject>();
+        private readonly List<GameObject> phaseTrackRows = new List<GameObject>();
         private string lastPhaseHudSignature;
 
         private Canvas duelLogCanvas;
         private RectTransform duelLogRect;
         private TextMeshProUGUI duelLogTitleText;
+        private TextMeshProUGUI duelLogStatusText;
+        private TextMeshProUGUI duelLogPromptText;
         private TextMeshProUGUI duelLogBodyText;
         private readonly List<string> presentationLogLines = new List<string>();
         private string lastDuelLogSignature;
@@ -553,15 +557,16 @@ namespace MDPro3
             if (phaseHudCanvas == null)
             {
                 var canvasObject = CreateCanvasObject("QuestDuelPhaseHud", out phaseHudCanvas, out phaseHudRect);
-                phaseHudRect.sizeDelta = new Vector2(1020f, 330f);
+                phaseHudRect.sizeDelta = new Vector2(1120f, 430f);
                 AddPanelBackground(canvasObject, HudPanelBackground);
                 AddHudPanelChrome(phaseHudRect, HudAccentCyan);
-                AddHudSection(phaseHudRect, "LifeSection", new Vector2(34f, -48f), new Vector2(468f, 232f), HudAccentCyan);
-                AddHudSection(phaseHudRect, "PhaseSection", new Vector2(540f, -48f), new Vector2(420f, 232f), HudAccentGold);
+                AddHudSection(phaseHudRect, "LifeSection", new Vector2(34f, -48f), new Vector2(468f, 292f), HudAccentCyan);
+                AddHudSection(phaseHudRect, "PhaseSection", new Vector2(540f, -48f), new Vector2(520f, 292f), HudAccentGold);
                 CreateHudCaption("LifeCaption", phaseHudRect, new Vector2(58f, -54f), new Vector2(250f, 34f), "LP");
                 CreateHudCaption("PhaseCaption", phaseHudRect, new Vector2(564f, -54f), new Vector2(250f, 34f), "\u9636\u6bb5");
-                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(58f, -92f), new Vector2(420f, 166f), 56f, TextAlignmentOptions.Left);
-                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(564f, -94f), new Vector2(356f, 160f), 42f, TextAlignmentOptions.Left);
+                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(58f, -92f), new Vector2(420f, 206f), 60f, TextAlignmentOptions.Left);
+                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(564f, -94f), new Vector2(456f, 116f), 45f, TextAlignmentOptions.Left);
+                phaseTrackRoot = CreateRect("PhaseTrack", phaseHudRect, new Vector2(564f, -242f), new Vector2(470f, 92f), new Vector2(0f, 1f));
                 canvasObject.SetActive(false);
             }
 
@@ -603,7 +608,7 @@ namespace MDPro3
             var canMain2 = PhaseButtonHandler.main2Phase;
             var canEnd = PhaseButtonHandler.endPhase;
             if (lifeHudText != null)
-                lifeHudText.text = "\u6211\u65b9 LP " + Mathf.Max(0, core.life0) + "\n\u5bf9\u65b9 LP " + Mathf.Max(0, core.life1);
+                lifeHudText.text = FormatLifeHud(core.life0, core.life1);
 
             var signature = core.phase + "|" + canBattle + "|" + canMain2 + "|" + canEnd + "|" + core.myTurn + "|" + core.life0 + "|" + core.life1;
             if (signature != lastPhaseHudSignature)
@@ -612,6 +617,8 @@ namespace MDPro3
                 ClearRows(phaseHudRows);
                 phaseHudText.text = (core.myTurn ? "我方回合" : "对方回合") + "\n" + GetPhaseName(core.phase);
                 phaseHudText.text = LocalizeQuestLabel(phaseHudText.text);
+                phaseHudText.text = (core.myTurn ? "\u6211\u65b9\u56de\u5408" : "\u5bf9\u65b9\u56de\u5408") + "\n" + GetPhaseName(core.phase);
+                RebuildPhaseTrack(core.phase);
                 var index = 0;
                 if (canBattle)
                     AddPhaseHudButton(index++, "战斗阶段", () => SendPhaseResponse(6));
@@ -634,24 +641,87 @@ namespace MDPro3
             UpdateDuelLogPanel(core);
         }
 
+        private static string FormatLifeHud(int myLife, int opponentLife)
+        {
+            return "<color=#8DF6FF>\u6211\u65b9</color> <size=70>LP " + Mathf.Max(0, myLife) + "</size>\n"
+                + "<color=#FFB86B>\u5bf9\u65b9</color> <size=58>LP " + Mathf.Max(0, opponentLife) + "</size>";
+        }
+
+        private void RebuildPhaseTrack(DuelPhase currentPhase)
+        {
+            if (phaseTrackRoot == null)
+                return;
+
+            ClearRows(phaseTrackRows);
+            AddPhaseTrackNode(0, "\u62bd\u5361", currentPhase == DuelPhase.Draw, HudAccentCyan);
+            AddPhaseTrackNode(1, "\u51c6\u5907", currentPhase == DuelPhase.Standby, HudAccentCyan);
+            AddPhaseTrackNode(2, "\u4e3b1", currentPhase == DuelPhase.Main1, HudAccentGold);
+            AddPhaseTrackNode(
+                3,
+                "\u6218\u6597",
+                currentPhase == DuelPhase.BattleStart
+                    || currentPhase == DuelPhase.BattleStep
+                    || currentPhase == DuelPhase.Battle
+                    || currentPhase == DuelPhase.Damage
+                    || currentPhase == DuelPhase.DamageCal,
+                HudAccentRed);
+            AddPhaseTrackNode(4, "\u4e3b2", currentPhase == DuelPhase.Main2, HudAccentGold);
+            AddPhaseTrackNode(5, "\u7ed3\u675f", currentPhase == DuelPhase.End, HudAccentCyan);
+        }
+
+        private void AddPhaseTrackNode(int index, string label, bool active, Color accent)
+        {
+            var width = 72f;
+            var gap = 8f;
+            var rect = CreateRect("PhaseNode_" + index, phaseTrackRoot, new Vector2(index * (width + gap), 0f), new Vector2(width, 76f), new Vector2(0f, 1f));
+            AddRectBackground(rect, active
+                ? new Color(accent.r, accent.g, accent.b, 0.78f)
+                : new Color(0.05f, 0.07f, 0.09f, 0.78f));
+
+            var rail = CreateRect("Rail", rect, Vector2.zero, new Vector2(width, 5f), new Vector2(0f, 1f));
+            AddRectBackground(rail, active
+                ? new Color(1f, 1f, 1f, 0.86f)
+                : new Color(accent.r, accent.g, accent.b, 0.38f));
+
+            var text = CreateText("Label", rect, new Vector2(4f, -16f), new Vector2(width - 8f, 44f), active ? 25f : 22f, TextAlignmentOptions.Center);
+            text.text = label;
+            text.fontStyle = active ? FontStyles.Bold : FontStyles.Normal;
+            text.color = active ? Color.white : new Color(0.70f, 0.86f, 0.92f, 0.84f);
+            phaseTrackRows.Add(rect.gameObject);
+        }
+
         private void EnsureDuelLogPanel()
         {
             if (duelLogCanvas != null)
                 return;
 
             var canvasObject = CreateCanvasObject("QuestDuelLogPanel", out duelLogCanvas, out duelLogRect);
-            duelLogRect.sizeDelta = new Vector2(1260f, 620f);
+            duelLogRect.sizeDelta = new Vector2(1480f, 900f);
             AddPanelBackground(canvasObject, HudPanelBackground);
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
             AddHudPanelChrome(duelLogRect, HudAccentCyan);
-            AddHudSection(duelLogRect, "LogBodySection", new Vector2(40f, -124f), new Vector2(1168f, 438f), HudAccentCyan);
-            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(58f, -36f), new Vector2(1140f, 74f), 54f, TextAlignmentOptions.Left);
-            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(64f, -144f), new Vector2(1120f, 390f), 43f, TextAlignmentOptions.TopLeft);
+            AddHudSection(duelLogRect, "LogStatusSection", new Vector2(40f, -124f), new Vector2(650f, 308f), HudAccentCyan);
+            AddHudSection(duelLogRect, "LogPromptSection", new Vector2(728f, -124f), new Vector2(692f, 308f), HudAccentGold);
+            AddHudSection(duelLogRect, "LogRecentSection", new Vector2(40f, -478f), new Vector2(1380f, 334f), HudAccentCyan);
+            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(58f, -34f), new Vector2(1180f, 78f), 64f, TextAlignmentOptions.Left);
+            CreateHudCaption("StatusCaption", duelLogRect, new Vector2(66f, -138f), new Vector2(300f, 34f), "\u6218\u51b5");
+            CreateHudCaption("PromptCaption", duelLogRect, new Vector2(754f, -138f), new Vector2(300f, 34f), "\u5f53\u524d\u64cd\u4f5c");
+            CreateHudCaption("RecentCaption", duelLogRect, new Vector2(66f, -492f), new Vector2(300f, 34f), "\u6700\u8fd1\u4e8b\u4ef6");
+            duelLogStatusText = CreateText("StatusBody", duelLogRect, new Vector2(68f, -178f), new Vector2(584f, 238f), 43f, TextAlignmentOptions.TopLeft);
+            duelLogPromptText = CreateText("PromptBody", duelLogRect, new Vector2(756f, -178f), new Vector2(622f, 238f), 45f, TextAlignmentOptions.TopLeft);
+            duelLogBodyText = CreateText("RecentBody", duelLogRect, new Vector2(68f, -534f), new Vector2(1300f, 236f), 46f, TextAlignmentOptions.TopLeft);
+            duelLogStatusText.enableWordWrapping = true;
+            duelLogPromptText.enableWordWrapping = true;
             duelLogBodyText.enableWordWrapping = true;
+            duelLogStatusText.overflowMode = TextOverflowModes.Truncate;
+            duelLogPromptText.overflowMode = TextOverflowModes.Truncate;
             duelLogBodyText.overflowMode = TextOverflowModes.Truncate;
+            duelLogStatusText.fontSizeMin = 36f;
+            duelLogPromptText.fontSizeMin = 37f;
+            duelLogBodyText.fontSizeMin = 36f;
             duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
             canvasObject.SetActive(false);
             Debug.Log("Quest duel log panel created.");
@@ -668,22 +738,22 @@ namespace MDPro3
             var logText = LocalizeQuestLabel(SanitizeText(OcgCore.lastDuelLog));
             if (string.IsNullOrWhiteSpace(logText))
                 logText = "\u7b49\u5f85\u5bf9\u5c40\u4fe1\u606f";
+            var statusText = BuildDuelStatusText(core, turnText, phaseText);
+            var promptText = BuildDuelPromptText(core, messageText);
             var detailText = BuildPresentationLogText(logText);
 
-            var signature = turnText + "|" + phaseText + "|" + messageText + "|" + detailText;
+            var signature = statusText + "|" + promptText + "|" + detailText;
             if (signature != lastDuelLogSignature)
             {
                 lastDuelLogSignature = signature;
                 if (duelLogTitleText != null)
                     duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
+                if (duelLogStatusText != null)
+                    duelLogStatusText.text = statusText;
+                if (duelLogPromptText != null)
+                    duelLogPromptText.text = promptText;
                 if (duelLogBodyText != null)
-                {
-                    duelLogBodyText.text =
-                        "\u56de\u5408: " + turnText + "\n"
-                        + "\u9636\u6bb5: " + phaseText + "\n"
-                        + "\u72b6\u6001: " + messageText + "\n"
-                        + detailText;
-                }
+                    duelLogBodyText.text = detailText;
             }
 
             if (!duelLogCanvas.gameObject.activeSelf)
@@ -715,16 +785,143 @@ namespace MDPro3
 
         private string BuildPresentationLogText(string fallbackLogText)
         {
+            fallbackLogText = TrimForHud(fallbackLogText, 96);
             if (presentationLogLines.Count == 0)
-                return "\u8bb0\u5f55: " + fallbackLogText;
+                return fallbackLogText;
 
-            var text = "\u6700\u8fd1:\n";
-            for (var i = 0; i < presentationLogLines.Count; i += 1)
-                text += "\u2022 " + presentationLogLines[i] + "\n";
+            var text = string.Empty;
+            var maxLines = Mathf.Min(5, presentationLogLines.Count);
+            for (var i = 0; i < maxLines; i += 1)
+                text += "\u2022 " + TrimForHud(presentationLogLines[i], 52) + "\n";
 
             if (!string.IsNullOrWhiteSpace(fallbackLogText))
-                text += "\u8bb0\u5f55: " + fallbackLogText;
+                text += "\u65e5\u5fd7: " + fallbackLogText;
             return text.TrimEnd();
+        }
+
+        private static string BuildDuelStatusText(OcgCore core, string turnText, string phaseText)
+        {
+            if (core == null)
+                return string.Empty;
+
+            var myHand = SafeGetHandCount(core, true);
+            var opHand = SafeGetHandCount(core, false);
+            var myGrave = SafeGetLocationCount(core, CardLocation.Grave, 0);
+            var opGrave = SafeGetLocationCount(core, CardLocation.Grave, 1);
+            var myExtra = SafeGetLocationCount(core, CardLocation.Extra, 0);
+            var opExtra = SafeGetLocationCount(core, CardLocation.Extra, 1);
+            return "<size=56><b>" + turnText + "</b></size>  " + phaseText + "\n"
+                + "<color=#8DF6FF>\u6211\u65b9</color> LP " + Mathf.Max(0, core.life0)
+                + "  \u624b\u724c " + myHand + "\n"
+                + "\u5893\u5730 " + myGrave + "  \u989d\u5916 " + myExtra + "\n"
+                + "<color=#FFB86B>\u5bf9\u65b9</color> LP " + Mathf.Max(0, core.life1)
+                + "  \u624b\u724c " + opHand + "\n"
+                + "\u5893\u5730 " + opGrave + "  \u989d\u5916 " + opExtra;
+        }
+
+        private static string BuildDuelPromptText(OcgCore core, string messageText)
+        {
+            if (core == null)
+                return string.Empty;
+
+            var actionable = CountActionableCards(core);
+            var selectable = CountSelectableTargets(core);
+            var text = "<size=56><b>" + TrimForHud(messageText, 24) + "</b></size>";
+            if (selectable > 0)
+                text += "\n<color=#69FFE0>\u53ef\u9009\u76ee\u6807 " + selectable + "</color>\n\u7528\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
+            else if (actionable > 0)
+                text += "\n<color=#FFD36B>\u53ef\u64cd\u4f5c\u5361 " + actionable + "</color>\n\u70b9\u51fb\u5361\u7247\u67e5\u770b\u64cd\u4f5c";
+            else
+                text += "\n\u7b49\u5f85\u51b3\u6597\u5f15\u64ce\u5904\u7406";
+
+            var phaseActions = BuildPhaseActionText();
+            if (!string.IsNullOrEmpty(phaseActions))
+                text += "\n" + phaseActions;
+            return text;
+        }
+
+        private static string BuildPhaseActionText()
+        {
+            var text = string.Empty;
+            if (PhaseButtonHandler.battlePhase)
+                text += "\u6218\u6597 ";
+            if (PhaseButtonHandler.main2Phase)
+                text += "\u4e3b2 ";
+            if (PhaseButtonHandler.endPhase)
+                text += "\u7ed3\u675f ";
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+            return "\u53ef\u5207\u9636\u6bb5: " + text.Trim();
+        }
+
+        private static int CountActionableCards(OcgCore core)
+        {
+            if (core == null || core.cards == null)
+                return 0;
+
+            var count = 0;
+            foreach (var card in core.cards)
+            {
+                if (card == null || card.p == null || card.buttons == null || card.buttons.Count == 0)
+                    continue;
+                if ((card.p.location & (uint)(CardLocation.Hand | CardLocation.Onfield | CardLocation.Grave | CardLocation.Removed)) == 0)
+                    continue;
+                count += 1;
+            }
+            return count;
+        }
+
+        private static int CountSelectableTargets(OcgCore core)
+        {
+            if (core == null || core.places == null)
+                return 0;
+
+            var count = 0;
+            foreach (var place in core.places)
+                if (place != null && place.cardSelecting && place.cookieCard != null)
+                    count += 1;
+            return count;
+        }
+
+        private static int SafeGetHandCount(OcgCore core, bool mine)
+        {
+            if (core == null)
+                return 0;
+
+            try
+            {
+                return Mathf.Max(0, mine ? core.GetMyHandCount() : core.GetOpHandCount());
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static int SafeGetLocationCount(OcgCore core, CardLocation location, uint controller)
+        {
+            if (core == null)
+                return 0;
+
+            try
+            {
+                return Mathf.Max(0, core.GetLocationCardCount(location, controller));
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static string TrimForHud(string text, int maxChars)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            text = SanitizeText(LocalizeQuestLabel(text)).Replace("\n", " ").Trim();
+            if (maxChars <= 0 || text.Length <= maxChars)
+                return text;
+            return text.Substring(0, Mathf.Max(0, maxChars - 3)) + "...";
         }
 
         private static string FormatPresentationLogLine(DuelPresentationEvent evt)
@@ -1583,19 +1780,19 @@ namespace MDPro3
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
                 PlacePanel(
                     phaseHudRect,
-                    DuelWorldCenterOnGround + new Vector3(61.5f, 38f, -36f),
+                    DuelWorldCenterOnGround + new Vector3(60.8f, 34.2f, -31f),
                     RightSideWallRotation,
                     FloorHudScale);
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
                 PlacePanel(
                     controlHudRect,
-                    DuelWorldCenterOnGround + new Vector3(61.5f, 8.4f, -45f),
+                    DuelWorldCenterOnGround + new Vector3(60.8f, 11.4f, -47f),
                     RightSideWallRotation,
                     ControlHudScale);
             if (duelLogRect != null && duelLogCanvas.gameObject.activeSelf)
                 PlacePanel(
                     duelLogRect,
-                    DuelWorldCenterOnGround + new Vector3(61.5f, 20.5f, 4f),
+                    DuelWorldCenterOnGround + new Vector3(60.8f, 21.6f, 9.5f),
                     RightSideWallRotation,
                     DuelLogPanelScale);
         }
@@ -1981,6 +2178,8 @@ namespace MDPro3
 
         private static string GetCardName(GameCard card)
         {
+            if (card == null || card.GetData() == null)
+                return "\u672a\u77e5\u5361\u7247";
             return card == null || card.GetData() == null ? "未知卡片" : SanitizeText(card.GetData().Name);
         }
 
@@ -2016,6 +2215,26 @@ namespace MDPro3
 
         private static string GetPhaseName(DuelPhase phase)
         {
+            switch (phase)
+            {
+                case DuelPhase.Draw:
+                    return "\u62bd\u5361\u9636\u6bb5";
+                case DuelPhase.Standby:
+                    return "\u51c6\u5907\u9636\u6bb5";
+                case DuelPhase.Main1:
+                    return "\u4e3b\u8981\u9636\u6bb51";
+                case DuelPhase.BattleStart:
+                case DuelPhase.Battle:
+                case DuelPhase.BattleStep:
+                case DuelPhase.Damage:
+                case DuelPhase.DamageCal:
+                    return "\u6218\u6597\u9636\u6bb5";
+                case DuelPhase.Main2:
+                    return "\u4e3b\u8981\u9636\u6bb52";
+                case DuelPhase.End:
+                    return "\u7ed3\u675f\u9636\u6bb5";
+            }
+
             switch (phase)
             {
                 case DuelPhase.Draw:

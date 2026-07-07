@@ -67,13 +67,15 @@ namespace MDPro3
         private const float ControllerRayStartWidth = 0.012f * DuelWorldUnitsPerMeter;
         private const float ControllerRayEndWidth = 0.004f * DuelWorldUnitsPerMeter;
         private const float ControllerCursorScale = 0.055f * DuelWorldUnitsPerMeter;
-        private const float QuestDuelActionMenuScale = 0.024f;
-        private const float QuestDuelActionMenuWidth = 430f;
-        private const float QuestDuelActionMenuPadding = 24f;
-        private const float QuestDuelActionItemHeight = 88f;
-        private const float QuestDuelActionItemGap = 14f;
-        private const float QuestDuelActionCardYOffset = 1.65f;
-        private const float QuestDuelActionCardForwardOffset = 0.42f;
+        private const float QuestDuelActionMenuScale = 0.030f;
+        private const float QuestDuelActionMenuWidth = 680f;
+        private const float QuestDuelActionMenuPadding = 20f;
+        private const float QuestDuelActionItemHeight = 112f;
+        private const float QuestDuelActionItemGap = 16f;
+        private const float QuestDuelActionCardYOffset = 1.05f;
+        private const float QuestDuelActionCardForwardOffset = 0.95f;
+        private const float QuestDuelActionFloatAmplitude = 5.5f;
+        private const float QuestDuelActionHoverScaleBoost = 0.08f;
         private const int FallbackGridLineCount = 33;
         private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
@@ -116,6 +118,10 @@ namespace MDPro3
         private const float QuestDuelSleepCompressionScale = 0.35f;
         private const float QuestDuelSleepCompressionLogInterval = 3f;
         private const int QuestChainSleepCompressionMax = 12;
+        private const bool QuestVerboseRuntimeDiagnostics = false;
+        private const float QuestGraphicRaycasterCacheRefreshInterval = 1f;
+        private const int QuestPhysicsRaycastBufferSize = 96;
+        private const float QuestFoveatedRenderingLevel = 0.65f;
         private const float QuestPreviewCutinScale = 13.5f;
         private const float QuestPreviewMateTargetHeight = 30f;
         private const float QuestPreviewMateGroupSpacing = 18f;
@@ -156,6 +162,7 @@ namespace MDPro3
         private static readonly InputFeatureUsage<Quaternion> UpperAimRotationUsage = new InputFeatureUsage<Quaternion>("AimRotation");
         private static readonly List<UnityEngine.XR.InputDevice> ControllerDevices = new List<UnityEngine.XR.InputDevice>();
         private static readonly List<InputFeatureUsage> ControllerFeatureUsages = new List<InputFeatureUsage>();
+        private static readonly List<XRDisplaySubsystem> XrDisplaySubsystems = new List<XRDisplaySubsystem>();
 
         private Camera xrCamera;
         private XROrigin xrOrigin;
@@ -186,6 +193,9 @@ namespace MDPro3
         private readonly HashSet<Canvas> loadingWorldCanvasDecorations = new HashSet<Canvas>();
         private readonly Dictionary<Canvas, LegacyCanvasState> suppressedLegacyDuelCanvases = new Dictionary<Canvas, LegacyCanvasState>();
         private readonly List<RaycastResult> uiRaycastResults = new List<RaycastResult>();
+        private readonly List<GraphicRaycaster> cachedGraphicRaycasters = new List<GraphicRaycaster>();
+        private readonly RaycastHit[] questRaycastHits = new RaycastHit[QuestPhysicsRaycastBufferSize];
+        private float nextGraphicRaycasterCacheRefreshTime;
         private bool worldUiAnchorLocked;
         private Vector3 lockedWorldUiAnchorPosition;
         private Quaternion lockedWorldUiAnchorRotation;
@@ -335,6 +345,7 @@ namespace MDPro3
         private bool questPreviewDeletePressedLastFrame;
         private bool questMainUiRecenterPressedLastFrame;
         private bool questMainUiRecenterActive;
+        private bool questRuntimePerformanceTuningLogged;
 
         private InputAction pointerPositionAction;
         private InputAction pointerRotationAction;
@@ -412,6 +423,16 @@ namespace MDPro3
             public bool canvasEnabled;
             public bool hadRaycaster;
             public bool raycasterEnabled;
+        }
+
+        private sealed class RaycastHitDistanceComparer : IComparer<RaycastHit>
+        {
+            public static readonly RaycastHitDistanceComparer Instance = new RaycastHitDistanceComparer();
+
+            public int Compare(RaycastHit x, RaycastHit y)
+            {
+                return x.distance.CompareTo(y.distance);
+            }
         }
 
         public static void ResetQuestInputAfterTransition()
@@ -1257,7 +1278,7 @@ namespace MDPro3
             xrCamera.clearFlags = CameraClearFlags.SolidColor;
             xrCamera.backgroundColor = new Color(0.07f, 0.09f, 0.12f, 1f);
             xrCamera.allowHDR = false;
-            xrCamera.allowMSAA = false;
+            xrCamera.allowMSAA = true;
             xrCamera.depthTextureMode = DepthTextureMode.None;
 
             var data = xrCamera.GetUniversalAdditionalCameraData();
@@ -1268,8 +1289,8 @@ namespace MDPro3
             data.requiresDepthOption = CameraOverrideOption.Off;
             data.antialiasing = AntialiasingMode.None;
 
-            if (QualitySettings.antiAliasing != 0)
-                QualitySettings.antiAliasing = 0;
+            if (QualitySettings.antiAliasing != 4)
+                QualitySettings.antiAliasing = 4;
 
             try
             {
@@ -1287,11 +1308,13 @@ namespace MDPro3
                 ?? GraphicsSettings.renderPipelineAsset as UniversalRenderPipelineAsset;
             if (pipelineAsset != null)
             {
-                if (pipelineAsset.msaaSampleCount != 1)
-                    pipelineAsset.msaaSampleCount = 1;
+                if (pipelineAsset.msaaSampleCount != 4)
+                    pipelineAsset.msaaSampleCount = 4;
                 if (Mathf.Abs(pipelineAsset.renderScale - QuestUrpRenderScale) > 0.01f)
                     pipelineAsset.renderScale = QuestUrpRenderScale;
             }
+
+            ApplyQuestRuntimePerformanceTuning();
 
             if (!questGraphicsSafeModeLogged)
             {
@@ -1307,6 +1330,39 @@ namespace MDPro3
                     XRSettings.renderViewportScale,
                     UiRenderTextureFixedWidth,
                     UiRenderTextureFixedHeight);
+            }
+        }
+
+        private void ApplyQuestRuntimePerformanceTuning()
+        {
+            try
+            {
+                XrDisplaySubsystems.Clear();
+                SubsystemManager.GetSubsystems(XrDisplaySubsystems);
+                foreach (var display in XrDisplaySubsystems)
+                {
+                    if (display == null || !display.running)
+                        continue;
+
+                    display.foveatedRenderingLevel = Mathf.Clamp01(QuestFoveatedRenderingLevel);
+                    display.foveatedRenderingFlags = XRDisplaySubsystem.FoveatedRenderingFlags.GazeAllowed;
+                    if (!questRuntimePerformanceTuningLogged)
+                    {
+                        questRuntimePerformanceTuningLogged = true;
+                        Debug.LogFormat(
+                            "Quest XR runtime performance tuning applied. Foveation={0:F2}, Flags={1}",
+                            display.foveatedRenderingLevel,
+                            display.foveatedRenderingFlags);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!questRuntimePerformanceTuningLogged)
+                {
+                    questRuntimePerformanceTuningLogged = true;
+                    Debug.LogWarning("Quest XR runtime performance tuning failed: " + ex.Message);
+                }
             }
         }
 
@@ -4318,6 +4374,9 @@ namespace MDPro3
 
         private void LogUiRenderPanelDiagnostics(Vector3 anchorPosition, Quaternion panelRotation, float width, float height)
         {
+            if (!QuestVerboseRuntimeDiagnostics)
+                return;
+
             if (xrCamera == null || Time.unscaledTime - lastUiRenderPanelDiagnosticsLog < 5f)
                 return;
 
@@ -6072,13 +6131,13 @@ namespace MDPro3
         {
             distance = float.PositiveInfinity;
             targetRoot = null;
-            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
-            if (hits == null || hits.Length == 0)
+            var hitCount = RaycastNonAllocSorted(ray);
+            if (hitCount == 0)
                 return false;
 
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var hit in hits)
+            for (var i = 0; i < hitCount; i++)
             {
+                var hit = questRaycastHits[i];
                 if (hit.collider == null)
                     continue;
 
@@ -6476,7 +6535,7 @@ namespace MDPro3
             questDuelActionMenuCanvas.pixelPerfect = false;
 
             var scaler = menuObject.AddComponent<CanvasScaler>();
-            scaler.dynamicPixelsPerUnit = 2f;
+            scaler.dynamicPixelsPerUnit = 12f;
             scaler.referencePixelsPerUnit = 100f;
 
             var raycaster = menuObject.AddComponent<GraphicRaycaster>();
@@ -6490,7 +6549,7 @@ namespace MDPro3
             questDuelActionMenuRect.sizeDelta = new Vector2(QuestDuelActionMenuWidth, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);
 
             questDuelActionMenuBackground = menuObject.AddComponent<Image>();
-            questDuelActionMenuBackground.color = new Color(0.02f, 0.025f, 0.032f, 0.94f);
+            questDuelActionMenuBackground.color = new Color(0.02f, 0.025f, 0.032f, 0f);
             questDuelActionMenuBackground.raycastTarget = false;
 
             menuObject.SetActive(false);
@@ -6515,37 +6574,57 @@ namespace MDPro3
             }
 
             var count = questDuelActions.Count;
+            var columns = ResolveQuestDuelActionColumns(count);
+            var rows = Mathf.CeilToInt(count / (float)columns);
             var height = QuestDuelActionMenuPadding * 2f
-                + QuestDuelActionItemHeight * count
-                + QuestDuelActionItemGap * Mathf.Max(0, count - 1);
+                + QuestDuelActionItemHeight * rows
+                + QuestDuelActionItemGap * Mathf.Max(0, rows - 1);
             questDuelActionMenuRect.sizeDelta = new Vector2(QuestDuelActionMenuWidth, height);
 
             for (var index = 0; index < count; index += 1)
             {
                 var action = questDuelActions[index];
-                var row = CreateQuestDuelActionRow(action, index);
+                var row = CreateQuestDuelActionRow(action, index, columns);
                 questDuelActionRows.Add(row);
             }
         }
 
-        private GameObject CreateQuestDuelActionRow(QuestDuelAction action, int index)
+        private static int ResolveQuestDuelActionColumns(int count)
+        {
+            if (count <= 1)
+                return 1;
+            if (count <= 3)
+                return count;
+            return 2;
+        }
+
+        private GameObject CreateQuestDuelActionRow(QuestDuelAction action, int index, int columns)
         {
             var rowObject = new GameObject("QuestDuelAction_" + index, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             SetQuestOverlayLayer(rowObject);
             rowObject.transform.SetParent(questDuelActionMenuRect, false);
 
+            columns = Mathf.Max(1, columns);
+            var column = index % columns;
+            var row = index / columns;
+            var width = (QuestDuelActionMenuWidth - QuestDuelActionMenuPadding * 2f - QuestDuelActionItemGap * (columns - 1)) / columns;
+            var x = -QuestDuelActionMenuWidth * 0.5f
+                + QuestDuelActionMenuPadding
+                + width * 0.5f
+                + column * (width + QuestDuelActionItemGap);
+            var y = -QuestDuelActionMenuPadding - row * (QuestDuelActionItemHeight + QuestDuelActionItemGap);
+
             var rowRect = rowObject.GetComponent<RectTransform>();
             rowRect.anchorMin = new Vector2(0.5f, 1f);
             rowRect.anchorMax = new Vector2(0.5f, 1f);
             rowRect.pivot = new Vector2(0.5f, 1f);
-            rowRect.sizeDelta = new Vector2(QuestDuelActionMenuWidth - QuestDuelActionMenuPadding * 2f, QuestDuelActionItemHeight);
-            rowRect.anchoredPosition = new Vector2(
-                0f,
-                -QuestDuelActionMenuPadding - index * (QuestDuelActionItemHeight + QuestDuelActionItemGap));
+            rowRect.sizeDelta = new Vector2(width, QuestDuelActionItemHeight);
+            rowRect.anchoredPosition = new Vector2(x, y);
 
             var image = rowObject.GetComponent<Image>();
             image.color = GetQuestDuelActionColor(action);
             image.raycastTarget = true;
+            AddQuestDuelActionButtonChrome(rowObject.transform, rowRect.sizeDelta, ResolveQuestDuelActionAccent(action));
 
             var uiButton = rowObject.GetComponent<Button>();
             uiButton.targetGraphic = image;
@@ -6562,6 +6641,8 @@ namespace MDPro3
             };
             uiButton.onClick.AddListener(() => ExecuteQuestDuelAction(action));
             questDuelActionByRow[rowObject] = action;
+            var floater = rowObject.AddComponent<QuestDuelActionButtonFloat>();
+            floater.Configure(rowRect.anchoredPosition, index * 0.63f, QuestDuelActionFloatAmplitude, QuestDuelActionHoverScaleBoost);
 
             var labelObject = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             SetQuestOverlayLayer(labelObject);
@@ -6577,10 +6658,10 @@ namespace MDPro3
             label.text = GetQuestDuelActionLabel(action);
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
-            label.fontSize = 28f;
+            label.fontSize = columns == 1 ? 34f : 30f;
             label.enableAutoSizing = true;
             label.fontSizeMin = 18f;
-            label.fontSizeMax = 28f;
+            label.fontSizeMax = columns == 1 ? 34f : 30f;
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.raycastTarget = false;
             var font = Program.instance?.ui_?.tmpFont;
@@ -6588,6 +6669,41 @@ namespace MDPro3
                 label.font = font;
 
             return rowObject;
+        }
+
+        private static void AddQuestDuelActionButtonChrome(Transform parent, Vector2 size, Color accent)
+        {
+            if (parent == null)
+                return;
+
+            var top = CreateQuestDuelActionDecor("ActionTopLine", parent, Vector2.zero, new Vector2(size.x, 7f), new Color(accent.r, accent.g, accent.b, 0.82f));
+            top.SetAsFirstSibling();
+            var left = CreateQuestDuelActionDecor("ActionLeftLine", parent, Vector2.zero, new Vector2(6f, size.y), new Color(accent.r, accent.g, accent.b, 0.58f));
+            left.SetAsFirstSibling();
+            var glow = CreateQuestDuelActionDecor(
+                "ActionGlow",
+                parent,
+                new Vector2(10f, -size.y + 10f),
+                new Vector2(size.x - 20f, 5f),
+                new Color(accent.r, accent.g, accent.b, 0.42f));
+            glow.SetAsFirstSibling();
+        }
+
+        private static RectTransform CreateQuestDuelActionDecor(string name, Transform parent, Vector2 anchoredPosition, Vector2 size, Color color)
+        {
+            var obj = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            SetQuestOverlayLayer(obj);
+            obj.transform.SetParent(parent, false);
+            var rect = obj.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
+            var image = obj.GetComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+            return rect;
         }
 
         private void ExecuteQuestDuelAction(QuestDuelAction action)
@@ -6778,6 +6894,11 @@ namespace MDPro3
 
             if (action.Card != null
                 && questDuelWorldPresenter != null
+                && questDuelWorldPresenter.TryGetCardActionAnchor(action.Card, out var actionAnchor, out var actionRadius))
+                return ResolveQuestDuelActionMenuPositionNearAnchor(actionAnchor, actionRadius);
+
+            if (action.Card != null
+                && questDuelWorldPresenter != null
                 && questDuelWorldPresenter.TryGetCardWorldBounds(action.Card, out var questCardBounds))
                 return ResolveQuestDuelActionMenuPositionNearBounds(questCardBounds);
 
@@ -6810,6 +6931,17 @@ namespace MDPro3
             return zonePosition + new Vector3(0f, QuestDuelActionCardYOffset, 0f);
         }
 
+        private Vector3 ResolveQuestDuelActionMenuPositionNearAnchor(Vector3 anchor, float radius)
+        {
+            var height = questDuelActionMenuRect == null
+                ? QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f
+                : Mathf.Max(questDuelActionMenuRect.sizeDelta.y, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);
+            var menuHeightWorld = height * QuestDuelActionMenuScale;
+            var toViewer = ResolvePlanarDirectionToViewer(anchor);
+            var planarOffset = Mathf.Clamp(radius * 0.10f + QuestDuelActionCardForwardOffset, 0.75f, 1.75f);
+            return anchor + Vector3.up * (QuestDuelActionCardYOffset + menuHeightWorld * 0.5f) + toViewer * planarOffset;
+        }
+
         private Vector3 ResolveQuestDuelActionMenuPositionNearBounds(Bounds bounds)
         {
             var center = bounds.center;
@@ -6823,12 +6955,26 @@ namespace MDPro3
                 0.65f,
                 1.55f);
 
-            return new Vector3(center.x, y, center.z) + Vector3.back * planarOffset;
+            return new Vector3(center.x, y, center.z) + ResolvePlanarDirectionToViewer(center) * planarOffset;
         }
 
-        private static Quaternion ResolveQuestDuelActionMenuRotation(Vector3 position)
+        private Vector3 ResolvePlanarDirectionToViewer(Vector3 position)
         {
-            return Quaternion.identity;
+            var viewer = xrCamera == null ? DuelEyePosition + questPlayerWorldOffset : xrCamera.transform.position;
+            var direction = viewer - position;
+            direction.y = 0f;
+            if (direction.sqrMagnitude < 0.0001f)
+                return Vector3.back;
+            return direction.normalized;
+        }
+
+        private Quaternion ResolveQuestDuelActionMenuRotation(Vector3 position)
+        {
+            var toViewer = ResolvePlanarDirectionToViewer(position);
+            var forward = -toViewer;
+            if (forward.sqrMagnitude < 0.0001f)
+                forward = Vector3.forward;
+            return Quaternion.LookRotation(forward.normalized, Vector3.up);
         }
 
         private static bool TryGetObjectBounds(GameObject gameObject, out Bounds bounds)
@@ -6943,6 +7089,29 @@ namespace MDPro3
                     return new Color(0.32f, 0.12f, 0.16f, 0.96f);
                 default:
                     return new Color(0.12f, 0.22f, 0.34f, 0.96f);
+            }
+        }
+
+        private static Color ResolveQuestDuelActionAccent(QuestDuelAction action)
+        {
+            if (action == null)
+                return new Color(0.34f, 0.88f, 1f, 1f);
+
+            switch (action.Type)
+            {
+                case MDPro3.UI.ButtonType.Activate:
+                case MDPro3.UI.ButtonType.SpSummon:
+                case MDPro3.UI.ButtonType.PenSummon:
+                case MDPro3.UI.ButtonType.SetPendulum:
+                    return new Color(1f, 0.78f, 0.28f, 1f);
+                case MDPro3.UI.ButtonType.Battle:
+                    return new Color(1f, 0.34f, 0.24f, 1f);
+                case MDPro3.UI.ButtonType.Decide:
+                    return new Color(0.25f, 1f, 0.68f, 1f);
+                case MDPro3.UI.ButtonType.Cancel:
+                    return new Color(1f, 0.34f, 0.42f, 1f);
+                default:
+                    return new Color(0.28f, 0.86f, 1f, 1f);
             }
         }
 
@@ -7194,6 +7363,9 @@ namespace MDPro3
 
         private void LogQuestCardHit(GameCard card, GameObject hitObject, float distance, bool pressed)
         {
+            if (!QuestVerboseRuntimeDiagnostics)
+                return;
+
             var now = Time.unscaledTime;
             if (!pressed && card == lastLoggedQuestCardHit && now - lastQuestCardHitLog < 1f)
                 return;
@@ -7218,13 +7390,13 @@ namespace MDPro3
             hitObject = null;
             distance = float.PositiveInfinity;
 
-            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
-            if (hits == null || hits.Length == 0)
+            var hitCount = RaycastNonAllocSorted(ray);
+            if (hitCount == 0)
                 return false;
 
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var hit in hits)
+            for (var i = 0; i < hitCount; i++)
             {
+                var hit = questRaycastHits[i];
                 var candidateObject = hit.collider == null ? null : hit.collider.gameObject;
                 if (candidateObject == null || ShouldIgnoreQuestCardHit(candidateObject))
                     continue;
@@ -7239,8 +7411,9 @@ namespace MDPro3
                 return true;
             }
 
-            foreach (var hit in hits)
+            for (var i = 0; i < hitCount; i++)
             {
+                var hit = questRaycastHits[i];
                 var candidateObject = hit.collider == null ? null : hit.collider.gameObject;
                 if (candidateObject == null || ShouldIgnoreQuestCardHit(candidateObject))
                     continue;
@@ -7273,13 +7446,13 @@ namespace MDPro3
             pile = null;
             distance = float.PositiveInfinity;
 
-            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
-            if (hits == null || hits.Length == 0)
+            var hitCount = RaycastNonAllocSorted(ray);
+            if (hitCount == 0)
                 return false;
 
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var hit in hits)
+            for (var i = 0; i < hitCount; i++)
             {
+                var hit = questRaycastHits[i];
                 var candidateObject = hit.collider == null ? null : hit.collider.gameObject;
                 if (candidateObject == null)
                     continue;
@@ -8080,7 +8253,7 @@ namespace MDPro3
                 v = 1f - v;
             screenPosition = new Vector2(u * width, v * height);
             distance = hitDistance;
-            if (Time.unscaledTime - lastUiRenderPanelHitDiagnosticsLog > 3f)
+            if (QuestVerboseRuntimeDiagnostics && Time.unscaledTime - lastUiRenderPanelHitDiagnosticsLog > 3f)
             {
                 lastUiRenderPanelHitDiagnosticsLog = Time.unscaledTime;
                 Debug.LogFormat(
@@ -8307,6 +8480,9 @@ namespace MDPro3
             Vector2 screenPosition,
             float uiDistance)
         {
+            if (!QuestVerboseRuntimeDiagnostics)
+                return;
+
             var now = Time.unscaledTime;
             if (!pressed && now - lastQuestPointerStatusLog < 3f)
                 return;
@@ -8335,7 +8511,7 @@ namespace MDPro3
             if (!EnsureQuestPointerEventData(EventSystem.current))
                 return false;
 
-            foreach (var raycaster in FindObjectsOfType<GraphicRaycaster>())
+            foreach (var raycaster in GetCachedGraphicRaycasters())
             {
                 if (raycaster == null || !raycaster.enabled || !raycaster.gameObject.activeInHierarchy)
                     continue;
@@ -8367,7 +8543,7 @@ namespace MDPro3
             if (!EnsureQuestPointerEventData(EventSystem.current))
                 return false;
 
-            foreach (var raycaster in FindObjectsOfType<GraphicRaycaster>())
+            foreach (var raycaster in GetCachedGraphicRaycasters())
             {
                 if (raycaster == null || !raycaster.enabled || !raycaster.gameObject.activeInHierarchy)
                     continue;
@@ -8383,7 +8559,7 @@ namespace MDPro3
                 }
             }
 
-            if (target != null && target != lastLoggedQuestUi)
+            if (QuestVerboseRuntimeDiagnostics && target != null && target != lastLoggedQuestUi)
             {
                 Debug.LogFormat("Quest XR UI hit: {0} screen=({1:F0},{2:F0})",
                     GetTransformPath(target.transform),
@@ -8393,6 +8569,26 @@ namespace MDPro3
             }
 
             return target != null;
+        }
+
+        private List<GraphicRaycaster> GetCachedGraphicRaycasters()
+        {
+            var now = Time.unscaledTime;
+            if (cachedGraphicRaycasters.Count == 0 || now >= nextGraphicRaycasterCacheRefreshTime)
+                RefreshGraphicRaycasterCache(now);
+            return cachedGraphicRaycasters;
+        }
+
+        private void RefreshGraphicRaycasterCache(float now)
+        {
+            cachedGraphicRaycasters.Clear();
+            var raycasters = FindObjectsOfType<GraphicRaycaster>();
+            foreach (var raycaster in raycasters)
+            {
+                if (raycaster != null)
+                    cachedGraphicRaycasters.Add(raycaster);
+            }
+            nextGraphicRaycasterCacheRefreshTime = now + QuestGraphicRaycasterCacheRefreshInterval;
         }
 
         private bool TryGetRaycasterScreenPosition(GraphicRaycaster raycaster, Ray ray, out Vector2 screenPosition, out float distance)
@@ -8517,12 +8713,12 @@ namespace MDPro3
         private bool TryGetWorldHit(Ray ray, out Vector3 hitPoint, out float distance)
         {
             distance = float.PositiveInfinity;
-            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
-            if (hits != null && hits.Length > 0)
+            var hitCount = RaycastNonAllocSorted(ray);
+            if (hitCount > 0)
             {
-                System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-                foreach (var hit in hits)
+                for (var i = 0; i < hitCount; i++)
                 {
+                    var hit = questRaycastHits[i];
                     if (hit.collider == null)
                         continue;
 
@@ -8534,6 +8730,14 @@ namespace MDPro3
 
             hitPoint = default;
             return false;
+        }
+
+        private int RaycastNonAllocSorted(Ray ray)
+        {
+            var hitCount = Physics.RaycastNonAlloc(ray, questRaycastHits, GetQuestControllerRayLength());
+            if (hitCount > 1)
+                System.Array.Sort(questRaycastHits, 0, hitCount, RaycastHitDistanceComparer.Instance);
+            return hitCount;
         }
 
         private float GetQuestControllerRayLength()
@@ -8746,6 +8950,49 @@ namespace MDPro3
             var transform = gameObject.transform;
             for (var i = 0; i < transform.childCount; i += 1)
                 SetLayerRecursively(transform.GetChild(i).gameObject, layer);
+        }
+
+        private sealed class QuestDuelActionButtonFloat : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+        {
+            private RectTransform rect;
+            private Vector2 basePosition;
+            private float phase;
+            private float amplitude;
+            private float hoverScaleBoost;
+            private float hoverBlend;
+            private bool hovered;
+
+            public void Configure(Vector2 anchoredPosition, float phaseOffset, float bobAmplitude, float scaleBoost)
+            {
+                rect = transform as RectTransform;
+                basePosition = anchoredPosition;
+                phase = phaseOffset;
+                amplitude = Mathf.Max(0f, bobAmplitude);
+                hoverScaleBoost = Mathf.Max(0f, scaleBoost);
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                hovered = true;
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                hovered = false;
+            }
+
+            private void Update()
+            {
+                if (rect == null)
+                    rect = transform as RectTransform;
+                if (rect == null)
+                    return;
+
+                hoverBlend = Mathf.MoveTowards(hoverBlend, hovered ? 1f : 0f, Time.unscaledDeltaTime * 8.5f);
+                var bob = Mathf.Sin(Time.unscaledTime * 2.2f + phase) * amplitude;
+                rect.anchoredPosition = basePosition + Vector2.up * (bob + hoverBlend * amplitude * 0.85f);
+                rect.localScale = Vector3.one * (1f + hoverBlend * hoverScaleBoost);
+            }
         }
 
         private void QueueVirtualMouse(Vector2 screenPosition, bool pressed)

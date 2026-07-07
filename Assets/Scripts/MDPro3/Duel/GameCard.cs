@@ -2930,7 +2930,7 @@ namespace MDPro3
         {
             if (model == null || buttons.Count == 0)
                 return;
-#if UNITY_ANDROID && !UNITY_EDITOR
+#if UNITY_ANDROID && !UNITY_EDITOR && QUEST_VERBOSE_DUEL_BUTTON_LOGS
             Debug.LogFormat(
                 "Quest GameCard.CreateButtons: id={0}, buttons={1}, location={2}, controller={3}, message={4}, phase={5}, myTurn={6}",
                 data.Id,

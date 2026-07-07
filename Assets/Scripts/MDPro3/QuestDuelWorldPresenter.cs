@@ -401,23 +401,26 @@ namespace MDPro3
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
-        private const float PowerLabelY = CardThickness + 0.92f;
-        private const float PowerLabelZ = -4.18f;
-        private const float PowerLabelScale = 0.32f;
-        private const float InteractionLabelY = CardThickness + 1.18f;
-        private const float InteractionLabelZ = 4.16f;
-        private const float InteractionLabelScale = 0.42f;
-        private const float ActionMarkerBaseWidth = CardWidth * 0.52f;
-        private const float ActionMarkerBaseDepth = 0.22f;
+        private const float PowerLabelY = CardThickness + 1.18f;
+        private const float PowerLabelZ = -4.62f;
+        private const float PowerLabelScale = 0.43f;
+        private const float InteractionLabelY = CardThickness + 1.64f;
+        private const float InteractionLabelZ = 4.30f;
+        private const float InteractionLabelScale = 0.52f;
+        private const float ActionMarkerBaseWidth = CardWidth * 0.72f;
+        private const float ActionMarkerBaseDepth = 0.34f;
         private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
-        private const float ActionableCardLift = 0.62f;
-        private const float SelectionTargetCardLift = 1.35f;
-        private const float HoveredCardLift = 0.32f;
-        private const float ActionableCardBob = 0.11f;
-        private const float SelectionTargetCardBob = 0.24f;
+        private const float ActionableCardLift = 0.82f;
+        private const float SelectionTargetCardLift = 1.68f;
+        private const float HoveredCardLift = 0.46f;
+        private const float ActionableCardBob = 0.15f;
+        private const float SelectionTargetCardBob = 0.30f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
+        private const float LegacySuppressionRescanInterval = 0.5f;
+        private const bool QuestVerboseProxyDiagnostics = false;
+        private const bool QuestAutoDebugCapture = false;
         private const int MaxPresentationTransients = 56;
         private const int MaxAutomaticDebugCaptures = 6;
         private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
@@ -450,6 +453,11 @@ namespace MDPro3
         private int hiddenLegacyRendererCount;
         private int disabledLegacyColliderCount;
         private bool legacySuppressionLogged;
+        private Transform lastSuppressedLegacyDuelContainer;
+        private float nextLegacySuppressionScanTime;
+        private readonly List<Renderer> cachedLegacyRenderers = new List<Renderer>();
+        private readonly List<Collider> cachedLegacyColliders = new List<Collider>();
+        private readonly List<Canvas> cachedLegacyCanvases = new List<Canvas>();
 
         public void Configure(Camera camera, Transform anchor)
         {
@@ -541,6 +549,28 @@ namespace MDPro3
                 return false;
 
             return TryCollectWorldBounds(proxy.Root, out bounds);
+        }
+
+        public bool TryGetCardActionAnchor(GameCard card, out Vector3 anchor, out float radius)
+        {
+            anchor = default;
+            radius = 0f;
+            if (card == null)
+                return false;
+
+            if (!cardProxies.TryGetValue(card, out var proxy) || proxy == null || proxy.Root == null)
+                return false;
+            if (!proxy.Root.activeInHierarchy)
+                return false;
+
+            var scale = Mathf.Max(
+                Mathf.Abs(proxy.Transform.lossyScale.x),
+                Mathf.Abs(proxy.Transform.lossyScale.y),
+                Mathf.Abs(proxy.Transform.lossyScale.z),
+                0.001f);
+            anchor = proxy.Transform.position + Vector3.up * Mathf.Max(0.85f, scale * 1.08f);
+            radius = Mathf.Max(CardWidth, CardHeight) * 0.5f * scale;
+            return true;
         }
 
         public bool TryResolvePile(GameObject hitObject, out uint controller, out CardLocation location)
@@ -1244,15 +1274,74 @@ namespace MDPro3
             if (proxy.InteractionLabelRoot == null || proxy.InteractionLabelText == null)
                 return;
 
-            var showLabel = selectable;
+            var showLabel = selectable || actionable;
             if (proxy.InteractionLabelRoot.activeSelf != showLabel)
                 proxy.InteractionLabelRoot.SetActive(showLabel);
             if (!showLabel)
                 return;
 
-            proxy.InteractionLabelText.text = "\u9009\u62e9\u76ee\u6807";
-            proxy.InteractionLabelText.color = new Color(0.35f, 1f, 0.82f, 1f);
+            proxy.InteractionLabelText.text = selectable
+                ? "\u9009\u62e9\u76ee\u6807"
+                : GetQuestActionHintLabel(card);
+            proxy.InteractionLabelText.color = selectable
+                ? new Color(0.35f, 1f, 0.82f, 1f)
+                : new Color(1f, 0.82f, 0.28f, 1f);
             FaceTextToCamera(proxy.InteractionLabelRoot.transform);
+        }
+
+        private static string GetQuestActionHintLabel(GameCard card)
+        {
+            if (card == null || card.buttons == null || card.buttons.Count == 0)
+                return "\u53ef\u64cd\u4f5c";
+
+            var hasActivate = false;
+            var hasSummon = false;
+            var hasSpecialSummon = false;
+            var hasBattle = false;
+            var hasSet = false;
+            var hasPosition = false;
+            foreach (var button in card.buttons)
+            {
+                switch (button.type)
+                {
+                    case MDPro3.UI.ButtonType.Activate:
+                        hasActivate = true;
+                        break;
+                    case MDPro3.UI.ButtonType.Summon:
+                    case MDPro3.UI.ButtonType.PenSummon:
+                        hasSummon = true;
+                        break;
+                    case MDPro3.UI.ButtonType.SpSummon:
+                        hasSpecialSummon = true;
+                        break;
+                    case MDPro3.UI.ButtonType.Battle:
+                        hasBattle = true;
+                        break;
+                    case MDPro3.UI.ButtonType.SetSpell:
+                    case MDPro3.UI.ButtonType.SetMonster:
+                    case MDPro3.UI.ButtonType.SetPendulum:
+                        hasSet = true;
+                        break;
+                    case MDPro3.UI.ButtonType.ToAttackPosition:
+                    case MDPro3.UI.ButtonType.ToDefensePosition:
+                        hasPosition = true;
+                        break;
+                }
+            }
+
+            if (hasBattle)
+                return "\u53ef\u653b\u51fb";
+            if (hasActivate)
+                return "\u53ef\u53d1\u52a8";
+            if (hasSpecialSummon)
+                return "\u53ef\u7279\u53ec";
+            if (hasSummon)
+                return "\u53ef\u53ec\u5524";
+            if (hasSet)
+                return "\u53ef\u653e\u7f6e";
+            if (hasPosition)
+                return "\u53ef\u8f6c\u5411";
+            return "\u53ef\u64cd\u4f5c";
         }
 
         private void UpdateHandAccentProxy(QuestCardProxy proxy, GameCard card, QuestCardInteractionState state)
@@ -1456,19 +1545,27 @@ namespace MDPro3
                 {
                     materialCount = 0;
                 }
-                extras += "  MAT " + materialCount;
+                extras += "  \u7d20\u6750 " + materialCount;
             }
             if (data.HasType(CardType.Tuner))
-                extras += "  TUNER";
+                extras += "  \u8c03\u6574";
 
             var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 0);
             var attackActive = card != null && card.p != null && ((card.p.position & (uint)CardPosition.Attack) > 0 || data.HasType(CardType.Link));
             var defenseActive = !data.HasType(CardType.Link) && !attackActive;
-            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 17 : 12);
+            var stance = data.HasType(CardType.Link)
+                ? "LINK"
+                : attackActive ? "\u653b\u51fb\u8868\u793a" : "\u5b88\u5907\u8868\u793a";
+            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 20 : 15);
             if (data.HasType(CardType.Link))
-                return grade + "\n" + attack;
+                return grade + "  " + ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 0) + "\n" + attack;
 
-            return grade + "\n" + attack + " / " + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 17 : 12);
+            return grade
+                + "  " + ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 0)
+                + "\n"
+                + attack
+                + "   "
+                + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 20 : 15);
         }
 
         private static string GetMonsterGradeLabel(Card data)
@@ -1479,11 +1576,11 @@ namespace MDPro3
             switch (data.GetLevelType())
             {
                 case Card.LevelType.Rank:
-                    return "RANK";
+                    return "\u9636\u7ea7";
                 case Card.LevelType.Link:
                     return "LINK";
                 default:
-                    return "LV";
+                    return "\u2605";
             }
         }
 
@@ -1826,7 +1923,7 @@ namespace MDPro3
             var rotation = GameCard.GetCardRotation(gps);
             pile.Transform.localPosition = position;
             pile.Transform.localRotation = Quaternion.Euler(0f, rotation.y, 0f);
-            pile.Label.text = label + "\n" + count.ToString();
+            pile.Label.text = (controller == 0 ? "\u6211\u65b9 " : "\u5bf9\u65b9 ") + label + "\n" + count + " \u5f20";
             pile.Hit.Controller = controller;
             pile.Hit.Location = location;
             FaceTextToCamera(pile.Label.transform);
@@ -1855,42 +1952,97 @@ namespace MDPro3
         private void SuppressLegacyDuelContainer(Transform legacyDuelContainer)
         {
             if (legacyDuelContainer == null)
+            {
+                cachedLegacyRenderers.Clear();
+                cachedLegacyColliders.Clear();
+                cachedLegacyCanvases.Clear();
+                lastSuppressedLegacyDuelContainer = null;
                 return;
+            }
 
             var hiddenThisFrame = 0;
-            foreach (var renderer in legacyDuelContainer.GetComponentsInChildren<Renderer>(true))
-            {
-                if (renderer == null || renderer.GetComponentInParent<QuestCardProxyHit>() != null)
-                    continue;
-
-                if (!renderer.forceRenderingOff)
-                {
-                    renderer.forceRenderingOff = true;
-                    hiddenLegacyRendererCount += 1;
-                    hiddenThisFrame += 1;
-                }
-                if (renderer.enabled)
-                    renderer.enabled = false;
-            }
-
             var disabledThisFrame = 0;
-            foreach (var collider in legacyDuelContainer.GetComponentsInChildren<Collider>(true))
+            var now = Time.unscaledTime;
+            if (legacyDuelContainer != lastSuppressedLegacyDuelContainer || now >= nextLegacySuppressionScanTime)
             {
-                if (collider == null || collider.GetComponentInParent<QuestCardProxyHit>() != null)
-                    continue;
+                cachedLegacyRenderers.Clear();
+                cachedLegacyColliders.Clear();
+                cachedLegacyCanvases.Clear();
+                lastSuppressedLegacyDuelContainer = legacyDuelContainer;
+                nextLegacySuppressionScanTime = now + LegacySuppressionRescanInterval;
 
-                if (collider.enabled)
+                foreach (var renderer in legacyDuelContainer.GetComponentsInChildren<Renderer>(true))
                 {
-                    collider.enabled = false;
-                    disabledLegacyColliderCount += 1;
-                    disabledThisFrame += 1;
+                    if (renderer == null || renderer.GetComponentInParent<QuestCardProxyHit>() != null)
+                        continue;
+
+                    cachedLegacyRenderers.Add(renderer);
+                    if (SuppressLegacyRenderer(renderer))
+                    {
+                        hiddenLegacyRendererCount += 1;
+                        hiddenThisFrame += 1;
+                    }
+                }
+
+                foreach (var collider in legacyDuelContainer.GetComponentsInChildren<Collider>(true))
+                {
+                    if (collider == null || collider.GetComponentInParent<QuestCardProxyHit>() != null)
+                        continue;
+
+                    cachedLegacyColliders.Add(collider);
+                    if (SuppressLegacyCollider(collider))
+                    {
+                        disabledLegacyColliderCount += 1;
+                        disabledThisFrame += 1;
+                    }
+                }
+
+                foreach (var canvas in legacyDuelContainer.GetComponentsInChildren<Canvas>(true))
+                {
+                    if (canvas == null)
+                        continue;
+
+                    cachedLegacyCanvases.Add(canvas);
+                    canvas.enabled = false;
                 }
             }
-
-            foreach (var canvas in legacyDuelContainer.GetComponentsInChildren<Canvas>(true))
+            else
             {
-                if (canvas != null && canvas.enabled)
+                for (var i = cachedLegacyRenderers.Count - 1; i >= 0; i--)
+                {
+                    var renderer = cachedLegacyRenderers[i];
+                    if (renderer == null)
+                    {
+                        cachedLegacyRenderers.RemoveAt(i);
+                        continue;
+                    }
+
+                    SuppressLegacyRenderer(renderer);
+                }
+
+                for (var i = cachedLegacyColliders.Count - 1; i >= 0; i--)
+                {
+                    var collider = cachedLegacyColliders[i];
+                    if (collider == null)
+                    {
+                        cachedLegacyColliders.RemoveAt(i);
+                        continue;
+                    }
+
+                    SuppressLegacyCollider(collider);
+                }
+
+                for (var i = cachedLegacyCanvases.Count - 1; i >= 0; i--)
+                {
+                    var canvas = cachedLegacyCanvases[i];
+                    if (canvas == null)
+                    {
+                        cachedLegacyCanvases.RemoveAt(i);
+                        continue;
+                    }
+
                     canvas.enabled = false;
+                }
             }
 
             if (!legacySuppressionLogged && (hiddenThisFrame > 0 || disabledThisFrame > 0))
@@ -1901,6 +2053,27 @@ namespace MDPro3
                     hiddenLegacyRendererCount,
                     disabledLegacyColliderCount);
             }
+        }
+
+        private static bool SuppressLegacyRenderer(Renderer renderer)
+        {
+            if (renderer == null)
+                return false;
+
+            var changed = !renderer.forceRenderingOff || renderer.enabled;
+            renderer.forceRenderingOff = true;
+            renderer.enabled = false;
+            return changed;
+        }
+
+        private static bool SuppressLegacyCollider(Collider collider)
+        {
+            if (collider == null)
+                return false;
+
+            var changed = collider.enabled;
+            collider.enabled = false;
+            return changed;
         }
 
         private static string GetTransformPath(Transform transform)
@@ -1922,6 +2095,9 @@ namespace MDPro3
 
         private void LogDiagnostics(OcgCore core, Transform legacyDuelContainer)
         {
+            if (!QuestVerboseProxyDiagnostics)
+                return;
+
             if (Time.unscaledTime - lastDiagnosticsTime < ProxyDiagnosticsInterval)
                 return;
 
@@ -1948,6 +2124,9 @@ namespace MDPro3
 
         private void CaptureDebugFrameIfUseful()
         {
+            if (!QuestAutoDebugCapture)
+                return;
+
             if (automaticDebugCaptureCount >= MaxAutomaticDebugCaptures)
                 return;
             if (Time.unscaledTime < 5f)
@@ -2428,15 +2607,15 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 16.5f;
+                text.fontSize = 20f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.22f;
+                text.outlineWidth = 0.28f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
-                text.margin = new Vector4(0.4f, 0.2f, 0.4f, 0.2f);
+                text.margin = new Vector4(0.6f, 0.3f, 0.6f, 0.3f);
 
                 labelRoot.SetActive(false);
                 return labelRoot;
@@ -2460,7 +2639,7 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 10.5f;
+                text.fontSize = 13.2f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
@@ -2528,11 +2707,14 @@ namespace MDPro3
                 SetQuestOverlayLayer(labelObject);
                 labelObject.transform.SetParent(root.transform, false);
                 labelObject.transform.localPosition = new Vector3(0f, 0.92f, 0f);
-                labelObject.transform.localScale = Vector3.one * 0.76f;
+                labelObject.transform.localScale = Vector3.one * 0.84f;
                 var label = labelObject.AddComponent<TextMeshPro>();
                 label.alignment = TextAlignmentOptions.Center;
-                label.fontSize = 2.2f;
-                label.color = Color.white;
+                label.fontSize = 2.6f;
+                label.fontStyle = FontStyles.Bold;
+                label.color = new Color(0.88f, 1f, 1f, 1f);
+                label.outlineWidth = 0.18f;
+                label.outlineColor = new Color(0f, 0f, 0f, 0.95f);
                 label.enableWordWrapping = false;
                 label.text = string.Empty;
 

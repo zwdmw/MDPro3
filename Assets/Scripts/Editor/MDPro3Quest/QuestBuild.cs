@@ -41,6 +41,7 @@ namespace MDPro3.EditorTools
         private const string MetaQuestProFeatureId = "com.unity.openxr.feature.input.metaquestpro";
         private const string HandInteractionFeatureId = "com.unity.openxr.feature.input.handinteraction";
         private const string HandInteractionPosesFeatureId = "com.unity.openxr.feature.input.handinteractionposes";
+        private const string FoveatedRenderingFeatureId = "com.unity.openxr.feature.foveatedrendering";
 
         [MenuItem("MDPro3/Quest/Build Android APK")]
         public static void BuildQuestApkMenu()
@@ -181,8 +182,10 @@ namespace MDPro3.EditorTools
             SetOpenXRFeatureEnabled(MetaQuestProFeatureId, enabled: true, required: false);
             SetOpenXRFeatureEnabled(HandInteractionFeatureId, enabled: false, required: false);
             SetOpenXRFeatureEnabled(HandInteractionPosesFeatureId, enabled: false, required: false);
+            SetOpenXRFeatureEnabled(FoveatedRenderingFeatureId, enabled: true, required: false);
 
             ConfigureMetaQuestFeature(openXrSettings);
+            ConfigureFoveatedRenderingFeature(openXrSettings);
             DisableCameraPassthroughFeature(openXrSettings);
 
             EditorUtility.SetDirty(generalSettings);
@@ -267,6 +270,21 @@ namespace MDPro3.EditorTools
             SetSerializedBool(questFeature, "m_optimizeBufferDiscards", true);
 
             EditorUtility.SetDirty(questFeature);
+        }
+
+        private static void ConfigureFoveatedRenderingFeature(OpenXRSettings openXrSettings)
+        {
+            if (openXrSettings == null)
+                return;
+
+            openXrSettings.foveatedRenderingApi = OpenXRSettings.BackendFovationApi.SRPFoveation;
+            var feature = openXrSettings.GetFeature<UnityEngine.XR.OpenXR.Features.FoveatedRenderingFeature>();
+            if (feature != null)
+                SetSerializedBool(feature, "enableSubsampledLayout", true);
+
+            EditorUtility.SetDirty(openXrSettings);
+            if (feature != null)
+                EditorUtility.SetDirty(feature);
         }
 
         private static void DisableCameraPassthroughFeature(OpenXRSettings openXrSettings)
