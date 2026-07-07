@@ -17,6 +17,7 @@ using Unity.XR.CompositionLayers;
 using Unity.XR.CompositionLayers.Layers;
 using Unity.XR.CompositionLayers.Services;
 using UnityEngine.XR;
+using UnityEngine.XR.Management;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 using UnityEngine.XR.OpenXR.Features.Meta;
@@ -29,6 +30,7 @@ namespace MDPro3
     {
         private const float DuelWorldUnitsPerMeter = 16f;
         private const bool UsePassthroughMixedReality = false;
+        private const bool QuestEnableHandInteractionPointer = false;
         private const bool QuestUseNativeMainMenu = false;
         private const bool QuestNativeDuelFrontendOnly = true;
         private const bool QuestUseWorldSpaceMdproUi = false;
@@ -60,6 +62,7 @@ namespace MDPro3
         private const float UiRenderPanelHeightOffset = 28f;
         private const float UiRenderPanelSideOffset = 0f;
         private const float UiRenderPanelForwardOffset = 54f;
+        private const float QuestMainUiRecenterDistance = 92f;
         private const float ControllerRayLength = 30f * DuelWorldUnitsPerMeter;
         private const float ControllerRayStartWidth = 0.012f * DuelWorldUnitsPerMeter;
         private const float ControllerRayEndWidth = 0.004f * DuelWorldUnitsPerMeter;
@@ -95,6 +98,13 @@ namespace MDPro3
         private const float DuelGroundSnapThreshold = 0.025f;
         private const float DuelWorldBoundsLogInterval = 4f;
         private const float ControllerPoseDiagnosticInterval = 5f;
+        private const float QuestInputRecoveryWarmupDuration = 18f;
+        private const float QuestInputRecoveryPollInterval = 0.75f;
+        private const float QuestInputMissingPosePollInterval = 2f;
+        private const float QuestInputDeviceLogInterval = 4f;
+        private const float QuestInputXrRestartDelay = 8f;
+        private const float QuestInputXrRestartCooldown = 20f;
+        private const int QuestInputXrRestartMaxAttempts = 1;
         private const float MdproCameraConfigureInterval = 0.5f;
         private const float QuestMainMenuUiRecoverySuppressDuration = 0.75f;
         private const float QuestMainMenuUiRecoveryDuration = 1.8f;
@@ -106,6 +116,16 @@ namespace MDPro3
         private const float QuestDuelSleepCompressionScale = 0.35f;
         private const float QuestDuelSleepCompressionLogInterval = 3f;
         private const int QuestChainSleepCompressionMax = 12;
+        private const float QuestPreviewCutinScale = 13.5f;
+        private const float QuestPreviewMateTargetHeight = 30f;
+        private const float QuestPreviewMateGroupSpacing = 18f;
+        private const float QuestPreviewMoveSpeed = 18f;
+        private const float QuestPreviewDepthSpeed = 22f;
+        private const float QuestPreviewScaleSpeed = 1.2f;
+        private const float QuestPreviewRayRotateSensitivityX = 260f;
+        private const float QuestPreviewRayRotateSensitivityY = 190f;
+        private const float QuestPreviewPitchLimit = 75f;
+        private const float QuestPreviewHitPadding = 1.8f;
         private const float QuestThumbstickDeadZone = 0.18f;
         private const float QuestPlayerMoveSpeed = 14f;
         private const float QuestPlayerVerticalSpeed = 10f;
@@ -118,6 +138,8 @@ namespace MDPro3
         private static readonly Vector3 DuelEyePosition = new Vector3(0f, 24f, -50f);
         private static readonly Vector3 DuelLookTarget = new Vector3(0f, DuelGroundY + 0.5f, -1.5f);
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, DuelGroundY, -1.5f);
+        private static readonly Vector3 QuestPreviewCutinDefaultOffset = new Vector3(0f, 18f, -18f);
+        private static readonly Vector3 QuestPreviewMateDefaultOffset = new Vector3(25f, 0f, -14f);
         private static readonly InputFeatureUsage<Vector3> PointerPositionUsage = new InputFeatureUsage<Vector3>("PointerPosition");
         private static readonly InputFeatureUsage<Quaternion> PointerRotationUsage = new InputFeatureUsage<Quaternion>("PointerRotation");
         private static readonly InputFeatureUsage<Vector3> LowerPointerPositionUsage = new InputFeatureUsage<Vector3>("pointerPosition");
@@ -215,6 +237,15 @@ namespace MDPro3
         private bool missingControllerPoseLogged;
         private float lastControllerPoseDiagnosticLog;
         private bool handInteractionPoseLogged;
+        private bool questInputCallbacksRegistered;
+        private float questInputRecoveryUntil;
+        private float lastQuestInputRecoveryTime;
+        private float lastQuestInputDeviceLog;
+        private int questControllerPoseMask = -1;
+        private string lastQuestInputDeviceSummary;
+        private bool questInputXrRestartInProgress;
+        private int questInputXrRestartAttempts;
+        private float questInputXrRestartNotBefore;
         private GameObject lastLoggedQuestUi;
         private float lastQuestPointerStatusLog;
         private float lastDuelWorldBoundsLog;
@@ -268,6 +299,24 @@ namespace MDPro3
         private Vector3 questDuelWorldUserAnchorPosition;
         private float questPlayerYawOffsetDegrees;
         private Transform questCutinWorldRoot;
+        private Transform questMatePreviewWorldRoot;
+        private float lastQuestPreviewLog;
+        private float lastQuestPreviewControlLog;
+        private Vector3 questCutinPreviewOffset;
+        private Vector3 questMatePreviewOffset;
+        private Vector2 questCutinPreviewRotation;
+        private Vector2 questMatePreviewRotation;
+        private float questCutinPreviewScaleMultiplier = 1f;
+        private float questMatePreviewScaleMultiplier = 1f;
+        private bool questPreviewRayDragging;
+        private bool questPreviewRayDragMate;
+        private float questPreviewRayDragDistance;
+        private Vector2 questPreviewRayLastViewport;
+        private Transform questPreviewRayDragTarget;
+        private Transform questSelectedMatePreview;
+        private bool questPreviewDeletePressedLastFrame;
+        private bool questMainUiRecenterPressedLastFrame;
+        private bool questMainUiRecenterActive;
 
         private InputAction pointerPositionAction;
         private InputAction pointerRotationAction;
@@ -276,6 +325,7 @@ namespace MDPro3
         private InputAction handPointerRotationAction;
         private InputAction handPointerPressAction;
         private InputAction leftThumbstickAction;
+        private InputAction leftPrimaryButtonAction;
         private InputAction rightThumbstickAction;
         private InputAction rightPrimaryButtonAction;
         private InputAction rightSecondaryButtonAction;
@@ -611,13 +661,36 @@ namespace MDPro3
         public static bool PrepareQuestMonsterCutin(GameObject root)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (!CanShowQuestNativeDuelUi() || root == null)
+            if (activeInstance == null || root == null)
                 return false;
 
             activeInstance.AttachMonsterCutinToWorld(root);
             return true;
 #else
             return false;
+#endif
+        }
+
+        public static bool PrepareQuestMatePreview(Mate mate)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (activeInstance == null || mate == null)
+                return false;
+
+            activeInstance.AttachMatePreviewToWorld(mate);
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        public static void DetachQuestMatePreview(Mate mate)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (activeInstance == null || mate == null)
+                return;
+
+            activeInstance.DetachMatePreviewFromWorld(mate);
 #endif
         }
 
@@ -678,12 +751,15 @@ namespace MDPro3
             CreatePoseActions();
             CreateVirtualMouseActions();
             EnsureVirtualMouse();
+            RegisterQuestInputCallbacks();
+            RequestQuestInputRefresh("startup");
 #endif
         }
 
         private void Update()
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
+            UpdateQuestInputRecovery();
             CalibrateTrackingOriginIfReady();
             RecalibrateTrackingOriginWhenUserPresenceAppears();
             ConfigureFloorTrackingOrigin();
@@ -710,6 +786,12 @@ namespace MDPro3
             questNativeMainMenu?.Tick();
             if (questNativeDuelActive)
             {
+                if (questMainUiRecenterActive)
+                {
+                    questMainUiRecenterActive = false;
+                    ReapplyXrOriginForCurrentHeadPose();
+                    Debug.Log("Quest main UI recenter cleared on duel entry.");
+                }
                 EnsureQuestDuelNativeUi();
                 questDuelNativeUi?.Tick();
             }
@@ -719,6 +801,7 @@ namespace MDPro3
                 ClearQuestDuelActionMenu();
                 ResetQuestWorldControlsWhenNoDuel();
             }
+            UpdateQuestMainUiRecenterInput(questNativeDuelActive);
             MaintainQuestMainMenuUiRecovery(questNativeDuelActive);
             UpdateQuestDuelActionMenuPose();
             UpdateQuestPointer();
@@ -739,6 +822,7 @@ namespace MDPro3
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (activeInstance == this)
                 activeInstance = null;
+            UnregisterQuestInputCallbacks();
             pointerPositionAction?.Dispose();
             pointerRotationAction?.Dispose();
             pointerPressAction?.Dispose();
@@ -746,6 +830,7 @@ namespace MDPro3
             handPointerRotationAction?.Dispose();
             handPointerPressAction?.Dispose();
             leftThumbstickAction?.Dispose();
+            leftPrimaryButtonAction?.Dispose();
             rightThumbstickAction?.Dispose();
             rightPrimaryButtonAction?.Dispose();
             rightSecondaryButtonAction?.Dispose();
@@ -771,6 +856,308 @@ namespace MDPro3
                 Destroy(uiRenderTexture);
             }
 #endif
+        }
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (hasFocus)
+                RequestQuestInputRefresh("application-focus");
+#endif
+        }
+
+        private void OnApplicationPause(bool pauseStatus)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (!pauseStatus)
+                RequestQuestInputRefresh("application-resume");
+#endif
+        }
+
+        private void RegisterQuestInputCallbacks()
+        {
+            if (questInputCallbacksRegistered)
+                return;
+
+            InputDevices.deviceConnected += OnQuestXrDeviceChanged;
+            InputDevices.deviceDisconnected += OnQuestXrDeviceChanged;
+            InputDevices.deviceConfigChanged += OnQuestXrDeviceChanged;
+            InputSystem.onDeviceChange += OnQuestInputSystemDeviceChanged;
+            questInputCallbacksRegistered = true;
+        }
+
+        private void UnregisterQuestInputCallbacks()
+        {
+            if (!questInputCallbacksRegistered)
+                return;
+
+            InputDevices.deviceConnected -= OnQuestXrDeviceChanged;
+            InputDevices.deviceDisconnected -= OnQuestXrDeviceChanged;
+            InputDevices.deviceConfigChanged -= OnQuestXrDeviceChanged;
+            InputSystem.onDeviceChange -= OnQuestInputSystemDeviceChanged;
+            questInputCallbacksRegistered = false;
+        }
+
+        private void OnQuestXrDeviceChanged(UnityEngine.XR.InputDevice device)
+        {
+            RequestQuestInputRefresh("xr-device:" + (device.isValid ? device.name : "<invalid>"));
+        }
+
+        private void OnQuestInputSystemDeviceChanged(UnityEngine.InputSystem.InputDevice device, InputDeviceChange change)
+        {
+            switch (change)
+            {
+                case InputDeviceChange.Added:
+                case InputDeviceChange.Reconnected:
+                case InputDeviceChange.Enabled:
+                case InputDeviceChange.UsageChanged:
+                case InputDeviceChange.ConfigurationChanged:
+                case InputDeviceChange.SoftReset:
+                case InputDeviceChange.HardReset:
+                    RequestQuestInputRefresh("input-system:" + change + ":" + (device == null ? "<null>" : device.displayName));
+                    break;
+            }
+        }
+
+        private void RequestQuestInputRefresh(string reason)
+        {
+            var now = Time.unscaledTime;
+            questInputRecoveryUntil = Mathf.Max(questInputRecoveryUntil, now + QuestInputRecoveryWarmupDuration);
+            lastQuestInputRecoveryTime = -999f;
+            LogQuestInputDeviceSummary("request-" + reason, true);
+        }
+
+        private void UpdateQuestInputRecovery()
+        {
+            var poseMask = GetQuestControllerPoseMask();
+            if (poseMask != questControllerPoseMask)
+            {
+                questControllerPoseMask = poseMask;
+                if (poseMask != 0)
+                    missingControllerPoseLogged = false;
+                LogQuestInputDeviceSummary("pose-state-" + DescribeQuestControllerPoseMask(poseMask), true);
+            }
+
+            var now = Time.unscaledTime;
+            var missingPose = poseMask == 0;
+            var inWarmup = now <= questInputRecoveryUntil;
+            if (missingPose)
+                TryStartQuestXrRestartForInputRecovery(now);
+            if (!missingPose && !inWarmup)
+                return;
+
+            var interval = missingPose ? QuestInputMissingPosePollInterval : QuestInputRecoveryPollInterval;
+            if (now - lastQuestInputRecoveryTime < interval)
+            {
+                LogQuestInputDeviceSummary(missingPose ? "missing-pose" : "warmup", false);
+                return;
+            }
+
+            RefreshQuestInputBindings(missingPose ? "missing-pose" : "warmup");
+        }
+
+        private void TryStartQuestXrRestartForInputRecovery(float now)
+        {
+            if (questInputXrRestartInProgress
+                || questInputXrRestartAttempts >= QuestInputXrRestartMaxAttempts
+                || now < questInputXrRestartNotBefore
+                || now - createdAt < QuestInputXrRestartDelay)
+                return;
+
+            StartCoroutine(RestartQuestXrForInputRecovery());
+        }
+
+        private IEnumerator RestartQuestXrForInputRecovery()
+        {
+            questInputXrRestartInProgress = true;
+            questInputXrRestartAttempts += 1;
+            questInputXrRestartNotBefore = Time.unscaledTime + QuestInputXrRestartCooldown;
+
+            Debug.LogFormat(
+                "Quest XR input recovery restarting XR loader. Attempt={0}, XRDevices={1}, Input={2}",
+                questInputXrRestartAttempts,
+                DescribeCurrentXRDevices(),
+                DescribeInputSystemQuestDevices());
+
+            var manager = XRGeneralSettings.Instance == null ? null : XRGeneralSettings.Instance.Manager;
+            if (manager == null)
+            {
+                Debug.LogWarning("Quest XR input recovery cannot restart XR loader: XR manager is null.");
+                questInputXrRestartInProgress = false;
+                yield break;
+            }
+
+            try
+            {
+                manager.StopSubsystems();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarningFormat("Quest XR input recovery StopSubsystems failed: {0}", ex.Message);
+            }
+
+            yield return null;
+            yield return new WaitForSecondsRealtime(0.35f);
+
+            try
+            {
+                manager.DeinitializeLoader();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarningFormat("Quest XR input recovery DeinitializeLoader failed: {0}", ex.Message);
+            }
+
+            yield return null;
+            yield return new WaitForSecondsRealtime(0.5f);
+
+            try
+            {
+                manager.InitializeLoaderSync();
+                manager.StartSubsystems();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarningFormat("Quest XR input recovery Initialize/Start failed: {0}", ex.Message);
+            }
+
+            trackingOriginModeRequested = false;
+            trackingOriginCalibrated = false;
+            trackingOriginCalibratedWithUserPresence = false;
+            gameCamerasConfigured = false;
+            lastMdproCameraConfigureTime = 0f;
+            questControllerPoseMask = -1;
+            RequestQuestInputRefresh("xr-loader-restart");
+            ConfigureFloorTrackingOrigin();
+            ConfigureMdproCameras(true);
+
+            Debug.LogFormat(
+                "Quest XR input recovery XR loader restart finished. ActiveLoader={0}, XRDevices={1}, Input={2}",
+                manager.activeLoader == null ? "<null>" : manager.activeLoader.name,
+                DescribeCurrentXRDevices(),
+                DescribeInputSystemQuestDevices());
+
+            questInputXrRestartInProgress = false;
+        }
+
+        private void RefreshQuestInputBindings(string reason)
+        {
+            lastQuestInputRecoveryTime = Time.unscaledTime;
+
+            foreach (var device in InputSystem.devices)
+            {
+                if (device == null || !IsLikelyQuestInputSystemDevice(device))
+                    continue;
+
+                try
+                {
+                    if (!device.enabled)
+                        InputSystem.EnableDevice(device);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarningFormat("Quest XR input device enable failed: {0}: {1}", device.displayName, ex.Message);
+                }
+            }
+
+            ReenableQuestInputAction(pointerPositionAction);
+            ReenableQuestInputAction(pointerRotationAction);
+            ReenableQuestInputAction(pointerPressAction);
+            ReenableQuestInputAction(leftThumbstickAction);
+            ReenableQuestInputAction(leftPrimaryButtonAction);
+            ReenableQuestInputAction(rightThumbstickAction);
+            ReenableQuestInputAction(rightPrimaryButtonAction);
+            ReenableQuestInputAction(rightSecondaryButtonAction);
+
+            LogQuestInputDeviceSummary("refresh-" + reason, true);
+        }
+
+        private static void ReenableQuestInputAction(InputAction action)
+        {
+            if (action == null)
+                return;
+
+            try
+            {
+                if (action.enabled)
+                    action.Disable();
+                action.Enable();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarningFormat("Quest XR input action refresh failed: {0}: {1}", action.name, ex.Message);
+            }
+        }
+
+        private void LogQuestInputDeviceSummary(string reason, bool force)
+        {
+            var now = Time.unscaledTime;
+            var poseMask = GetQuestControllerPoseMask();
+            ControllerDevices.Clear();
+            InputDevices.GetDevices(ControllerDevices);
+            var summary = "Pose=" + DescribeQuestControllerPoseMask(poseMask)
+                + "; XR=" + DescribeXRDevices(ControllerDevices)
+                + "; Input=" + DescribeInputSystemQuestDevices();
+
+            if (!force
+                && summary == lastQuestInputDeviceSummary
+                && now - lastQuestInputDeviceLog < QuestInputDeviceLogInterval)
+                return;
+
+            lastQuestInputDeviceLog = now;
+            lastQuestInputDeviceSummary = summary;
+            Debug.LogFormat("Quest XR input recovery [{0}]: {1}", reason, summary);
+        }
+
+        private static int GetQuestControllerPoseMask()
+        {
+            var mask = 0;
+            if (TryReadControllerPose(XRNode.LeftHand, out _, out _, out _, out _))
+                mask |= 1;
+            if (TryReadControllerPose(XRNode.RightHand, out _, out _, out _, out _))
+                mask |= 2;
+            return mask;
+        }
+
+        private static string DescribeQuestControllerPoseMask(int mask)
+        {
+            if (mask == 3)
+                return "Left+Right";
+            if (mask == 1)
+                return "Left";
+            if (mask == 2)
+                return "Right";
+            return "None";
+        }
+
+        private static bool IsLikelyQuestInputSystemDevice(UnityEngine.InputSystem.InputDevice device)
+        {
+            if (device == null)
+                return false;
+
+            var descriptor = ((device.layout ?? string.Empty)
+                + " " + (device.name ?? string.Empty)
+                + " " + (device.displayName ?? string.Empty)).ToLowerInvariant();
+            if (descriptor.Contains("xr")
+                || descriptor.Contains("openxr")
+                || descriptor.Contains("oculus")
+                || descriptor.Contains("meta")
+                || descriptor.Contains("touch")
+                || descriptor.Contains("controller")
+                || descriptor.Contains("hand"))
+                return true;
+
+            foreach (var usage in device.usages)
+            {
+                var usageName = usage.ToString().ToLowerInvariant();
+                if (usageName.Contains("left")
+                    || usageName.Contains("right")
+                    || usageName.Contains("hand")
+                    || usageName.Contains("controller"))
+                    return true;
+            }
+
+            return false;
         }
 
         private void ResetPointerState()
@@ -1316,56 +1703,73 @@ namespace MDPro3
             pointerPositionAction = new InputAction("Quest Pointer Position", InputActionType.PassThrough);
             pointerPositionAction.AddBinding("<XRController>{RightHand}/devicePosition");
             pointerPositionAction.AddBinding("<XRController>{LeftHand}/devicePosition");
+            AddQuestControllerBinding(pointerPositionAction, "pointerPosition");
+            AddQuestControllerBinding(pointerPositionAction, "devicePosition");
             pointerRotationAction = new InputAction("Quest Pointer Rotation", InputActionType.PassThrough);
             pointerRotationAction.AddBinding("<XRController>{RightHand}/deviceRotation");
             pointerRotationAction.AddBinding("<XRController>{LeftHand}/deviceRotation");
+            AddQuestControllerBinding(pointerRotationAction, "pointerRotation");
+            AddQuestControllerBinding(pointerRotationAction, "deviceRotation");
             pointerPressAction = new InputAction("Quest Pointer Press", InputActionType.Button);
             pointerPressAction.AddBinding("<XRController>{RightHand}/trigger");
             pointerPressAction.AddBinding("<XRController>{LeftHand}/trigger");
+            AddQuestControllerBinding(pointerPressAction, "trigger");
+            AddQuestControllerBinding(pointerPressAction, "triggerPressed");
 
-            handPointerPositionAction = new InputAction("Quest Hand Pointer Position", InputActionType.PassThrough);
-            handPointerPositionAction.AddBinding("<HandInteraction>{RightHand}/pointer/position");
-            handPointerPositionAction.AddBinding("<HandInteraction>{LeftHand}/pointer/position");
-            handPointerPositionAction.AddBinding("<HandInteraction>{RightHand}/pinchPosition");
-            handPointerPositionAction.AddBinding("<HandInteraction>{LeftHand}/pinchPosition");
-            handPointerRotationAction = new InputAction("Quest Hand Pointer Rotation", InputActionType.PassThrough);
-            handPointerRotationAction.AddBinding("<HandInteraction>{RightHand}/pointer/rotation");
-            handPointerRotationAction.AddBinding("<HandInteraction>{LeftHand}/pointer/rotation");
-            handPointerRotationAction.AddBinding("<HandInteraction>{RightHand}/pinchRotation");
-            handPointerRotationAction.AddBinding("<HandInteraction>{LeftHand}/pinchRotation");
-            handPointerPressAction = new InputAction("Quest Hand Pointer Press", InputActionType.Button);
-            handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pointerActivateValue");
-            handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pointerActivateValue");
-            handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pinchValue");
-            handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pinchValue");
-            handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pinchTouched");
-            handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pinchTouched");
+            if (QuestEnableHandInteractionPointer)
+            {
+                handPointerPositionAction = new InputAction("Quest Hand Pointer Position", InputActionType.PassThrough);
+                handPointerPositionAction.AddBinding("<HandInteraction>{RightHand}/pointer/position");
+                handPointerPositionAction.AddBinding("<HandInteraction>{LeftHand}/pointer/position");
+                handPointerPositionAction.AddBinding("<HandInteraction>{RightHand}/pinchPosition");
+                handPointerPositionAction.AddBinding("<HandInteraction>{LeftHand}/pinchPosition");
+                handPointerRotationAction = new InputAction("Quest Hand Pointer Rotation", InputActionType.PassThrough);
+                handPointerRotationAction.AddBinding("<HandInteraction>{RightHand}/pointer/rotation");
+                handPointerRotationAction.AddBinding("<HandInteraction>{LeftHand}/pointer/rotation");
+                handPointerRotationAction.AddBinding("<HandInteraction>{RightHand}/pinchRotation");
+                handPointerRotationAction.AddBinding("<HandInteraction>{LeftHand}/pinchRotation");
+                handPointerPressAction = new InputAction("Quest Hand Pointer Press", InputActionType.Button);
+                handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pointerActivateValue");
+                handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pointerActivateValue");
+                handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pinchValue");
+                handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pinchValue");
+                handPointerPressAction.AddBinding("<HandInteraction>{RightHand}/pinchTouched");
+                handPointerPressAction.AddBinding("<HandInteraction>{LeftHand}/pinchTouched");
+            }
 
             leftThumbstickAction = new InputAction("Quest Left Thumbstick", InputActionType.PassThrough);
             leftThumbstickAction.expectedControlType = "Vector2";
             leftThumbstickAction.AddBinding("<XRController>{LeftHand}/primary2DAxis");
             leftThumbstickAction.AddBinding("<XRController>{LeftHand}/thumbstick");
+            AddQuestControllerBinding(leftThumbstickAction, "thumbstick", leftHand: true, rightHand: false);
+            leftPrimaryButtonAction = new InputAction("Quest Left X Button", InputActionType.Button);
+            leftPrimaryButtonAction.AddBinding("<XRController>{LeftHand}/primaryButton");
+            AddQuestControllerBinding(leftPrimaryButtonAction, "primaryButton", leftHand: true, rightHand: false);
             rightThumbstickAction = new InputAction("Quest Right Thumbstick", InputActionType.PassThrough);
             rightThumbstickAction.expectedControlType = "Vector2";
             rightThumbstickAction.AddBinding("<XRController>{RightHand}/primary2DAxis");
             rightThumbstickAction.AddBinding("<XRController>{RightHand}/thumbstick");
+            AddQuestControllerBinding(rightThumbstickAction, "thumbstick", leftHand: false, rightHand: true);
             rightPrimaryButtonAction = new InputAction("Quest Right A Button", InputActionType.Button);
             rightPrimaryButtonAction.AddBinding("<XRController>{RightHand}/primaryButton");
+            AddQuestControllerBinding(rightPrimaryButtonAction, "primaryButton", leftHand: false, rightHand: true);
             rightSecondaryButtonAction = new InputAction("Quest Right B Button", InputActionType.Button);
             rightSecondaryButtonAction.AddBinding("<XRController>{RightHand}/secondaryButton");
+            AddQuestControllerBinding(rightSecondaryButtonAction, "secondaryButton", leftHand: false, rightHand: true);
 
             pointerPositionAction.Enable();
             pointerRotationAction.Enable();
             pointerPressAction.Enable();
             leftThumbstickAction.Enable();
+            leftPrimaryButtonAction.Enable();
             rightThumbstickAction.Enable();
             rightPrimaryButtonAction.Enable();
             rightSecondaryButtonAction.Enable();
             try
             {
-                handPointerPositionAction.Enable();
-                handPointerRotationAction.Enable();
-                handPointerPressAction.Enable();
+                handPointerPositionAction?.Enable();
+                handPointerRotationAction?.Enable();
+                handPointerPressAction?.Enable();
             }
             catch (System.Exception ex)
             {
@@ -1376,6 +1780,30 @@ namespace MDPro3
                 handPointerPositionAction = null;
                 handPointerRotationAction = null;
                 handPointerPressAction = null;
+            }
+        }
+
+        private static void AddQuestControllerBinding(
+            InputAction action,
+            string control,
+            bool leftHand = true,
+            bool rightHand = true)
+        {
+            if (action == null || string.IsNullOrEmpty(control))
+                return;
+
+            if (rightHand)
+            {
+                action.AddBinding("<QuestTouchPlusController>{RightHand}/" + control);
+                action.AddBinding("<OculusTouchController>{RightHand}/" + control);
+                action.AddBinding("<XRInputV1::Oculus::OculusTouchControllerOpenXR>{RightHand}/" + control);
+            }
+
+            if (leftHand)
+            {
+                action.AddBinding("<QuestTouchPlusController>{LeftHand}/" + control);
+                action.AddBinding("<OculusTouchController>{LeftHand}/" + control);
+                action.AddBinding("<XRInputV1::Oculus::OculusTouchControllerOpenXR>{LeftHand}/" + control);
             }
         }
 
@@ -1928,8 +2356,248 @@ namespace MDPro3
             root.transform.SetParent(questCutinWorldRoot, false);
             root.transform.localPosition = Vector3.zero;
             root.transform.localRotation = Quaternion.identity;
-            root.transform.localScale = Vector3.one * 7.5f;
+            root.transform.localScale = Vector3.one * QuestPreviewCutinScale;
+            ConfigureQuestPreviewObject(root);
+            EnsureQuestPreviewHitTarget(root, false, root.transform);
+            LogQuestPreviewAttachment("Cutin", root.transform, QuestPreviewCutinScale);
+        }
+
+        private void AttachMatePreviewToWorld(Mate mate)
+        {
+            if (mate == null)
+                return;
+
+            EnsureQuestMatePreviewWorldRoot();
+            if (questMatePreviewWorldRoot == null)
+                return;
+
+            mate.parent = questMatePreviewWorldRoot;
+            mate.transform.SetParent(questMatePreviewWorldRoot, false);
+            mate.transform.localPosition = Vector3.zero;
+            mate.transform.localRotation = Quaternion.identity;
+            questSelectedMatePreview = mate.transform;
+            ConfigureQuestPreviewObject(mate.gameObject);
+            var previewScale = Mathf.Max(questMatePreviewScaleMultiplier, QuestWorldScaleMinPositive);
+            questMatePreviewWorldRoot.localScale = Vector3.one;
+            FitQuestPreviewToHeight(mate.transform, questMatePreviewWorldRoot, QuestPreviewMateTargetHeight);
+            EnsureQuestPreviewHitTarget(mate.gameObject, true, mate.transform);
+            LayoutQuestMatePreviews();
+            questMatePreviewWorldRoot.localScale = Vector3.one * previewScale;
+            LogQuestPreviewAttachment("Mate", mate.transform, QuestPreviewMateTargetHeight);
+        }
+
+        private void DetachMatePreviewFromWorld(Mate mate)
+        {
+            if (mate == null)
+                return;
+
+            if (questMatePreviewWorldRoot != null && mate.transform.IsChildOf(questMatePreviewWorldRoot))
+            {
+                mate.transform.SetParent(null, true);
+                LayoutQuestMatePreviews();
+            }
+        }
+
+        private void LayoutQuestMatePreviews()
+        {
+            if (questMatePreviewWorldRoot == null)
+                return;
+
+            var mateTransforms = new List<Transform>();
+            for (int i = 0; i < questMatePreviewWorldRoot.childCount; i++)
+            {
+                var child = questMatePreviewWorldRoot.GetChild(i);
+                if (child != null && child.GetComponent<Mate>() != null)
+                    mateTransforms.Add(child);
+            }
+
+            var count = mateTransforms.Count;
+            if (count == 0)
+            {
+                questSelectedMatePreview = null;
+                return;
+            }
+
+            var center = (count - 1) * 0.5f;
+            for (int i = 0; i < count; i++)
+            {
+                var slot = i - center;
+                var child = mateTransforms[i];
+                var localPosition = child.localPosition;
+                localPosition.x = slot * QuestPreviewMateGroupSpacing;
+                localPosition.z = 0f;
+                child.localPosition = localPosition;
+                child.SetSiblingIndex(i);
+                EnsureQuestPreviewHitTarget(child.gameObject, true, child);
+            }
+
+            if (questSelectedMatePreview == null || !questSelectedMatePreview.IsChildOf(questMatePreviewWorldRoot))
+                questSelectedMatePreview = mateTransforms[count - 1];
+
+            Debug.LogFormat("Quest mate preview layout updated. Count={0}, Spacing={1:F1}", count, QuestPreviewMateGroupSpacing);
+        }
+
+        private void EnsureQuestCutinWorldRoot()
+        {
+            if (questCutinWorldRoot == null)
+            {
+                var rootObject = new GameObject("QuestMonsterCutinWorldRoot");
+                SetQuestOverlayLayer(rootObject);
+                questCutinWorldRoot = rootObject.transform;
+            }
+
+            PlaceQuestPreviewRoot(
+                questCutinWorldRoot,
+                QuestPreviewCutinDefaultOffset + questCutinPreviewOffset,
+                true,
+                questCutinPreviewRotation,
+                questCutinPreviewScaleMultiplier);
+        }
+
+        private void EnsureQuestMatePreviewWorldRoot()
+        {
+            if (questMatePreviewWorldRoot == null)
+            {
+                var rootObject = new GameObject("QuestMatePreviewWorldRoot");
+                SetQuestOverlayLayer(rootObject);
+                questMatePreviewWorldRoot = rootObject.transform;
+            }
+
+            PlaceQuestPreviewRoot(
+                questMatePreviewWorldRoot,
+                QuestPreviewMateDefaultOffset + questMatePreviewOffset,
+                false,
+                questMatePreviewRotation,
+                questMatePreviewScaleMultiplier);
+        }
+
+        private void PlaceQuestPreviewRoot(
+            Transform root,
+            Vector3 localOffset,
+            bool pitchTowardEye,
+            Vector2 rotationOffset,
+            float scaleMultiplier = 1f)
+        {
+            if (root == null)
+                return;
+
+            root.SetParent(transform, true);
+            var baseRotation = GetDuelBaseYawRotation();
+            var position = DuelWorldCenterOnGround
+                + baseRotation * new Vector3(localOffset.x, 0f, localOffset.z)
+                + Vector3.up * localOffset.y;
+            var forward = DuelEyePosition - position;
+            if (!pitchTowardEye)
+                forward.y = 0f;
+            var rootRotation = forward.sqrMagnitude > 0.0001f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : baseRotation * Quaternion.Euler(0f, 180f, 0f);
+            rootRotation *= Quaternion.Euler(rotationOffset.y, rotationOffset.x, 0f);
+
+            root.SetPositionAndRotation(position, rootRotation);
+            root.localScale = Vector3.one * Mathf.Max(scaleMultiplier, QuestWorldScaleMinPositive);
+            SetQuestOverlayLayer(root.gameObject);
+        }
+
+        private void FitQuestPreviewToHeight(Transform target, Transform stageRoot, float targetHeight)
+        {
+            if (target == null || stageRoot == null)
+                return;
+
+            if (!TryGetRendererBounds(target.gameObject, out var bounds) || bounds.size.y < 0.001f)
+                return;
+
+            var factor = Mathf.Clamp(targetHeight / bounds.size.y, 0.02f, 500f);
+            target.localScale *= factor;
+
+            if (!TryGetRendererBounds(target.gameObject, out bounds))
+                return;
+
+            var localCenter = stageRoot.InverseTransformPoint(bounds.center);
+            target.localPosition -= new Vector3(localCenter.x, 0f, localCenter.z);
+
+            if (!TryGetRendererBounds(target.gameObject, out bounds))
+                return;
+
+            target.position += Vector3.up * (stageRoot.position.y - bounds.min.y);
+        }
+
+        private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
+        {
+            if (root == null)
+            {
+                bounds = default;
+                return false;
+            }
+
+            var renderers = root.GetComponentsInChildren<Renderer>(true);
+            var hasBounds = false;
+            bounds = default;
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                if (!hasBounds)
+                {
+                    bounds = renderer.bounds;
+                    hasBounds = true;
+                }
+                else
+                    bounds.Encapsulate(renderer.bounds);
+            }
+
+            return hasBounds;
+        }
+
+        private static void EnsureQuestPreviewHitTarget(GameObject root, bool matePreview, Transform targetRoot = null)
+        {
+            if (root == null || !TryGetRendererBounds(root, out var worldBounds))
+                return;
+
+            var collider = root.GetComponent<BoxCollider>();
+            if (collider == null)
+                collider = root.AddComponent<BoxCollider>();
+
+            var localBounds = TransformWorldBoundsToLocal(root.transform, worldBounds);
+            var lossyScale = root.transform.lossyScale;
+            var maxScale = Mathf.Max(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.y), Mathf.Abs(lossyScale.z), 0.001f);
+            var padding = QuestPreviewHitPadding / maxScale;
+            collider.center = localBounds.center;
+            collider.size = localBounds.size + Vector3.one * padding;
+            collider.isTrigger = false;
+
+            var hitTarget = root.GetComponent<QuestPreviewHitTarget>();
+            if (hitTarget == null)
+                hitTarget = root.AddComponent<QuestPreviewHitTarget>();
+            hitTarget.MatePreview = matePreview;
+            hitTarget.TargetRoot = targetRoot != null ? targetRoot : root.transform;
             SetQuestOverlayLayer(root);
+        }
+
+        private static Bounds TransformWorldBoundsToLocal(Transform target, Bounds worldBounds)
+        {
+            var min = worldBounds.min;
+            var max = worldBounds.max;
+            var localBounds = new Bounds(target.InverseTransformPoint(min), Vector3.zero);
+            EncapsulateLocalPoint(target, ref localBounds, new Vector3(min.x, min.y, max.z));
+            EncapsulateLocalPoint(target, ref localBounds, new Vector3(min.x, max.y, min.z));
+            EncapsulateLocalPoint(target, ref localBounds, new Vector3(min.x, max.y, max.z));
+            EncapsulateLocalPoint(target, ref localBounds, new Vector3(max.x, min.y, min.z));
+            EncapsulateLocalPoint(target, ref localBounds, new Vector3(max.x, min.y, max.z));
+            EncapsulateLocalPoint(target, ref localBounds, new Vector3(max.x, max.y, min.z));
+            EncapsulateLocalPoint(target, ref localBounds, max);
+            return localBounds;
+        }
+
+        private static void ConfigureQuestPreviewObject(GameObject root)
+        {
+            if (root == null)
+                return;
+
+            SetQuestOverlayLayer(root);
+            if (root.GetComponent<QuestPreviewCameraSuppressor>() == null)
+                root.AddComponent<QuestPreviewCameraSuppressor>();
 
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
             {
@@ -1939,42 +2607,75 @@ namespace MDPro3
                 renderer.forceRenderingOff = false;
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
-                if (renderer.sharedMaterial != null)
-                    ConfigureAlwaysVisibleOverlayMaterial(renderer.sharedMaterial);
+                if (renderer is SkinnedMeshRenderer skinned)
+                    skinned.updateWhenOffscreen = true;
+
+                var materials = renderer.sharedMaterials;
+                for (var index = 0; index < materials.Length; index += 1)
+                    if (materials[index] != null)
+                        ConfigureAlwaysVisibleOverlayMaterial(materials[index]);
+            }
+
+            foreach (var animator in root.GetComponentsInChildren<Animator>(true))
+                if (animator != null)
+                    animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+            foreach (var camera in root.GetComponentsInChildren<Camera>(true))
+            {
+                if (camera == null)
+                    continue;
+
+                camera.enabled = false;
+                camera.targetTexture = null;
+                var data = camera.GetUniversalAdditionalCameraData();
+                data.allowXRRendering = false;
+                data.allowHDROutput = false;
+                data.renderPostProcessing = false;
+            }
+
+            var questOverlayMask = 1 << GetQuestOverlayLayer();
+            foreach (var light in root.GetComponentsInChildren<Light>(true))
+                if (light != null)
+                {
+                    light.enabled = true;
+                    light.cullingMask = questOverlayMask;
+                }
+        }
+
+        private void LogQuestPreviewAttachment(string kind, Transform root, float targetScaleOrHeight)
+        {
+            if (root == null || Time.unscaledTime - lastQuestPreviewLog < 1.5f)
+                return;
+
+            lastQuestPreviewLog = Time.unscaledTime;
+            Debug.LogFormat(
+                "Quest immersive preview attached. Type={0}, Pos={1}, Rot={2}, LocalScale={3}, Target={4:F1}",
+                kind,
+                root.position,
+                root.rotation.eulerAngles,
+                root.localScale,
+                targetScaleOrHeight);
+        }
+
+        private sealed class QuestPreviewCameraSuppressor : MonoBehaviour
+        {
+            private void LateUpdate()
+            {
+                foreach (var camera in GetComponentsInChildren<Camera>(true))
+                {
+                    if (camera == null)
+                        continue;
+
+                    camera.enabled = false;
+                    camera.targetTexture = null;
+                }
             }
         }
 
-        private void EnsureQuestCutinWorldRoot()
+        private sealed class QuestPreviewHitTarget : MonoBehaviour
         {
-            if (questCutinWorldRoot != null)
-                return;
-
-            var rootObject = new GameObject("QuestMonsterCutinWorldRoot");
-            SetQuestOverlayLayer(rootObject);
-            questCutinWorldRoot = rootObject.transform;
-            if (duelWorldAnchor != null)
-                questCutinWorldRoot.SetParent(duelWorldAnchor, false);
-            else
-                questCutinWorldRoot.SetParent(transform, true);
-
-            var rotation = GetDuelBaseYawRotation();
-            var position = DuelWorldCenterOnGround
-                + rotation * Vector3.forward * -18f
-                + Vector3.up * 18f;
-            var forward = DuelEyePosition - position;
-            var rootRotation = forward.sqrMagnitude > 0.0001f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : rotation * Quaternion.Euler(0f, 180f, 0f);
-            if (questCutinWorldRoot.parent == duelWorldAnchor && duelWorldAnchor != null)
-            {
-                questCutinWorldRoot.localPosition = position - DuelWorldCenterOnGround;
-                questCutinWorldRoot.localRotation = Quaternion.Inverse(duelWorldAnchor.rotation) * rootRotation;
-            }
-            else
-            {
-                questCutinWorldRoot.SetPositionAndRotation(position, rootRotation);
-            }
-            questCutinWorldRoot.localScale = Vector3.one;
+            public bool MatePreview;
+            public Transform TargetRoot;
         }
 
         private void AlignDuelWorldToGround(Transform duelContainer)
@@ -4209,9 +4910,115 @@ namespace MDPro3
             }
         }
 
+        private void UpdateQuestMainUiRecenterInput(bool questNativeDuelActive)
+        {
+            var held = ReadQuestButton(leftPrimaryButtonAction, XRNode.LeftHand, false);
+            var pressed = held && !questMainUiRecenterPressedLastFrame;
+            questMainUiRecenterPressedLastFrame = held;
+            if (!pressed)
+                return;
+
+            var program = Program.instance;
+            if (questNativeDuelActive || (program != null && program.currentServant == program.ocgcore))
+            {
+                Debug.Log("Quest main UI recenter skipped during duel.");
+                return;
+            }
+
+            RecenterQuestUserToMainUi();
+        }
+
+        private void RecenterQuestUserToMainUi()
+        {
+            if (xrOrigin == null)
+                return;
+
+            ConfigureUiRenderPanel();
+            if (!TryGetMainUiRecenterPose(out var panelPosition, out var panelRotation))
+            {
+                Debug.LogWarning("Quest main UI recenter failed: no main UI panel pose.");
+                return;
+            }
+
+            var panelForward = panelRotation * Vector3.forward;
+            panelForward.y = 0f;
+            if (panelForward.sqrMagnitude < 0.0001f)
+                panelForward = GetDuelBaseYawRotation() * Vector3.back;
+            panelForward.Normalize();
+
+            var targetEyePosition = panelPosition + panelForward * QuestMainUiRecenterDistance;
+            targetEyePosition.y = panelPosition.y;
+
+            var lookDirection = panelPosition - targetEyePosition;
+            lookDirection.y = 0f;
+            if (lookDirection.sqrMagnitude < 0.0001f)
+                lookDirection = -panelForward;
+            var targetViewYaw = Quaternion.LookRotation(lookDirection.normalized, Vector3.up);
+
+            if (!TryReadHeadPose(out var localHeadPosition, out var localHeadRotation))
+            {
+                localHeadPosition = Vector3.zero;
+                localHeadRotation = Quaternion.identity;
+            }
+
+            PlaceXrOriginAtTargetEyePose(targetEyePosition, targetViewYaw, localHeadPosition, localHeadRotation);
+            questMainUiRecenterActive = true;
+            Debug.LogFormat(
+                "Quest main UI recentered. Panel={0}, TargetEye={1}, TargetYaw={2}, Distance={3:F1}",
+                panelPosition,
+                targetEyePosition,
+                targetViewYaw.eulerAngles,
+                QuestMainUiRecenterDistance);
+        }
+
+        private bool TryGetMainUiRecenterPose(out Vector3 position, out Quaternion rotation)
+        {
+            if (uiRenderPanel != null && uiRenderPanel.activeInHierarchy)
+            {
+                position = uiRenderPanel.transform.position;
+                rotation = uiRenderPanel.transform.rotation;
+                return true;
+            }
+
+            EnsureWorldUiAnchor();
+            if (worldUiAnchor != null)
+            {
+                position = worldUiAnchor.position;
+                rotation = worldUiAnchor.rotation;
+                return true;
+            }
+
+            position = default;
+            rotation = Quaternion.identity;
+            return false;
+        }
+
+        private void PlaceXrOriginAtTargetEyePose(
+            Vector3 targetEyePosition,
+            Quaternion targetViewYawRotation,
+            Vector3 localHeadPosition,
+            Quaternion localHeadRotation)
+        {
+            if (xrOrigin == null)
+                return;
+
+            var headYawRotation = GetYawRotation(localHeadRotation);
+            var originRotation = targetViewYawRotation * Quaternion.Inverse(headYawRotation);
+            var scaledHeadOffset = localHeadPosition * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.localScale = Vector3.one * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.SetPositionAndRotation(targetEyePosition - originRotation * scaledHeadOffset, originRotation);
+            RefreshWorldUiAfterXrOriginMove();
+        }
+
         private void UpdateQuestWorldControls()
         {
-            if (!trackingOriginCalibrated || xrOrigin == null || !IsQuestNativeDuelActive())
+            if (!trackingOriginCalibrated || xrOrigin == null)
+                return;
+
+            if (UpdateQuestPreviewControls())
+                return;
+
+            if (!IsQuestNativeDuelActive())
                 return;
 
             var rightAxis = ReadQuestThumbstick(rightThumbstickAction, XRNode.RightHand);
@@ -4292,6 +5099,301 @@ namespace MDPro3
             }
         }
 
+        private bool UpdateQuestPreviewControls()
+        {
+            if (!TryGetActiveQuestPreviewControlTarget(out var matePreview))
+            {
+                questPreviewDeletePressedLastFrame = false;
+                return false;
+            }
+
+            var rightAxis = ReadQuestThumbstick(rightThumbstickAction, XRNode.RightHand);
+            var leftAxis = ReadQuestThumbstick(leftThumbstickAction, XRNode.LeftHand);
+            var resetHeld = ReadQuestButton(rightPrimaryButtonAction, XRNode.RightHand, false);
+            var deleteHeld = matePreview && ReadQuestButton(rightSecondaryButtonAction, XRNode.RightHand, true);
+            var deletePressed = deleteHeld && !questPreviewDeletePressedLastFrame;
+            questPreviewDeletePressedLastFrame = deleteHeld;
+            var dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+
+            if (matePreview)
+            {
+                if (deletePressed && TryDeleteSelectedQuestMatePreview())
+                    return true;
+
+                ApplyQuestPreviewControlDelta(
+                    "Mate",
+                    ref questMatePreviewOffset,
+                    ref questMatePreviewRotation,
+                    ref questMatePreviewScaleMultiplier,
+                    questMatePreviewWorldRoot,
+                    QuestPreviewMateDefaultOffset,
+                    false,
+                    leftAxis,
+                    rightAxis,
+                    resetHeld,
+                    dt);
+            }
+            else
+            {
+                ApplyQuestPreviewControlDelta(
+                    "Cutin",
+                    ref questCutinPreviewOffset,
+                    ref questCutinPreviewRotation,
+                    ref questCutinPreviewScaleMultiplier,
+                    questCutinWorldRoot,
+                    QuestPreviewCutinDefaultOffset,
+                    true,
+                    leftAxis,
+                    rightAxis,
+                    resetHeld,
+                    dt);
+            }
+
+            return true;
+        }
+
+        private bool TryGetActiveQuestPreviewControlTarget(out bool matePreview)
+        {
+            matePreview = false;
+            var program = Program.instance;
+            if (program == null || program.currentServant == null)
+                return false;
+
+            if (program.currentServant == program.mate)
+            {
+                matePreview = true;
+                return true;
+            }
+
+            if (program.currentServant == program.cutin)
+                return true;
+
+            return false;
+        }
+
+        private void ApplyQuestPreviewControlDelta(
+            string previewType,
+            ref Vector3 offset,
+            ref Vector2 rotationOffset,
+            ref float scaleMultiplier,
+            Transform root,
+            Vector3 defaultOffset,
+            bool pitchTowardEye,
+            Vector2 leftAxis,
+            Vector2 rightAxis,
+            bool resetHeld,
+            float dt)
+        {
+            var changed = false;
+            if (resetHeld)
+            {
+                changed = offset.sqrMagnitude > 0.0001f
+                    || rotationOffset.sqrMagnitude > 0.0001f
+                    || Mathf.Abs(scaleMultiplier - 1f) > 0.0001f;
+                offset = Vector3.zero;
+                rotationOffset = Vector2.zero;
+                scaleMultiplier = 1f;
+                questPreviewRayDragging = false;
+            }
+
+            var rayRotated = UpdateQuestPreviewRayRotation(
+                previewType,
+                root,
+                defaultOffset,
+                offset,
+                pitchTowardEye,
+                ref rotationOffset,
+                scaleMultiplier);
+            changed |= rayRotated;
+
+            if (leftAxis.sqrMagnitude > 0f)
+            {
+                offset.x += leftAxis.x * QuestPreviewMoveSpeed * dt;
+                offset.y += leftAxis.y * QuestPreviewMoveSpeed * dt;
+                changed = true;
+            }
+
+            if (Mathf.Abs(rightAxis.y) > 0f)
+            {
+                offset.z += rightAxis.y * QuestPreviewDepthSpeed * dt;
+                changed = true;
+            }
+
+            if (Mathf.Abs(rightAxis.x) > 0f)
+            {
+                scaleMultiplier = Mathf.Max(
+                    scaleMultiplier + rightAxis.x * QuestPreviewScaleSpeed * dt,
+                    QuestWorldScaleMinPositive);
+                changed = true;
+            }
+
+            if (!changed)
+                return;
+
+            if (root != null)
+                PlaceQuestPreviewRoot(root, defaultOffset + offset, pitchTowardEye, rotationOffset, scaleMultiplier);
+
+            if (Time.unscaledTime - lastQuestPreviewControlLog >= QuestWorldControlLogInterval)
+            {
+                lastQuestPreviewControlLog = Time.unscaledTime;
+                Debug.LogFormat(
+                    "Quest preview controls active. Type={0}, Offset={1}, Rotation={2}, Scale={3:F2}, LeftAxis={4}, RightAxis={5}, Reset={6}",
+                    previewType,
+                    offset,
+                    rotationOffset,
+                    scaleMultiplier,
+                    leftAxis,
+                    rightAxis,
+                    resetHeld);
+            }
+        }
+
+        private bool UpdateQuestPreviewRayRotation(
+            string previewType,
+            Transform root,
+            Vector3 defaultOffset,
+            Vector3 offset,
+            bool pitchTowardEye,
+            ref Vector2 rotationOffset,
+            float scaleMultiplier)
+        {
+            if (root == null)
+            {
+                questPreviewRayDragging = false;
+                return false;
+            }
+
+            var ray = BuildPointerRay(out var hasControllerPose);
+            var pressed = hasControllerPose && IsRightControllerTriggerPressed();
+            if (!pressed)
+            {
+                questPreviewRayDragging = false;
+                questPreviewRayDragTarget = null;
+                return false;
+            }
+
+            var matePreview = previewType == "Mate";
+            if (!questPreviewRayDragging)
+            {
+                if (!TryGetQuestPreviewHit(ray, matePreview, out var hitDistance, out var hitTarget))
+                    return false;
+
+                questPreviewRayDragging = true;
+                questPreviewRayDragMate = matePreview;
+                questPreviewRayDragTarget = hitTarget;
+                if (matePreview && hitTarget != null)
+                    questSelectedMatePreview = hitTarget;
+                questPreviewRayDragDistance = Mathf.Clamp(hitDistance, 0.25f, GetQuestControllerRayLength());
+                questPreviewRayLastViewport = GetQuestPreviewRayViewport(ray, questPreviewRayDragDistance);
+                suppressPointerUntilReleased = true;
+                return false;
+            }
+
+            if (questPreviewRayDragMate != matePreview)
+                return false;
+
+            suppressPointerUntilReleased = true;
+            var viewport = GetQuestPreviewRayViewport(ray, questPreviewRayDragDistance);
+            var delta = viewport - questPreviewRayLastViewport;
+            questPreviewRayLastViewport = viewport;
+            if (delta.sqrMagnitude < 0.000001f)
+                return false;
+
+            if (matePreview && questPreviewRayDragTarget != null)
+            {
+                RotateQuestMatePreviewTarget(questPreviewRayDragTarget, delta);
+                return true;
+            }
+
+            rotationOffset.x = NormalizeDegrees(rotationOffset.x + delta.x * QuestPreviewRayRotateSensitivityX);
+            rotationOffset.y = Mathf.Clamp(
+                rotationOffset.y - delta.y * QuestPreviewRayRotateSensitivityY,
+                -QuestPreviewPitchLimit,
+                QuestPreviewPitchLimit);
+            PlaceQuestPreviewRoot(root, defaultOffset + offset, pitchTowardEye, rotationOffset, scaleMultiplier);
+            return true;
+        }
+
+        private Vector2 GetQuestPreviewRayViewport(Ray ray, float distance)
+        {
+            if (xrCamera == null)
+                return Vector2.zero;
+
+            var point = ray.origin + ray.direction.normalized * Mathf.Max(distance, 0.25f);
+            var viewport = xrCamera.WorldToViewportPoint(point);
+            return new Vector2(viewport.x, viewport.y);
+        }
+
+        private bool TryGetQuestPreviewHit(Ray ray, bool matePreview, out float distance, out Transform targetRoot)
+        {
+            distance = float.PositiveInfinity;
+            targetRoot = null;
+            var hits = Physics.RaycastAll(ray, GetQuestControllerRayLength());
+            if (hits == null || hits.Length == 0)
+                return false;
+
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            foreach (var hit in hits)
+            {
+                if (hit.collider == null)
+                    continue;
+
+                var target = hit.collider.GetComponentInParent<QuestPreviewHitTarget>();
+                if (target == null || target.MatePreview != matePreview)
+                    continue;
+
+                distance = hit.distance;
+                targetRoot = target.TargetRoot != null ? target.TargetRoot : target.transform;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void RotateQuestMatePreviewTarget(Transform target, Vector2 viewportDelta)
+        {
+            if (target == null)
+                return;
+
+            var localEuler = target.localEulerAngles;
+            localEuler.y = NormalizeDegrees(localEuler.y + viewportDelta.x * QuestPreviewRayRotateSensitivityX);
+            localEuler.x = Mathf.Clamp(
+                NormalizeDegrees(localEuler.x - viewportDelta.y * QuestPreviewRayRotateSensitivityY),
+                -QuestPreviewPitchLimit,
+                QuestPreviewPitchLimit);
+            target.localEulerAngles = localEuler;
+        }
+
+        private bool TryDeleteSelectedQuestMatePreview()
+        {
+            if (questSelectedMatePreview == null)
+            {
+                var ray = BuildPointerRay(out var hasControllerPose);
+                if (!hasControllerPose || !TryGetQuestPreviewHit(ray, true, out _, out questSelectedMatePreview))
+                    return false;
+            }
+
+            var targetMate = questSelectedMatePreview.GetComponent<Mate>()
+                ?? questSelectedMatePreview.GetComponentInParent<Mate>()
+                ?? questSelectedMatePreview.GetComponentInChildren<Mate>();
+            if (targetMate == null)
+                return false;
+
+            var deletedCode = targetMate.code;
+            questPreviewRayDragging = false;
+            questPreviewRayDragTarget = null;
+            questSelectedMatePreview = null;
+
+            var mateView = Program.instance == null ? null : Program.instance.mate;
+            var deleted = mateView != null && mateView.DeletePreviewMate(targetMate);
+            if (deleted)
+            {
+                LayoutQuestMatePreviews();
+                Debug.LogFormat("Quest mate preview deleted. Code={0}", deletedCode);
+            }
+            return deleted;
+        }
+
         private void ReapplyXrOriginForCurrentHeadPose()
         {
             if (TryReadHeadPose(out var localPosition, out var localRotation))
@@ -4334,8 +5436,7 @@ namespace MDPro3
 
             if (value.sqrMagnitude < 0.0001f)
             {
-                var device = InputDevices.GetDeviceAtXRNode(node);
-                if (device.isValid && device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out var axis))
+                if (TryReadQuestPrimaryAxisFromDevices(node, out var axis))
                     value = axis;
             }
 
@@ -4355,7 +5456,69 @@ namespace MDPro3
             {
             }
 
+            return TryReadQuestButtonFromDevices(node, secondaryButton);
+        }
+
+        private static bool TryReadQuestPrimaryAxisFromDevices(XRNode node, out Vector2 axis)
+        {
             var device = InputDevices.GetDeviceAtXRNode(node);
+            if (TryReadQuestPrimaryAxis(device, out axis))
+                return true;
+
+            var hand = GetHandCharacteristic(node);
+            ControllerDevices.Clear();
+            InputDevices.GetDevicesWithCharacteristics(
+                InputDeviceCharacteristics.HeldInHand | InputDeviceCharacteristics.Controller | hand,
+                ControllerDevices);
+            foreach (var candidate in ControllerDevices)
+                if (TryReadQuestPrimaryAxis(candidate, out axis))
+                    return true;
+
+            ControllerDevices.Clear();
+            InputDevices.GetDevicesWithCharacteristics(hand, ControllerDevices);
+            foreach (var candidate in ControllerDevices)
+                if (TryReadQuestPrimaryAxis(candidate, out axis))
+                    return true;
+
+            axis = Vector2.zero;
+            return false;
+        }
+
+        private static bool TryReadQuestPrimaryAxis(UnityEngine.XR.InputDevice device, out Vector2 axis)
+        {
+            if (device.isValid && device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out axis))
+                return true;
+
+            axis = Vector2.zero;
+            return false;
+        }
+
+        private static bool TryReadQuestButtonFromDevices(XRNode node, bool secondaryButton)
+        {
+            var device = InputDevices.GetDeviceAtXRNode(node);
+            if (TryReadQuestButton(device, secondaryButton))
+                return true;
+
+            var hand = GetHandCharacteristic(node);
+            ControllerDevices.Clear();
+            InputDevices.GetDevicesWithCharacteristics(
+                InputDeviceCharacteristics.HeldInHand | InputDeviceCharacteristics.Controller | hand,
+                ControllerDevices);
+            foreach (var candidate in ControllerDevices)
+                if (TryReadQuestButton(candidate, secondaryButton))
+                    return true;
+
+            ControllerDevices.Clear();
+            InputDevices.GetDevicesWithCharacteristics(hand, ControllerDevices);
+            foreach (var candidate in ControllerDevices)
+                if (TryReadQuestButton(candidate, secondaryButton))
+                    return true;
+
+            return false;
+        }
+
+        private static bool TryReadQuestButton(UnityEngine.XR.InputDevice device, bool secondaryButton)
+        {
             if (!device.isValid)
                 return false;
 
@@ -4363,6 +5526,13 @@ namespace MDPro3
                 ? UnityEngine.XR.CommonUsages.secondaryButton
                 : UnityEngine.XR.CommonUsages.primaryButton;
             return device.TryGetFeatureValue(usage, out var pressed) && pressed;
+        }
+
+        private static InputDeviceCharacteristics GetHandCharacteristic(XRNode node)
+        {
+            return node == XRNode.LeftHand
+                ? InputDeviceCharacteristics.Left
+                : InputDeviceCharacteristics.Right;
         }
 
         private void ResetQuestWorldControlsWhenNoDuel()
@@ -5788,6 +6958,13 @@ namespace MDPro3
             return names.ToString();
         }
 
+        private static string DescribeCurrentXRDevices()
+        {
+            ControllerDevices.Clear();
+            InputDevices.GetDevices(ControllerDevices);
+            return DescribeXRDevices(ControllerDevices);
+        }
+
         private static string DescribeInputSystemDevices()
         {
             var names = new System.Text.StringBuilder();
@@ -5819,6 +6996,34 @@ namespace MDPro3
                 }
                 if (device.allControls.Count > controlLimit)
                     names.Append(",...");
+            }
+
+            return names.Length == 0 ? "<none>" : names.ToString();
+        }
+
+        private static string DescribeInputSystemQuestDevices()
+        {
+            var names = new System.Text.StringBuilder();
+            foreach (var device in InputSystem.devices)
+            {
+                if (device == null || !IsLikelyQuestInputSystemDevice(device))
+                    continue;
+
+                if (names.Length > 0)
+                    names.Append("; ");
+                names.Append(device.layout);
+                names.Append("/");
+                names.Append(device.name);
+                names.Append("/");
+                names.Append(device.displayName);
+                names.Append(device.enabled ? "/enabled" : "/disabled");
+                names.Append(" usages=");
+                for (var i = 0; i < device.usages.Count; i += 1)
+                {
+                    if (i > 0)
+                        names.Append(",");
+                    names.Append(device.usages[i]);
+                }
             }
 
             return names.Length == 0 ? "<none>" : names.ToString();

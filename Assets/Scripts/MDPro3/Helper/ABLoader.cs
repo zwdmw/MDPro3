@@ -579,13 +579,14 @@ namespace MDPro3
             return NormalizeBundlePath(path).EndsWith(value, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static GameObject InstantiateRuntimeGameObject(GameObject prefab, string sourcePath)
+        private static GameObject InstantiateRuntimeGameObject(GameObject prefab, string sourcePath, bool suppressOptionalScenery = true)
         {
             if (prefab == null)
                 return null;
 
             var instance = Instantiate(prefab);
-            SuppressQuestOptionalSceneryAtSpawn(instance, sourcePath);
+            if (suppressOptionalScenery)
+                SuppressQuestOptionalSceneryAtSpawn(instance, sourcePath);
             return instance;
         }
 
@@ -718,14 +719,14 @@ namespace MDPro3
         {
             return PathContains(path, "MasterDuel/Effects/");
         }
-        public static IEnumerator<GameObject> LoadFromFileAsync(string path, bool cache = false, bool copy = true)
+        public static IEnumerator<GameObject> LoadFromFileAsync(string path, bool cache = false, bool copy = true, bool suppressOptionalScenery = true)
         {
             GameObject returnValue;
             if (cachedAB.TryGetValue(path, out returnValue))
             {
                 if (copy)
                 {
-                    returnValue = InstantiateRuntimeGameObject(returnValue, path);
+                    returnValue = InstantiateRuntimeGameObject(returnValue, path, suppressOptionalScenery);
                     yield return returnValue;
                 }
                 yield break;
@@ -768,19 +769,20 @@ namespace MDPro3
                 }
             }
             if (copy && returnValue != null)
-                yield return InstantiateRuntimeGameObject(returnValue, path);
+                yield return InstantiateRuntimeGameObject(returnValue, path, suppressOptionalScenery);
             else if (!copy && returnValue != null)
                 yield return returnValue;
         }
-        public static GameObject LoadFromFolder(string path, string abName = "GameObject", bool cache = false)
+        public static GameObject LoadFromFolder(string path, string abName = "GameObject", bool cache = false, bool suppressOptionalScenery = true)
         {
             GameObject returnValue = new GameObject(abName);
-            SuppressQuestOptionalSceneryAtSpawn(returnValue, path);
+            if (suppressOptionalScenery)
+                SuppressQuestOptionalSceneryAtSpawn(returnValue, path);
             if (cachedABFolder.TryGetValue(path, out var cachedPrefabs))
             {
                 foreach (var prefab in cachedPrefabs)
                 {
-                    var go = InstantiateRuntimeGameObject(prefab, path);
+                    var go = InstantiateRuntimeGameObject(prefab, path, suppressOptionalScenery);
                     go.transform.SetParent(returnValue.transform, false);
                 }
                 return returnValue;
@@ -809,7 +811,7 @@ namespace MDPro3
                     cachedABFolder.Add(path, cached);
             foreach (var prefab in cached)
             {
-                var go = InstantiateRuntimeGameObject(prefab, path);
+                var go = InstantiateRuntimeGameObject(prefab, path, suppressOptionalScenery);
                 go.transform.SetParent(returnValue.transform, false);
             }
 
@@ -819,17 +821,18 @@ namespace MDPro3
 
             return returnValue;
         }
-        public static IEnumerator<GameObject> LoadFromFolderAsync(string path, string abName = "GameObject", bool cache = false, bool copy = true)
+        public static IEnumerator<GameObject> LoadFromFolderAsync(string path, string abName = "GameObject", bool cache = false, bool copy = true, bool suppressOptionalScenery = true)
         {
             GameObject returnValue = new GameObject(abName);
-            SuppressQuestOptionalSceneryAtSpawn(returnValue, path);
+            if (suppressOptionalScenery)
+                SuppressQuestOptionalSceneryAtSpawn(returnValue, path);
             if (cachedABFolder.TryGetValue(path, out var cachedPrefabs))
             {
                 if (copy)
                 {
                     foreach (var prefab in cachedPrefabs)
                     {
-                        var go = InstantiateRuntimeGameObject(prefab, path);
+                        var go = InstantiateRuntimeGameObject(prefab, path, suppressOptionalScenery);
                         go.transform.SetParent(returnValue.transform, false);
                     }
                     yield return returnValue;
@@ -878,7 +881,7 @@ namespace MDPro3
             {
                 foreach (var prefab in cached)
                 {
-                    var go = InstantiateRuntimeGameObject(prefab, path);
+                    var go = InstantiateRuntimeGameObject(prefab, path, suppressOptionalScenery);
                     go.transform.SetParent(returnValue.transform, false);
                 }
                 yield return returnValue;
@@ -1063,10 +1066,16 @@ namespace MDPro3
             if (type == Mate.MateType.CrossDuel)
             {
                 if (!TryResolveExistingAssetBundleFile(Program.root + "CrossDuel/" + code + ".bundle", out var matePath))
+                {
+                    Debug.LogWarningFormat("Mate load failed: CrossDuel bundle missing. code={0}", code);
                     yield break;
+                }
 
                 if (!TryStartAssetBundleLoadFromFileAsync(matePath, "LoadMateAsync CrossDuel " + code, out var abr))
+                {
+                    Debug.LogWarningFormat("Mate load failed: CrossDuel bundle did not start loading. code={0} path={1}", code, matePath);
                     yield break;
+                }
                 while (!abr.isDone)
                     yield return null;
                 var ab = FinishAssetBundleLoadFromFileAsync(abr, matePath, "LoadMateAsync CrossDuel " + code);
@@ -1082,7 +1091,7 @@ namespace MDPro3
                         container.TryGet<ParameterContainer>("Settings", out var settings);
                         if (prefab == null || timelines == null)
                             continue;
-                        var mateGo = InstantiateRuntimeGameObject(prefab, matePath);
+                        var mateGo = InstantiateRuntimeGameObject(prefab, matePath, false);
                         mateGo.AddComponent<FieldParamEventController_AnimationEventReceiver>();
                         foreach (var s in timelines.AllNamedAssetNames())
                         {
@@ -1117,6 +1126,8 @@ namespace MDPro3
                         returnValue = mateGo.AddComponent<Mate>();
                     }
                 }
+                if (returnValue == null)
+                    Debug.LogWarningFormat("Mate load failed: CrossDuel bundle has no supported mate prefab/timelines. code={0} path={1} assets={2}", code, matePath, all.Length);
             }
             else
             {
@@ -1126,32 +1137,42 @@ namespace MDPro3
                 if (matePath.EndsWith("_Folder"))
                 {
                     mateInFolder = true;
-                    ie = LoadFromFolderAsync("MasterDuel/" + matePath.Replace("_Folder", string.Empty));
+                    ie = LoadFromFolderAsync("MasterDuel/" + matePath.Replace("_Folder", string.Empty), suppressOptionalScenery: false);
                 }
                 else
-                    ie = LoadFromFileAsync("MasterDuel/" + matePath);
+                    ie = LoadFromFileAsync("MasterDuel/" + matePath, suppressOptionalScenery: false);
                 while (ie.MoveNext())
                     yield return null;
                 var mateGo = ie.Current;
                 if (mateGo == null)
+                {
+                    Debug.LogWarningFormat("Mate load failed: MasterDuel bundle produced no GameObject. code={0} path={1}", code, matePath);
                     yield break;
+                }
                 if(mateInFolder)
                 {
+                    bool foundMateRoot = false;
                     for (int i = 0; i < mateGo.transform.childCount; i++)
                     {
                         if (mateGo.transform.GetChild(i).GetComponent<CharacterCollision>() != null)
                         {
                             var source = mateGo;
-                            mateGo = InstantiateRuntimeGameObject(source.transform.GetChild(i).gameObject, matePath);
+                            mateGo = InstantiateRuntimeGameObject(source.transform.GetChild(i).gameObject, matePath, false);
                             Destroy(source);
+                            foundMateRoot = true;
                             break;
                         }
                     }
+                    if (!foundMateRoot)
+                        Debug.LogWarningFormat("Mate load warning: MasterDuel folder had no CharacterCollision child. code={0} path={1}", code, matePath);
                 }
                 returnValue = mateGo.AddComponent<Mate>();
             }
             if (returnValue == null)
+            {
+                Debug.LogWarningFormat("Mate load failed: no Mate component created. code={0} type={1}", code, type);
                 yield break;
+            }
             returnValue.type = type;
             returnValue.code = code;
             yield return returnValue;

@@ -36,10 +36,10 @@ namespace MDPro3.EditorTools
             AddOrUpdateUsesFeature(manifest, "android.hardware.vr.headtracking", required: true, version: "1");
             AddOrUpdateUsesFeature(manifest, "oculus.software.vr", required: true, version: null);
             RemoveUsesFeature(manifest, "com.oculus.feature.PASSTHROUGH");
-            AddOrUpdateUsesFeature(manifest, "oculus.software.handtracking", required: false, version: null);
+            RemoveUsesFeature(manifest, "oculus.software.handtracking");
             AddOrUpdateUsesPermission(manifest, "org.khronos.openxr.permission.OPENXR");
             AddOrUpdateUsesPermission(manifest, "org.khronos.openxr.permission.OPENXR_SYSTEM");
-            AddOrUpdateUsesPermission(manifest, "com.oculus.permission.HAND_TRACKING");
+            RemoveUsesPermission(manifest, "com.oculus.permission.HAND_TRACKING");
             RemoveUsesPermission(manifest, "com.oculus.permission.USE_SCENE");
             RemoveUsesPermission(manifest, "horizonos.permission.USE_SCENE");
             RemoveUsesPermission(manifest, "com.oculus.permission.USE_ANCHOR_API");
@@ -49,8 +49,8 @@ namespace MDPro3.EditorTools
             var application = manifest.Element("application");
             if (application != null)
             {
-                AddOrUpdateMetaData(application, "com.oculus.handtracking.version", "V2.0");
-                AddOrUpdateMetaData(application, "com.oculus.handtracking.frequency", "HIGH");
+                RemoveMetaData(application, "com.oculus.handtracking.version");
+                RemoveMetaData(application, "com.oculus.handtracking.frequency");
                 AddOrUpdateMetaData(application, "com.oculus.supportedDevices", "quest2|questpro|quest3|quest3s");
                 RemoveMetaData(application, "com.oculus.ossplash.background");
 

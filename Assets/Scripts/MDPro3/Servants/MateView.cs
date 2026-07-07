@@ -27,7 +27,9 @@ namespace MDPro3
         [HideInInspector] public SelectionToggle_Mate lastSelectedMateItem;
         Camera targetCamera;
 
+        const int MaxQuestPreviewMateCount = 5;
         static Mate mate;
+        static readonly List<Mate> previewMates = new List<Mate>();
 
         Vector2 clickInPosition;
         Vector3 mateAngel;
@@ -36,6 +38,7 @@ namespace MDPro3
         float clickInTime;
         bool clickInLeft;
         bool clickInRight;
+        bool questWorldPreviewActive;
 
         #region Servant
         public override void Initialize()
@@ -75,8 +78,8 @@ namespace MDPro3
             Program.instance.camera_.light.gameObject.SetActive(false);
             Program.instance.camera_.light.transform.GetChild(0).localEulerAngles = new Vector3(96f, -28f, -40f);
             Program.instance.camera_.light.transform.GetChild(1).localEulerAngles = new Vector3(-15f, -45f, 0f);
-            if (mate != null)
-                Destroy(mate.gameObject);
+            questWorldPreviewActive = false;
+            ClearPreviewMates();
             AudioManager.ResetSESource();
             AudioManager.PlaySE("SE_MENU_CANCEL");
             AudioManager.PlayBGM("BGM_MENU_01");
@@ -96,6 +99,9 @@ namespace MDPro3
 
                 if (UserInput.WasGamepadButtonNorthPressed)
                     OnMateTap();
+
+                if (questWorldPreviewActive)
+                    return;
 
                 var leftOffset = (PropertyOverrider.NeedMobileLayout() ? 532f : 432f) * Screen.height / 1080f;
 
@@ -269,6 +275,7 @@ namespace MDPro3
 
         public void OnMateTap()
         {
+            CleanupPreviewMates();
             if (mate == null)
                 return;
             mate.Play(Mate.MateAction.Tap);
@@ -285,12 +292,15 @@ namespace MDPro3
 
         public void ViewMate(int code)
         {
-            if (mate != null)
+            CleanupPreviewMates();
+            foreach (var loadedMate in previewMates)
             {
-                if (mate.code == code)
+                if (loadedMate != null && loadedMate.code == code)
+                {
+                    mate = loadedMate;
+                    mate.Play(Mate.MateAction.Tap);
                     return;
-                else
-                    Destroy(mate.gameObject);
+                }
             }
             StartCoroutine(LoadMateAsync(code));
         }
@@ -300,16 +310,87 @@ namespace MDPro3
             var ie = ABLoader.LoadMateAsync(code);
             while (ie.MoveNext())
                 yield return null;
-            mate = ie.Current;
-            if (mate == null)
+            var loadedMate = ie.Current;
+            if (loadedMate == null)
                 yield break;
-            Tools.ChangeLayer(mate.gameObject, targetCamera.gameObject.layer);
+            CleanupPreviewMates();
+            foreach (var existingMate in previewMates)
+            {
+                if (existingMate != null && existingMate.code == loadedMate.code)
+                {
+                    Destroy(loadedMate.gameObject);
+                    mate = existingMate;
+                    yield break;
+                }
+            }
+            while (previewMates.Count >= MaxQuestPreviewMateCount)
+                RemovePreviewMateAt(0);
+            previewMates.Add(loadedMate);
+            mate = loadedMate;
+            Tools.ChangeLayer(loadedMate.gameObject, targetCamera.gameObject.layer);
             yield return new WaitForSeconds(0.1f);
             AudioManager.ResetSESource();
-            mate.gameObject.SetActive(true);
-            mate.Play(Mate.MateAction.Entry);
-            mate.ActiveCamera(Mate.MateAction.Entry, targetCamera.gameObject.layer);
+            loadedMate.gameObject.SetActive(true);
+            questWorldPreviewActive = QuestXrBootstrap.PrepareQuestMatePreview(loadedMate);
+            if (!questWorldPreviewActive)
+            {
+                for (int i = previewMates.Count - 2; i >= 0; i--)
+                    RemovePreviewMateAt(i);
+            }
+            loadedMate.Play(Mate.MateAction.Entry);
+            if (!questWorldPreviewActive)
+                loadedMate.ActiveCamera(Mate.MateAction.Entry, targetCamera.gameObject.layer);
             CameraReset();
+        }
+
+        static void CleanupPreviewMates()
+        {
+            for (int i = previewMates.Count - 1; i >= 0; i--)
+            {
+                if (previewMates[i] == null)
+                    previewMates.RemoveAt(i);
+            }
+            if (mate == null && previewMates.Count > 0)
+                mate = previewMates[previewMates.Count - 1];
+        }
+
+        static void ClearPreviewMates()
+        {
+            for (int i = previewMates.Count - 1; i >= 0; i--)
+                RemovePreviewMateAt(i);
+            previewMates.Clear();
+            mate = null;
+        }
+
+        public bool DeletePreviewMate(Mate target)
+        {
+            CleanupPreviewMates();
+            if (target == null)
+                return false;
+            for (int i = previewMates.Count - 1; i >= 0; i--)
+            {
+                if (previewMates[i] != target)
+                    continue;
+                RemovePreviewMateAt(i);
+                questWorldPreviewActive = previewMates.Count > 0 && questWorldPreviewActive;
+                return true;
+            }
+            return false;
+        }
+
+        static void RemovePreviewMateAt(int index)
+        {
+            if (index < 0 || index >= previewMates.Count)
+                return;
+            var removedMate = previewMates[index];
+            previewMates.RemoveAt(index);
+            if (removedMate != null)
+            {
+                QuestXrBootstrap.DetachQuestMatePreview(removedMate);
+                Destroy(removedMate.gameObject);
+            }
+            if (mate == removedMate)
+                mate = previewMates.Count > 0 ? previewMates[previewMates.Count - 1] : null;
         }
 
         void ItemOnListRefresh(string[] task, GameObject item)

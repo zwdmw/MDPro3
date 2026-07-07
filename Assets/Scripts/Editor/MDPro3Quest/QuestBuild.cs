@@ -39,6 +39,8 @@ namespace MDPro3.EditorTools
         private const string OculusTouchFeatureId = "com.unity.openxr.feature.input.oculustouch";
         private const string MetaQuestPlusFeatureId = "com.unity.openxr.feature.input.metaquestplus";
         private const string MetaQuestProFeatureId = "com.unity.openxr.feature.input.metaquestpro";
+        private const string HandInteractionFeatureId = "com.unity.openxr.feature.input.handinteraction";
+        private const string HandInteractionPosesFeatureId = "com.unity.openxr.feature.input.handinteractionposes";
 
         [MenuItem("MDPro3/Quest/Build Android APK")]
         public static void BuildQuestApkMenu()
@@ -177,6 +179,8 @@ namespace MDPro3.EditorTools
             SetOpenXRFeatureEnabled(OculusTouchFeatureId, enabled: true, required: true);
             SetOpenXRFeatureEnabled(MetaQuestPlusFeatureId, enabled: true, required: false);
             SetOpenXRFeatureEnabled(MetaQuestProFeatureId, enabled: true, required: false);
+            SetOpenXRFeatureEnabled(HandInteractionFeatureId, enabled: false, required: false);
+            SetOpenXRFeatureEnabled(HandInteractionPosesFeatureId, enabled: false, required: false);
 
             ConfigureMetaQuestFeature(openXrSettings);
             DisableCameraPassthroughFeature(openXrSettings);
