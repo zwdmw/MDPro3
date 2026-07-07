@@ -18,11 +18,12 @@ namespace MDPro3
         private const float PanelScale = 0.014f;
         private const float SmallPanelScale = 0.016f;
         private const float HudScale = 0.017f;
-        private const float FloorHudScale = 0.020f;
+        private const float FloorHudScale = 0.032f;
+        private const float ControlHudScale = 0.027f;
         private const float CardInfoScale = 0.021f;
-        private const float DuelLogPanelScale = 0.026f;
+        private const float DuelLogPanelScale = 0.034f;
         private const float CardSelectorScale = 0.0185f;
-        private const float WorldCanvasDynamicPixelsPerUnit = 5f;
+        private const float WorldCanvasDynamicPixelsPerUnit = 8f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const int CardGridPageSize = 12;
@@ -546,18 +547,18 @@ namespace MDPro3
             if (phaseHudCanvas == null)
             {
                 var canvasObject = CreateCanvasObject("QuestDuelPhaseHud", out phaseHudCanvas, out phaseHudRect);
-                phaseHudRect.sizeDelta = new Vector2(850f, 290f);
-                AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.020f, 0.78f));
-                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(34f, -24f), new Vector2(390f, 220f), 48f, TextAlignmentOptions.Left);
-                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(455f, -34f), new Vector2(340f, 190f), 38f, TextAlignmentOptions.Left);
+                phaseHudRect.sizeDelta = new Vector2(1020f, 330f);
+                AddPanelBackground(canvasObject, new Color(0.008f, 0.012f, 0.018f, 0.82f));
+                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(38f, -28f), new Vector2(470f, 250f), 60f, TextAlignmentOptions.Left);
+                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(560f, -40f), new Vector2(400f, 220f), 46f, TextAlignmentOptions.Left);
                 canvasObject.SetActive(false);
             }
 
             if (controlHudCanvas == null)
             {
                 var controlObject = CreateCanvasObject("QuestDuelControlHud", out controlHudCanvas, out controlHudRect);
-                controlHudRect.sizeDelta = new Vector2(780f, 430f);
-                AddPanelBackground(controlObject, new Color(0.010f, 0.014f, 0.020f, 0.80f));
+                controlHudRect.sizeDelta = new Vector2(840f, 440f);
+                AddPanelBackground(controlObject, new Color(0.008f, 0.012f, 0.018f, 0.84f));
                 phaseHudButtonRoot = CreateRect("PhaseButtons", controlHudRect, new Vector2(34f, -34f), new Vector2(712f, 160f), new Vector2(0f, 1f));
                 systemHudButtonRoot = CreateRect("SystemButtons", controlHudRect, new Vector2(34f, -226f), new Vector2(712f, 150f), new Vector2(0f, 1f));
                 controlObject.SetActive(false);
@@ -623,14 +624,14 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestDuelLogPanel", out duelLogCanvas, out duelLogRect);
-            duelLogRect.sizeDelta = new Vector2(980f, 500f);
-            AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.019f, 0.74f));
+            duelLogRect.sizeDelta = new Vector2(1120f, 560f);
+            AddPanelBackground(canvasObject, new Color(0.008f, 0.012f, 0.018f, 0.80f));
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
-            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(32f, -22f), new Vector2(916f, 60f), 36f, TextAlignmentOptions.Left);
-            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(32f, -94f), new Vector2(916f, 370f), 32f, TextAlignmentOptions.TopLeft);
+            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(36f, -24f), new Vector2(1040f, 72f), 46f, TextAlignmentOptions.Left);
+            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(36f, -108f), new Vector2(1040f, 410f), 38f, TextAlignmentOptions.TopLeft);
             duelLogBodyText.enableWordWrapping = true;
             duelLogBodyText.overflowMode = TextOverflowModes.Truncate;
             duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
@@ -1559,11 +1560,11 @@ namespace MDPro3
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
                 PlacePanel(phaseMenuRect, DuelWorldCenterOnGround + new Vector3(0f, 8.4f, -18f), SmallPanelScale);
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
-                PlacePanel(phaseHudRect, DuelWorldCenterOnGround + new Vector3(86f, 21.5f, -16f), FloorHudScale);
+                PlacePanel(phaseHudRect, DuelWorldCenterOnGround + new Vector3(58f, 22.5f, -24f), FloorHudScale);
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
-                PlacePanel(controlHudRect, DuelWorldCenterOnGround + new Vector3(46f, 12.6f, -50f), FloorHudScale);
+                PlacePanel(controlHudRect, DuelWorldCenterOnGround + new Vector3(34f, 12.8f, -50f), ControlHudScale);
             if (duelLogRect != null && duelLogCanvas.gameObject.activeSelf)
-                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(86f, 13.2f, 10f), DuelLogPanelScale);
+                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(58f, 6.4f, 12f), DuelLogPanelScale);
         }
 
         private Vector3 ResolveOptionPanelPosition()
@@ -1735,7 +1736,8 @@ namespace MDPro3
             if (onClick != null)
                 button.onClick.AddListener(() => onClick());
 
-            var text = CreateText("Label", rect, new Vector2(12f, -8f), new Vector2(size.x - 24f, size.y - 16f), 25f, TextAlignmentOptions.Center);
+            var labelFontSize = Mathf.Clamp(size.y * 0.30f, 25f, 42f);
+            var text = CreateText("Label", rect, new Vector2(12f, -8f), new Vector2(size.x - 24f, size.y - 16f), labelFontSize, TextAlignmentOptions.Center);
             text.text = LocalizeQuestLabel(label);
             return button;
         }

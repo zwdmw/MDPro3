@@ -126,6 +126,12 @@ namespace MDPro3
         private const float QuestPreviewRayRotateSensitivityY = 190f;
         private const float QuestPreviewPitchLimit = 75f;
         private const float QuestPreviewHitPadding = 1.8f;
+        private const string QuestAndroidDuelFieldNearPath = "MasterDuel/Mat/Mat_001_near";
+        private const string QuestAndroidDuelFieldFarPath = "MasterDuel/Mat/Mat_001_far";
+        private const float QuestAndroidDuelFieldRetryDelay = 6f;
+        private const float QuestAndroidDuelFieldTargetWidth = DuelArenaWidth * 1.10f;
+        private const float QuestAndroidDuelFieldTargetDepth = DuelArenaDepth * 1.10f;
+        private const float QuestAndroidDuelFieldGroundY = DuelGroundY - 0.035f;
         private const float QuestThumbstickDeadZone = 0.18f;
         private const float QuestPlayerMoveSpeed = 14f;
         private const float QuestPlayerVerticalSpeed = 10f;
@@ -199,6 +205,14 @@ namespace MDPro3
         private Material uiRenderPanelMaterial;
         private Material uiRenderPanelBackdropMaterial;
         private Transform duelArenaRoot;
+        private Transform questDuelFieldRoot;
+        private GameObject questNearField;
+        private GameObject questFarField;
+        private bool questDuelFieldLoadInProgress;
+        private bool questDuelFieldLoadSucceeded;
+        private bool questDuelFieldLoggedReady;
+        private float questDuelFieldNextRetryTime;
+        private int questDuelFieldLoadAttempt;
         private RenderTexture uiRenderTexture;
         private GameObject uiRenderPanel;
         private GameObject uiRenderPanelBackdrop;
@@ -2145,6 +2159,7 @@ namespace MDPro3
             if (!IsQuestNativeDuelActive())
             {
                 questDuelWorldPresenter?.SetVisible(false);
+                SetQuestAndroidDuelFieldVisible(false);
                 return;
             }
 
@@ -2156,6 +2171,7 @@ namespace MDPro3
             if (duelWorldAnchor == null)
                 return;
             AttachFallbackEnvironmentToDuelWorldAnchor();
+            EnsureQuestAndroidDuelField();
 
             if (anchoredDuelContainer != duelContainer || duelContainer.parent != duelWorldAnchor)
             {
@@ -2239,6 +2255,307 @@ namespace MDPro3
             fallbackEnvironmentRoot.localPosition = Vector3.zero;
             fallbackEnvironmentRoot.localRotation = Quaternion.identity;
             fallbackEnvironmentRoot.localScale = Vector3.one;
+        }
+
+        private void EnsureQuestAndroidDuelField()
+        {
+            if (duelWorldAnchor == null)
+                return;
+
+            if (questDuelFieldRoot == null)
+            {
+                var fieldObject = new GameObject("QuestAndroidDuelFieldRoot");
+                SetQuestOverlayLayer(fieldObject);
+                questDuelFieldRoot = fieldObject.transform;
+            }
+
+            if (questDuelFieldRoot.parent != duelWorldAnchor)
+                questDuelFieldRoot.SetParent(duelWorldAnchor, false);
+            questDuelFieldRoot.localRotation = Quaternion.identity;
+
+            SetQuestAndroidDuelFieldVisible(true);
+            if (questDuelFieldLoadSucceeded || questDuelFieldLoadInProgress)
+                return;
+
+            if (Time.unscaledTime < questDuelFieldNextRetryTime)
+                return;
+
+            StartCoroutine(LoadQuestAndroidDuelField());
+        }
+
+        private IEnumerator LoadQuestAndroidDuelField()
+        {
+            if (questDuelFieldRoot == null)
+                yield break;
+
+            questDuelFieldLoadInProgress = true;
+            questDuelFieldLoadAttempt += 1;
+            questDuelFieldLoggedReady = false;
+            ClearQuestAndroidDuelFieldObjects();
+
+            Debug.LogFormat(
+                "Quest Android duel field load started. Attempt={0}, Near={1}, Far={2}, Root={3}",
+                questDuelFieldLoadAttempt,
+                QuestAndroidDuelFieldNearPath,
+                QuestAndroidDuelFieldFarPath,
+                GetTransformPath(questDuelFieldRoot));
+
+            GameObject near = null;
+            GameObject far = null;
+            yield return LoadQuestAndroidDuelFieldAsset(QuestAndroidDuelFieldNearPath, loaded => near = loaded);
+            yield return LoadQuestAndroidDuelFieldAsset(QuestAndroidDuelFieldFarPath, loaded => far = loaded);
+
+            questNearField = near;
+            questFarField = far;
+            var renderers = CountQuestAndroidDuelFieldRenderers();
+            questDuelFieldLoadSucceeded = renderers > 0;
+            questDuelFieldLoadInProgress = false;
+
+            if (!questDuelFieldLoadSucceeded)
+            {
+                questDuelFieldNextRetryTime = Time.unscaledTime + QuestAndroidDuelFieldRetryDelay;
+                if (questDuelFieldRoot != null)
+                    questDuelFieldRoot.gameObject.SetActive(false);
+                UpdateQuestProceduralGroundVisibility();
+                Debug.LogWarningFormat(
+                    "Quest Android duel field load produced no visible renderers. Attempt={0}, RetryIn={1:F1}s",
+                    questDuelFieldLoadAttempt,
+                    QuestAndroidDuelFieldRetryDelay);
+                yield break;
+            }
+
+            FitQuestAndroidDuelFieldToArena();
+            SetQuestAndroidDuelFieldObjectsActive(true);
+            SetQuestAndroidDuelFieldVisible(true);
+            UpdateQuestProceduralGroundVisibility();
+        }
+
+        private IEnumerator LoadQuestAndroidDuelFieldAsset(string path, Action<GameObject> onLoaded)
+        {
+            GameObject loadedObject = null;
+            var loader = ABLoader.LoadFromFileAsync(path, cache: true, copy: true, suppressOptionalScenery: false);
+            while (loader.MoveNext())
+            {
+                if (loader.Current != null)
+                {
+                    loadedObject = loader.Current;
+                    loadedObject.SetActive(false);
+                }
+                yield return null;
+            }
+
+            loader.Dispose();
+            if (loadedObject == null)
+            {
+                Debug.LogWarningFormat("Quest Android duel field asset missing or empty: {0}", path);
+                onLoaded?.Invoke(null);
+                yield break;
+            }
+
+            loadedObject.name = "QuestAndroidField_" + path.Replace('/', '_');
+            ConfigureQuestAndroidDuelFieldObject(loadedObject, path);
+            loadedObject.transform.SetParent(questDuelFieldRoot, false);
+            loadedObject.transform.localPosition = Vector3.zero;
+            loadedObject.transform.localRotation = Quaternion.identity;
+            loadedObject.transform.localScale = Vector3.one;
+            onLoaded?.Invoke(loadedObject);
+
+            Debug.LogFormat(
+                "Quest Android duel field asset attached. Path={0}, Renderers={1}, Root={2}",
+                path,
+                CountRenderableRenderers(loadedObject.transform),
+                GetTransformPath(loadedObject.transform));
+        }
+
+        private void ConfigureQuestAndroidDuelFieldObject(GameObject root, string sourcePath)
+        {
+            if (root == null)
+                return;
+
+            SetQuestOverlayLayer(root);
+            foreach (var camera in root.GetComponentsInChildren<Camera>(true))
+            {
+                if (camera == null)
+                    continue;
+
+                camera.enabled = false;
+                camera.targetTexture = null;
+                var data = camera.GetUniversalAdditionalCameraData();
+                data.allowXRRendering = false;
+                data.allowHDROutput = false;
+                data.renderPostProcessing = false;
+            }
+
+            foreach (var canvas in root.GetComponentsInChildren<Canvas>(true))
+                if (canvas != null)
+                    canvas.enabled = false;
+            foreach (var raycaster in root.GetComponentsInChildren<GraphicRaycaster>(true))
+                if (raycaster != null)
+                    raycaster.enabled = false;
+            foreach (var collider in root.GetComponentsInChildren<Collider>(true))
+                if (collider != null)
+                    collider.enabled = false;
+
+            var hiddenOptional = 0;
+            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null)
+                    continue;
+
+                var rendererPath = (sourcePath + "/" + GetTransformPath(renderer.transform)).ToLowerInvariant();
+                if (renderer is ParticleSystemRenderer || IsOptionalDuelSceneryPath(rendererPath))
+                {
+                    renderer.enabled = false;
+                    hiddenOptional += 1;
+                    continue;
+                }
+
+                renderer.forceRenderingOff = false;
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+
+            if (hiddenOptional > 0)
+                Debug.LogFormat(
+                    "Quest Android duel field optional renderers hidden. Source={0}, Hidden={1}",
+                    sourcePath,
+                    hiddenOptional);
+        }
+
+        private void FitQuestAndroidDuelFieldToArena()
+        {
+            if (questDuelFieldRoot == null)
+                return;
+
+            questDuelFieldRoot.localPosition = Vector3.zero;
+            questDuelFieldRoot.localRotation = Quaternion.identity;
+            questDuelFieldRoot.localScale = Vector3.one;
+
+            if (!TryGetQuestAndroidDuelFieldBounds(out var localBounds))
+                return;
+
+            var width = Mathf.Max(localBounds.size.x, 0.001f);
+            var depth = Mathf.Max(localBounds.size.z, 0.001f);
+            var scale = Mathf.Max(
+                Mathf.Min(QuestAndroidDuelFieldTargetWidth / width, QuestAndroidDuelFieldTargetDepth / depth),
+                QuestWorldScaleMinPositive);
+            questDuelFieldRoot.localScale = Vector3.one * scale;
+            questDuelFieldRoot.localPosition = new Vector3(
+                -localBounds.center.x * scale,
+                QuestAndroidDuelFieldGroundY - localBounds.min.y * scale,
+                -localBounds.center.z * scale);
+
+            if (!questDuelFieldLoggedReady)
+            {
+                questDuelFieldLoggedReady = true;
+                Debug.LogFormat(
+                    "Quest Android duel field fitted. BoundsMin={0}, BoundsMax={1}, Scale={2:F4}, LocalPosition={3}, Renderers={4}",
+                    localBounds.min,
+                    localBounds.max,
+                    scale,
+                    questDuelFieldRoot.localPosition,
+                    CountQuestAndroidDuelFieldRenderers());
+            }
+        }
+
+        private bool TryGetQuestAndroidDuelFieldBounds(out Bounds bounds)
+        {
+            bounds = default;
+            if (questDuelFieldRoot == null)
+                return false;
+
+            var initialized = false;
+            foreach (var renderer in questDuelFieldRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!IsQuestAndroidDuelFieldRendererUsable(renderer))
+                    continue;
+
+                var localBounds = ConvertWorldBoundsToLocal(questDuelFieldRoot, renderer.bounds);
+                if (!initialized)
+                {
+                    bounds = localBounds;
+                    initialized = true;
+                }
+                else
+                    bounds.Encapsulate(localBounds);
+            }
+
+            return initialized;
+        }
+
+        private int CountQuestAndroidDuelFieldRenderers()
+        {
+            return CountRenderableRenderers(questDuelFieldRoot);
+        }
+
+        private static int CountRenderableRenderers(Transform root)
+        {
+            if (root == null)
+                return 0;
+
+            var count = 0;
+            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+                if (IsQuestAndroidDuelFieldRendererUsable(renderer))
+                    count += 1;
+            return count;
+        }
+
+        private static bool IsQuestAndroidDuelFieldRendererUsable(Renderer renderer)
+        {
+            return renderer != null
+                && renderer.enabled
+                && !renderer.forceRenderingOff
+                && !(renderer is ParticleSystemRenderer);
+        }
+
+        private void SetQuestAndroidDuelFieldObjectsActive(bool active)
+        {
+            if (questNearField != null && questNearField.activeSelf != active)
+                questNearField.SetActive(active);
+            if (questFarField != null && questFarField.activeSelf != active)
+                questFarField.SetActive(active);
+        }
+
+        private void SetQuestAndroidDuelFieldVisible(bool visible)
+        {
+            if (questDuelFieldRoot != null && questDuelFieldRoot.gameObject.activeSelf != visible)
+                questDuelFieldRoot.gameObject.SetActive(visible);
+            UpdateQuestProceduralGroundVisibility();
+        }
+
+        private void UpdateQuestProceduralGroundVisibility()
+        {
+            if (fallbackEnvironmentRoot == null)
+                return;
+
+            var showProceduralGround = !questDuelFieldLoadSucceeded
+                || questDuelFieldRoot == null
+                || !questDuelFieldRoot.gameObject.activeSelf;
+
+            for (var i = 0; i < fallbackEnvironmentRoot.childCount; i += 1)
+            {
+                var child = fallbackEnvironmentRoot.GetChild(i);
+                if (child == null)
+                    continue;
+
+                if (child.name == "QuestDuelMatteFloor" || child.name == "QuestWorldReferenceLine")
+                    child.gameObject.SetActive(showProceduralGround);
+            }
+        }
+
+        private void ClearQuestAndroidDuelFieldObjects()
+        {
+            questNearField = null;
+            questFarField = null;
+            if (questDuelFieldRoot == null)
+                return;
+
+            for (var i = questDuelFieldRoot.childCount - 1; i >= 0; i -= 1)
+            {
+                var child = questDuelFieldRoot.GetChild(i);
+                if (child != null)
+                    Destroy(child.gameObject);
+            }
         }
 
         private void EnsureQuestDuelWorldPresenter()
