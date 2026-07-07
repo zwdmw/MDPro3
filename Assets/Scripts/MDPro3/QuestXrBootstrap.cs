@@ -141,7 +141,7 @@ namespace MDPro3
         private const float QuestWorldFastControlMultiplier = 3f;
         private const float QuestWorldControlLogInterval = 3f;
         private static readonly Quaternion DuelWorldFloorRotation = Quaternion.identity;
-        private static readonly Vector3 DuelEyePosition = new Vector3(0f, 24f, -50f);
+        private static readonly Vector3 DuelEyePosition = new Vector3(0f, 24f, -54f);
         private static readonly Vector3 DuelLookTarget = new Vector3(0f, DuelGroundY + 0.5f, -1.5f);
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, DuelGroundY, -1.5f);
         private static readonly Vector3 QuestPreviewCutinDefaultOffset = new Vector3(0f, 18f, -18f);
@@ -208,6 +208,9 @@ namespace MDPro3
         private Transform questDuelFieldRoot;
         private GameObject questNearField;
         private GameObject questFarField;
+        private GameObject questDuelFieldSurface;
+        private readonly List<Mesh> questDuelFieldSurfaceMeshes = new List<Mesh>();
+        private readonly List<Material> questDuelFieldSurfaceMaterials = new List<Material>();
         private bool questDuelFieldLoadInProgress;
         private bool questDuelFieldLoadSucceeded;
         private bool questDuelFieldLoggedReady;
@@ -867,6 +870,7 @@ namespace MDPro3
                 Destroy(uiRenderPanelMaterial);
             if (uiRenderPanelBackdropMaterial != null)
                 Destroy(uiRenderPanelBackdropMaterial);
+            ClearQuestDuelFieldSurface();
             if (uiRenderTexture != null)
             {
                 uiRenderTexture.Release();
@@ -2307,8 +2311,11 @@ namespace MDPro3
 
             questNearField = near;
             questFarField = far;
+            SetQuestAndroidDuelFieldObjectsActive(true);
+            var builtSurface = TryBuildQuestDuelFieldSurfaceFromResources(out var surfaceSource);
+            SetQuestAndroidDuelFieldObjectsActive(false);
             var renderers = CountQuestAndroidDuelFieldRenderers();
-            questDuelFieldLoadSucceeded = renderers > 0;
+            questDuelFieldLoadSucceeded = builtSurface && renderers > 0;
             questDuelFieldLoadInProgress = false;
 
             if (!questDuelFieldLoadSucceeded)
@@ -2324,10 +2331,12 @@ namespace MDPro3
                 yield break;
             }
 
-            FitQuestAndroidDuelFieldToArena();
-            SetQuestAndroidDuelFieldObjectsActive(true);
             SetQuestAndroidDuelFieldVisible(true);
             UpdateQuestProceduralGroundVisibility();
+            Debug.LogFormat(
+                "Quest Android duel field resource surface ready. Source={0}, VisibleRenderers={1}",
+                surfaceSource,
+                renderers);
         }
 
         private IEnumerator LoadQuestAndroidDuelFieldAsset(string path, Action<GameObject> onLoaded)
@@ -2363,7 +2372,7 @@ namespace MDPro3
             Debug.LogFormat(
                 "Quest Android duel field asset attached. Path={0}, Renderers={1}, Root={2}",
                 path,
-                CountRenderableRenderers(loadedObject.transform),
+                CountSourceRenderers(loadedObject.transform),
                 GetTransformPath(loadedObject.transform));
         }
 
@@ -2396,93 +2405,461 @@ namespace MDPro3
                 if (collider != null)
                     collider.enabled = false;
 
-            var hiddenOptional = 0;
+            var sourceRenderers = 0;
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
             {
                 if (renderer == null)
                     continue;
 
-                var rendererPath = (sourcePath + "/" + GetTransformPath(renderer.transform)).ToLowerInvariant();
-                if (renderer is ParticleSystemRenderer || IsOptionalDuelSceneryPath(rendererPath))
-                {
-                    renderer.enabled = false;
-                    hiddenOptional += 1;
-                    continue;
-                }
-
-                renderer.forceRenderingOff = false;
+                sourceRenderers += 1;
+                renderer.enabled = true;
+                renderer.forceRenderingOff = true;
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
             }
 
-            if (hiddenOptional > 0)
-                Debug.LogFormat(
-                    "Quest Android duel field optional renderers hidden. Source={0}, Hidden={1}",
-                    sourcePath,
-                    hiddenOptional);
+            Debug.LogFormat(
+                "Quest Android duel field source prepared. Source={0}, SourceRenderers={1}",
+                sourcePath,
+                sourceRenderers);
         }
 
-        private void FitQuestAndroidDuelFieldToArena()
+        private bool TryBuildQuestDuelFieldSurfaceFromResources(out string sourceDescription)
         {
+            sourceDescription = string.Empty;
+            ClearQuestDuelFieldSurface();
             if (questDuelFieldRoot == null)
-                return;
+                return false;
+
+            var samples = CollectQuestDuelFieldMaterialSamples();
+            if (samples.Count == 0)
+            {
+                Debug.LogWarning("Quest Android duel field resource surface could not find suitable material samples.");
+                return false;
+            }
+
+            var baseSample = samples[0];
+            var accentSample = samples.Count > 1 ? samples[1] : baseSample;
+            var detailSample = samples.Count > 2 ? samples[2] : accentSample;
+            LogQuestDuelFieldMaterialCandidates(samples);
+
+            questDuelFieldSurface = new GameObject("QuestDuelFieldResourceLayer");
+            SetQuestOverlayLayer(questDuelFieldSurface);
+            questDuelFieldSurface.transform.SetParent(questDuelFieldRoot, false);
+            questDuelFieldSurface.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            questDuelFieldSurface.transform.localScale = Vector3.one;
+
+            var baseMaterial = CreateQuestDuelFieldSurfaceMaterial(
+                baseSample.Material,
+                "Base/" + baseSample.Description,
+                new Color(0.92f, 0.96f, 1f, 1f),
+                false,
+                QuestAndroidDuelFieldTargetWidth / 5.4f,
+                QuestAndroidDuelFieldTargetDepth / 4.8f);
+            if (baseMaterial == null)
+            {
+                Debug.LogWarning("Quest Android duel field resource surface could not create base material.");
+                return false;
+            }
+
+            var zoneMaterial = CreateQuestDuelFieldSurfaceMaterial(
+                accentSample.Material,
+                "Zone/" + accentSample.Description,
+                new Color(0.18f, 0.80f, 0.76f, 0.24f),
+                true,
+                1.15f,
+                1.15f);
+            var pileMaterial = CreateQuestDuelFieldSurfaceMaterial(
+                detailSample.Material,
+                "Pile/" + detailSample.Description,
+                new Color(0.36f, 0.60f, 0.98f, 0.22f),
+                true,
+                1f,
+                1f);
+            var centerMaterial = CreateQuestDuelFieldSurfaceMaterial(
+                accentSample.Material,
+                "Center/" + accentSample.Description,
+                new Color(0.96f, 0.82f, 0.30f, 0.16f),
+                true,
+                2.4f,
+                0.55f);
+
+            CreateQuestDuelFieldSurfacePart(
+                "QuestDuelFieldResourceBase",
+                new Vector3(0f, QuestAndroidDuelFieldGroundY, DuelWorldCenterOnGround.z),
+                QuestAndroidDuelFieldTargetWidth,
+                QuestAndroidDuelFieldTargetDepth,
+                baseMaterial);
+
+            if (centerMaterial != null)
+            {
+                CreateQuestDuelFieldSurfacePart(
+                    "QuestDuelFieldResourceCenterBand",
+                    new Vector3(0f, DuelArenaLineY - 0.034f, 0f),
+                    QuestAndroidDuelFieldTargetWidth * 0.86f,
+                    3.2f,
+                    centerMaterial);
+            }
+
+            if (zoneMaterial != null)
+                CreateQuestDuelFieldZonePads(zoneMaterial);
+            if (pileMaterial != null)
+                CreateQuestDuelFieldPilePads(pileMaterial);
 
             questDuelFieldRoot.localPosition = Vector3.zero;
             questDuelFieldRoot.localRotation = Quaternion.identity;
             questDuelFieldRoot.localScale = Vector3.one;
+            questDuelFieldLoggedReady = true;
+            sourceDescription = baseSample.Description;
 
-            if (!TryGetQuestAndroidDuelFieldBounds(out var localBounds))
+            Debug.LogFormat(
+                "Quest Android duel field resource layer built. Base={0}, Accent={1}, Detail={2}, Parts={3}, Size=({4:F1},{5:F1})",
+                baseSample.Description,
+                accentSample.Description,
+                detailSample.Description,
+                CountRenderableRenderers(questDuelFieldSurface.transform),
+                QuestAndroidDuelFieldTargetWidth,
+                QuestAndroidDuelFieldTargetDepth);
+            return true;
+        }
+
+        private void CreateQuestDuelFieldZonePads(Material material)
+        {
+            var y = DuelArenaLineY - 0.026f;
+            var rows = new[]
+            {
+                ScaleDuelBoardZ(-9.48f),
+                ScaleDuelBoardZ(-18f),
+                ScaleDuelBoardZ(9.51f),
+                ScaleDuelBoardZ(18f)
+            };
+
+            foreach (var z in rows)
+                foreach (var x in DuelMainZoneX)
+                    CreateQuestDuelFieldSurfacePart(
+                        "QuestDuelFieldResourceZonePad",
+                        new Vector3(x, y, z),
+                        DuelZoneWidth * 0.94f,
+                        DuelZoneDepth * 0.94f,
+                        material);
+        }
+
+        private void CreateQuestDuelFieldPilePads(Material material)
+        {
+            var y = DuelArenaLineY - 0.022f;
+            var pads = new[]
+            {
+                ScaleDuelBoardPoint(new Vector3(26.86f, y, -23.93f)),
+                ScaleDuelBoardPoint(new Vector3(-26.86f, y, -23.93f)),
+                ScaleDuelBoardPoint(new Vector3(25.74f, y, -14.26f)),
+                ScaleDuelBoardPoint(new Vector3(27.58f, y, -8.02f)),
+                ScaleDuelBoardPoint(new Vector3(-26.86f, y, 23.93f)),
+                ScaleDuelBoardPoint(new Vector3(26.86f, y, 23.93f)),
+                ScaleDuelBoardPoint(new Vector3(-25.74f, y, 14.26f)),
+                ScaleDuelBoardPoint(new Vector3(-27.58f, y, 8.02f))
+            };
+
+            foreach (var center in pads)
+                CreateQuestDuelFieldSurfacePart(
+                    "QuestDuelFieldResourcePilePad",
+                    center,
+                    DuelZoneWidth * 0.92f,
+                    DuelZoneDepth * 0.76f,
+                    material);
+        }
+
+        private void CreateQuestDuelFieldSurfacePart(string name, Vector3 localPosition, float width, float depth, Material material)
+        {
+            if (questDuelFieldSurface == null || material == null)
                 return;
 
-            var width = Mathf.Max(localBounds.size.x, 0.001f);
-            var depth = Mathf.Max(localBounds.size.z, 0.001f);
-            var scale = Mathf.Max(
-                Mathf.Min(QuestAndroidDuelFieldTargetWidth / width, QuestAndroidDuelFieldTargetDepth / depth),
-                QuestWorldScaleMinPositive);
-            questDuelFieldRoot.localScale = Vector3.one * scale;
-            questDuelFieldRoot.localPosition = new Vector3(
-                -localBounds.center.x * scale,
-                QuestAndroidDuelFieldGroundY - localBounds.min.y * scale,
-                -localBounds.center.z * scale);
+            var part = new GameObject(name);
+            SetQuestOverlayLayer(part);
+            part.transform.SetParent(questDuelFieldSurface.transform, false);
+            part.transform.localPosition = localPosition;
+            part.transform.localRotation = Quaternion.identity;
+            part.transform.localScale = Vector3.one;
 
-            if (!questDuelFieldLoggedReady)
-            {
-                questDuelFieldLoggedReady = true;
-                Debug.LogFormat(
-                    "Quest Android duel field fitted. BoundsMin={0}, BoundsMax={1}, Scale={2:F4}, LocalPosition={3}, Renderers={4}",
-                    localBounds.min,
-                    localBounds.max,
-                    scale,
-                    questDuelFieldRoot.localPosition,
-                    CountQuestAndroidDuelFieldRenderers());
-            }
+            var mesh = CreateQuestDuelFieldSurfaceMesh(width, depth);
+            questDuelFieldSurfaceMeshes.Add(mesh);
+            var filter = part.AddComponent<MeshFilter>();
+            filter.sharedMesh = mesh;
+            var renderer = part.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.forceRenderingOff = false;
         }
 
-        private bool TryGetQuestAndroidDuelFieldBounds(out Bounds bounds)
+        private List<QuestDuelFieldMaterialSample> CollectQuestDuelFieldMaterialSamples()
         {
-            bounds = default;
-            if (questDuelFieldRoot == null)
-                return false;
+            var candidates = new List<QuestDuelFieldMaterialSample>();
+            CollectQuestDuelFieldMaterialSamples(questNearField, candidates);
+            CollectQuestDuelFieldMaterialSamples(questFarField, candidates);
+            candidates.Sort((left, right) => right.Score.CompareTo(left.Score));
 
-            var initialized = false;
-            foreach (var renderer in questDuelFieldRoot.GetComponentsInChildren<Renderer>(true))
+            var selected = new List<QuestDuelFieldMaterialSample>();
+            var seenKeys = new HashSet<string>();
+            foreach (var candidate in candidates)
             {
-                if (!IsQuestAndroidDuelFieldRendererUsable(renderer))
+                var key = candidate.Texture != null
+                    ? "tex:" + candidate.Texture.GetInstanceID()
+                    : "mat:" + (candidate.Material == null ? 0 : candidate.Material.GetInstanceID());
+                if (!seenKeys.Add(key))
                     continue;
 
-                var localBounds = ConvertWorldBoundsToLocal(questDuelFieldRoot, renderer.bounds);
-                if (!initialized)
-                {
-                    bounds = localBounds;
-                    initialized = true;
-                }
-                else
-                    bounds.Encapsulate(localBounds);
+                selected.Add(candidate);
+                if (selected.Count >= 8)
+                    break;
             }
 
-            return initialized;
+            return selected;
         }
 
+        private void CollectQuestDuelFieldMaterialSamples(GameObject root, List<QuestDuelFieldMaterialSample> candidates)
+        {
+            if (root == null || candidates == null)
+                return;
+
+            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+                if (TryCreateQuestDuelFieldMaterialSample(renderer, root.name, out var sample))
+                    candidates.Add(sample);
+        }
+
+        private bool TryCreateQuestDuelFieldMaterialSample(Renderer renderer, string sourceName, out QuestDuelFieldMaterialSample sample)
+        {
+            sample = null;
+            if (renderer == null || renderer is ParticleSystemRenderer || renderer is SpriteRenderer || renderer is LineRenderer)
+                return false;
+
+            var material = ResolveQuestDuelFieldSourceMaterial(renderer);
+            if (material == null)
+                return false;
+
+            var path = GetTransformPath(renderer.transform);
+            var normalized = (sourceName + "/" + path).ToLowerInvariant();
+            if (IsQuestDuelFieldResourceExcludedPath(normalized))
+                return false;
+
+            var localBounds = ConvertWorldBoundsToLocal(questDuelFieldRoot, renderer.bounds);
+            var size = localBounds.size;
+            var horizontalArea = Mathf.Max(size.x, 0.001f) * Mathf.Max(size.z, 0.001f);
+            var horizontalSize = Mathf.Max(size.x, size.z);
+            if (horizontalSize < 0.25f || horizontalArea < 0.05f)
+                return false;
+
+            var flatness = horizontalSize / Mathf.Max(size.y, 0.025f);
+            var score = horizontalArea * Mathf.Clamp(flatness, 1f, 80f);
+            if (HasQuestDuelFieldSurfaceName(normalized))
+                score *= 3f;
+            var texture = ResolveQuestDuelFieldTexture(material);
+            if (texture != null)
+                score *= 2.4f;
+            if (size.x > 2f && size.z > 2f)
+                score *= 1.75f;
+            if (normalized.Contains("field") || normalized.Contains("floor") || normalized.Contains("mat") || normalized.Contains("base"))
+                score *= 1.45f;
+            if (normalized.Contains("far"))
+                score *= 0.72f;
+
+            sample = new QuestDuelFieldMaterialSample
+            {
+                Material = material,
+                Texture = texture,
+                Score = score,
+                Description = sourceName + "/" + path + " material=" + material.name + " texture=" + (texture == null ? "<none>" : texture.name) + " bounds=" + size
+            };
+            return true;
+        }
+
+        private void LogQuestDuelFieldMaterialCandidates(List<QuestDuelFieldMaterialSample> samples)
+        {
+            if (samples == null || samples.Count == 0)
+                return;
+
+            var count = Mathf.Min(samples.Count, 5);
+            for (var i = 0; i < count; i += 1)
+            {
+                var sample = samples[i];
+                Debug.LogFormat(
+                    "Quest Android duel field material candidate #{0}: Score={1:F2}, Source={2}, Texture={3}",
+                    i + 1,
+                    sample.Score,
+                    sample.Description,
+                    sample.Texture == null ? "<none>" : sample.Texture.name);
+            }
+        }
+
+        private sealed class QuestDuelFieldMaterialSample
+        {
+            public Material Material;
+            public Texture Texture;
+            public float Score;
+            public string Description;
+        }
+
+        private static bool IsQuestDuelFieldResourceExcludedPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            var normalized = path.ToLowerInvariant();
+            return normalized.Contains("camera") ||
+                normalized.Contains("canvas") ||
+                normalized.Contains("ui") ||
+                normalized.Contains("effect") ||
+                normalized.Contains("fxp") ||
+                normalized.Contains("particle") ||
+                normalized.Contains("sky") ||
+                normalized.Contains("cloud") ||
+                normalized.Contains("background") ||
+                normalized.Contains("wall") ||
+                normalized.Contains("outside") ||
+                normalized.Contains("tree") ||
+                normalized.Contains("leaf") ||
+                normalized.Contains("foliage") ||
+                normalized.Contains("bush") ||
+                normalized.Contains("shrub") ||
+                normalized.Contains("flower") ||
+                normalized.Contains("rabbit") ||
+                normalized.Contains("bunny") ||
+                normalized.Contains("usagi") ||
+                normalized.Contains("character") ||
+                normalized.Contains("monster") ||
+                normalized.Contains("mate");
+        }
+
+        private static bool HasQuestDuelFieldSurfaceName(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            return path.Contains("field") ||
+                path.Contains("ground") ||
+                path.Contains("floor") ||
+                path.Contains("table") ||
+                path.Contains("mat") ||
+                path.Contains("stage") ||
+                path.Contains("base") ||
+                path.Contains("plate") ||
+                path.Contains("board") ||
+                path.Contains("duel");
+        }
+
+        private static Material ResolveQuestDuelFieldSourceMaterial(Renderer renderer)
+        {
+            if (renderer == null)
+                return null;
+
+            foreach (var material in renderer.sharedMaterials)
+                if (material != null)
+                    return material;
+            return renderer.sharedMaterial;
+        }
+
+        private static Texture ResolveQuestDuelFieldTexture(Material material)
+        {
+            if (material == null)
+                return null;
+
+            string[] textureNames =
+            {
+                "_BaseMap",
+                "_MainTex",
+                "_BaseColorMap",
+                "_Albedo",
+                "_Diffuse",
+                "_EmissionMap"
+            };
+
+            foreach (var textureName in textureNames)
+            {
+                if (!material.HasProperty(textureName))
+                    continue;
+                var texture = material.GetTexture(textureName);
+                if (texture != null)
+                    return texture;
+            }
+
+            return material.mainTexture;
+        }
+
+        private static Color ResolveQuestDuelFieldColor(Material material)
+        {
+            if (material == null)
+                return new Color(0.16f, 0.22f, 0.24f, 1f);
+
+            if (material.HasProperty("_BaseColor"))
+                return material.GetColor("_BaseColor");
+            if (material.HasProperty("_Color"))
+                return material.GetColor("_Color");
+            return new Color(0.16f, 0.22f, 0.24f, 1f);
+        }
+
+        private Material CreateQuestDuelFieldSurfaceMaterial(
+            Material source,
+            string sourceDescription,
+            Color tint,
+            bool transparent,
+            float uvScaleX,
+            float uvScaleY)
+        {
+            var sourceColor = ResolveQuestDuelFieldColor(source);
+            var color = transparent
+                ? tint
+                : new Color(sourceColor.r * tint.r, sourceColor.g * tint.g, sourceColor.b * tint.b, 1f);
+            if (color.maxColorComponent < 0.18f && !transparent)
+                color = new Color(0.22f, 0.27f, 0.30f, 1f);
+
+            var material = CreateColorMaterial("Quest Duel Field Resource Surface Material", color, transparent);
+            var texture = ResolveQuestDuelFieldTexture(source);
+            if (texture != null)
+            {
+                if (material.HasProperty("_BaseMap"))
+                    material.SetTexture("_BaseMap", texture);
+                if (material.HasProperty("_MainTex"))
+                    material.SetTexture("_MainTex", texture);
+                material.mainTexture = texture;
+                material.mainTextureScale = new Vector2(Mathf.Max(uvScaleX, 0.05f), Mathf.Max(uvScaleY, 0.05f));
+            }
+
+            if (material.HasProperty("_Cull"))
+                material.SetFloat("_Cull", (float)CullMode.Off);
+            if (material.HasProperty("_Smoothness"))
+                material.SetFloat("_Smoothness", 0.18f);
+            material.renderQueue = transparent ? (int)RenderQueue.Transparent : (int)RenderQueue.Geometry;
+            material.name = "Quest Duel Field Resource Surface Material (" + sourceDescription + ")";
+            questDuelFieldSurfaceMaterials.Add(material);
+            return material;
+        }
+
+        private static Mesh CreateQuestDuelFieldSurfaceMesh(float width, float depth)
+        {
+            var halfWidth = width * 0.5f;
+            var halfDepth = depth * 0.5f;
+            var mesh = new Mesh
+            {
+                name = "QuestDuelFieldResourceSurfaceMesh",
+                vertices = new[]
+                {
+                    new Vector3(-halfWidth, 0f, -halfDepth),
+                    new Vector3(halfWidth, 0f, -halfDepth),
+                    new Vector3(halfWidth, 0f, halfDepth),
+                    new Vector3(-halfWidth, 0f, halfDepth)
+                },
+                uv = new[]
+                {
+                    new Vector2(0f, 0f),
+                    new Vector2(1f, 0f),
+                    new Vector2(1f, 1f),
+                    new Vector2(0f, 1f)
+                },
+                triangles = new[] { 0, 2, 1, 0, 3, 2 }
+            };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
         private int CountQuestAndroidDuelFieldRenderers()
         {
             return CountRenderableRenderers(questDuelFieldRoot);
@@ -2496,6 +2873,18 @@ namespace MDPro3
             var count = 0;
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
                 if (IsQuestAndroidDuelFieldRendererUsable(renderer))
+                    count += 1;
+            return count;
+        }
+
+        private static int CountSourceRenderers(Transform root)
+        {
+            if (root == null)
+                return 0;
+
+            var count = 0;
+            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+                if (renderer != null && !(renderer is ParticleSystemRenderer))
                     count += 1;
             return count;
         }
@@ -2547,6 +2936,7 @@ namespace MDPro3
         {
             questNearField = null;
             questFarField = null;
+            ClearQuestDuelFieldSurface();
             if (questDuelFieldRoot == null)
                 return;
 
@@ -2556,6 +2946,29 @@ namespace MDPro3
                 if (child != null)
                     Destroy(child.gameObject);
             }
+        }
+
+        private void ClearQuestDuelFieldSurface()
+        {
+            if (questDuelFieldSurface != null)
+            {
+                Destroy(questDuelFieldSurface);
+                questDuelFieldSurface = null;
+            }
+
+            foreach (var mesh in questDuelFieldSurfaceMeshes)
+            {
+                if (mesh != null)
+                    Destroy(mesh);
+            }
+            questDuelFieldSurfaceMeshes.Clear();
+
+            foreach (var material in questDuelFieldSurfaceMaterials)
+            {
+                if (material != null)
+                    Destroy(material);
+            }
+            questDuelFieldSurfaceMaterials.Clear();
         }
 
         private void EnsureQuestDuelWorldPresenter()

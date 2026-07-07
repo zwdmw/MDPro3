@@ -380,8 +380,24 @@ namespace MDPro3
         private const float CardHeight = 7.12f;
         private const float CardThickness = 0.14f;
         private const float TableCardY = 0.52f;
-        private const float HandCardY = 7.8f;
-        private const float PlayerHandMaxNearZ = -42f;
+        private const float HandCardY = 11.1f;
+        private const float PlayerHandBaseZ = -45.6f;
+        private const float OpponentHandBaseZ = 38.2f;
+        private const float HandCardBaseSpacing = 5.95f;
+        private const float HandCardMinSpacing = 3.92f;
+        private const float HandCardFanDepth = 0.95f;
+        private const float HandCardFanYaw = 6.2f;
+        private const float HandCardMaxFanYaw = 38f;
+        private const float HandCardFanRoll = 1.55f;
+        private const float HandCardFloatAmplitude = 0.22f;
+        private const float HandCardCenterLift = 0.42f;
+        private const float HandCardEdgeDrop = 0.18f;
+        private const float HandCardCenterScale = 1.07f;
+        private const float HandCardEdgeScale = 0.96f;
+        private const float HandCardHoverScale = 0.06f;
+        private const float HandAccentBaseWidth = CardWidth * 0.82f;
+        private const float HandAccentBaseDepth = 0.18f;
+        private const float HandAccentZ = -CardHeight * 0.49f;
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
@@ -417,6 +433,7 @@ namespace MDPro3
         private Material highlightMaterial;
         private Material actionHighlightMaterial;
         private Material targetHighlightMaterial;
+        private Material handAccentMaterial;
         private Material pileFaceMaterial;
         private Material portraitMaterial;
         private static Texture2D fallbackCardBackTexture;
@@ -1010,10 +1027,7 @@ namespace MDPro3
             var position = ScaleQuestBoardPosition(GameCard.GetCardPosition(gps, card, card == null ? null : card.overlayParent));
             if ((gps.location & (uint)CardLocation.Hand) > 0)
             {
-                if (gps.controller == 0)
-                    position.z = Mathf.Max(position.z, PlayerHandMaxNearZ);
-                position.y = HandCardY;
-                return position;
+                return ResolveQuestHandLocalPosition(gps);
             }
 
             if ((gps.location & (uint)(CardLocation.Deck | CardLocation.Extra)) > 0)
@@ -1174,7 +1188,8 @@ namespace MDPro3
                 GetPlaceholderFaceMaterial(),
                 GetHighlightMaterial(),
                 GetActionHighlightMaterial(),
-                GetTargetHighlightMaterial());
+                GetTargetHighlightMaterial(),
+                GetHandAccentMaterial());
             cardProxies[card] = proxy;
             return proxy;
         }
@@ -1197,7 +1212,7 @@ namespace MDPro3
             var localPosition = ResolveQuestCardLocalPosition(card);
             localPosition = ApplyQuestCardInteractionLift(localPosition, card, interactionState, card == hoveredCard);
             var localRotation = ResolveQuestCardLocalRotation(card);
-            var localScale = GameCard.GetCardScale(card.p);
+            var localScale = ResolveQuestCardLocalScale(card, interactionState, card == hoveredCard);
             proxy.Transform.localPosition = localPosition;
             proxy.Transform.localRotation = localRotation;
             proxy.Transform.localScale = localScale;
@@ -1206,6 +1221,7 @@ namespace MDPro3
             proxy.Front.SetActive(knownFace);
             proxy.Back.SetActive(!knownFace);
             UpdateInteractionHintProxy(proxy, card, interactionState);
+            UpdateHandAccentProxy(proxy, card, interactionState);
 
             if (knownFace)
                 EnsureProxyFaceTexture(proxy, card.GetData().Id);
@@ -1237,6 +1253,19 @@ namespace MDPro3
             proxy.InteractionLabelText.text = "\u9009\u62e9\u76ee\u6807";
             proxy.InteractionLabelText.color = new Color(0.35f, 1f, 0.82f, 1f);
             FaceTextToCamera(proxy.InteractionLabelRoot.transform);
+        }
+
+        private void UpdateHandAccentProxy(QuestCardProxy proxy, GameCard card, QuestCardInteractionState state)
+        {
+            if (proxy == null || card == null || card.p == null)
+                return;
+
+            var isPlayerHand = card.p.controller == 0 && (card.p.location & (uint)CardLocation.Hand) > 0;
+            SetHandAccentObject(
+                proxy.HandAccent,
+                isPlayerHand,
+                state != QuestCardInteractionState.None || card == hoveredCard,
+                ResolveQuestHandNormalizedEdge(card.p));
         }
 
         private static QuestCardInteractionState ResolveQuestCardInteractionState(GameCard card)
@@ -1332,6 +1361,24 @@ namespace MDPro3
                 CardWidth * 0.76f + pulse * 0.42f,
                 0.016f,
                 ActionMarkerBaseDepth * 1.18f + pulse * 0.07f);
+        }
+
+        private static void SetHandAccentObject(GameObject target, bool active, bool emphasized, float normalizedEdge)
+        {
+            if (target == null)
+                return;
+
+            if (target.activeSelf != active)
+                target.SetActive(active);
+            if (!active)
+                return;
+
+            var pulse = (Mathf.Sin(Time.unscaledTime * (emphasized ? 6.6f : 3.6f) + normalizedEdge * 2.4f) + 1f) * 0.5f;
+            var emphasis = emphasized ? 1f : 0f;
+            var width = HandAccentBaseWidth + pulse * (0.22f + emphasis * 0.35f);
+            var depth = HandAccentBaseDepth + pulse * (0.035f + emphasis * 0.055f);
+            target.transform.localPosition = new Vector3(0f, CardThickness + 0.018f, HandAccentZ);
+            target.transform.localScale = new Vector3(width, 0.01f, depth);
         }
 
         private static bool IsQuestActionableCard(GameCard card)
@@ -1476,10 +1523,7 @@ namespace MDPro3
             var position = ScaleQuestBoardPosition(GameCard.GetCardPosition(card.p, card, card.overlayParent));
             if ((card.p.location & (uint)CardLocation.Hand) > 0)
             {
-                if (card.p.controller == 0)
-                    position.z = Mathf.Max(position.z, PlayerHandMaxNearZ);
-                position.y = HandCardY;
-                return position;
+                return ResolveQuestHandLocalPosition(card.p);
             }
 
             if ((card.p.location & (uint)(CardLocation.Grave | CardLocation.Removed)) > 0)
@@ -1501,7 +1545,108 @@ namespace MDPro3
         private static Quaternion ResolveQuestCardLocalRotation(GameCard card)
         {
             var euler = GameCard.GetCardRotation(card.p, card.GetData().Id);
+            if ((card.p.location & (uint)CardLocation.Hand) > 0)
+            {
+                var offset = ResolveQuestHandSlotOffset(card.p);
+                var normalizedEdge = ResolveQuestHandNormalizedEdge(card.p);
+                var yaw = Mathf.Clamp(offset * HandCardFanYaw, -HandCardMaxFanYaw, HandCardMaxFanYaw);
+                var roll = Mathf.Clamp(-offset * HandCardFanRoll, -9f, 9f);
+                if (card.p.controller == 0)
+                {
+                    yaw = -yaw;
+                }
+                else
+                {
+                    roll = -roll;
+                    euler.x += normalizedEdge * 0.8f;
+                }
+
+                euler.x -= normalizedEdge * 1.2f;
+                euler.y += yaw;
+                return Quaternion.Euler(euler.x, euler.y, roll);
+            }
             return Quaternion.Euler(euler.x, euler.y, 0f);
+        }
+
+        private static Vector3 ResolveQuestCardLocalScale(GameCard card, QuestCardInteractionState state, bool hovered)
+        {
+            var scale = GameCard.GetCardScale(card.p);
+            if ((card.p.location & (uint)CardLocation.Hand) == 0)
+                return scale;
+
+            var normalizedEdge = ResolveQuestHandNormalizedEdge(card.p);
+            var handScale = card.p.controller == 0
+                ? Mathf.Lerp(HandCardCenterScale, HandCardEdgeScale, normalizedEdge * normalizedEdge)
+                : Mathf.Lerp(0.94f, 0.88f, normalizedEdge);
+
+            if (state != QuestCardInteractionState.None)
+                handScale += 0.035f;
+            if (hovered)
+                handScale += HandCardHoverScale;
+
+            return scale * handScale;
+        }
+
+        private static Vector3 ResolveQuestHandLocalPosition(GPS gps)
+        {
+            var offset = ResolveQuestHandSlotOffset(gps);
+            var count = ResolveQuestHandCount(gps);
+            var crowding = Mathf.InverseLerp(7f, 13f, count);
+            var spacing = Mathf.Lerp(HandCardBaseSpacing, HandCardMinSpacing, crowding);
+            var x = offset * spacing;
+            if (gps.controller != 0)
+                x = -x;
+
+            var edge = Mathf.Abs(offset);
+            var normalizedEdge = ResolveQuestHandNormalizedEdge(gps);
+            var arc = normalizedEdge * normalizedEdge;
+            var z = gps.controller == 0
+                ? PlayerHandBaseZ + edge * HandCardFanDepth + arc * 0.62f
+                : OpponentHandBaseZ - edge * HandCardFanDepth - arc * 0.52f;
+            var phase = (float)gps.sequence * 0.47f + (gps.controller == 0 ? 0f : 1.3f);
+            var floatWave = Mathf.Sin(Time.unscaledTime * (1.35f + normalizedEdge * 0.45f) + phase) * HandCardFloatAmplitude;
+            var y = HandCardY + HandCardCenterLift * (1f - arc) - HandCardEdgeDrop * arc + floatWave;
+            return new Vector3(x, y, z);
+        }
+
+        private static float ResolveQuestHandSlotOffset(GPS gps)
+        {
+            if (gps == null)
+                return 0f;
+
+            var count = ResolveQuestHandCount(gps);
+            return (int)gps.sequence - (count - 1) * 0.5f;
+        }
+
+        private static float ResolveQuestHandNormalizedEdge(GPS gps)
+        {
+            if (gps == null)
+                return 0f;
+
+            var count = ResolveQuestHandCount(gps);
+            var maxEdge = Mathf.Max((count - 1) * 0.5f, 1f);
+            return Mathf.Clamp01(Mathf.Abs(ResolveQuestHandSlotOffset(gps)) / maxEdge);
+        }
+
+        private static int ResolveQuestHandCount(GPS gps)
+        {
+            if (gps == null)
+                return 1;
+
+            var fallback = Mathf.Max(1, (int)gps.sequence + 1);
+            var core = Program.instance == null ? null : Program.instance.ocgcore;
+            if (core == null)
+                return fallback;
+
+            try
+            {
+                var count = gps.controller == 0 ? core.GetMyHandCount() : core.GetOpHandCount();
+                return Mathf.Max(fallback, count);
+            }
+            catch
+            {
+                return fallback;
+            }
         }
 
         private static bool ShouldShowKnownFace(GameCard card)
@@ -1947,6 +2092,15 @@ namespace MDPro3
             return targetHighlightMaterial;
         }
 
+        private Material GetHandAccentMaterial()
+        {
+            if (handAccentMaterial != null)
+                return handAccentMaterial;
+
+            handAccentMaterial = CreateMaterial("QuestHandAccentMaterial", new Color(0.22f, 0.95f, 1f, 0.28f), true);
+            return handAccentMaterial;
+        }
+
         private static Material CreateMaterial(string name, Color color, bool transparent)
         {
             var shader = Shader.Find("Universal Render Pipeline/Unlit")
@@ -2136,6 +2290,7 @@ namespace MDPro3
             public GameObject Highlight;
             public GameObject ActionHighlight;
             public GameObject TargetHighlight;
+            public GameObject HandAccent;
             public GameObject Portrait;
             public GameObject PowerLabelRoot;
             public GameObject InteractionLabelRoot;
@@ -2158,7 +2313,8 @@ namespace MDPro3
                 Material faceMaterial,
                 Material highlightMaterial,
                 Material actionHighlightMaterial,
-                Material targetHighlightMaterial)
+                Material targetHighlightMaterial,
+                Material handAccentMaterial)
             {
                 var root = new GameObject("QuestCardProxy_" + (card == null ? "null" : card.md5.ToString()));
                 SetQuestOverlayLayer(root);
@@ -2187,6 +2343,7 @@ namespace MDPro3
                 var highlight = CreateHighlightCube("QuestCardProxySelectionHighlight", root.transform, CardThickness + 0.018f, highlightMaterial);
                 var actionHighlight = CreateHighlightCube("QuestCardProxyPlayableHighlight", root.transform, CardThickness + 0.020f, actionHighlightMaterial);
                 var targetHighlight = CreateHighlightCube("QuestCardProxyTargetHighlight", root.transform, CardThickness + 0.024f, targetHighlightMaterial);
+                var handAccent = CreateHighlightCube("QuestCardProxyHandAccent", root.transform, CardThickness + 0.018f, handAccentMaterial);
 
                 return new QuestCardProxy
                 {
@@ -2197,6 +2354,7 @@ namespace MDPro3
                     Highlight = highlight,
                     ActionHighlight = actionHighlight,
                     TargetHighlight = targetHighlight,
+                    HandAccent = handAccent,
                     Portrait = portrait,
                     PowerLabelRoot = powerLabel,
                     InteractionLabelRoot = interactionLabel,

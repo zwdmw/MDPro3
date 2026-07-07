@@ -18,12 +18,12 @@ namespace MDPro3
         private const float PanelScale = 0.014f;
         private const float SmallPanelScale = 0.016f;
         private const float HudScale = 0.017f;
-        private const float FloorHudScale = 0.032f;
-        private const float ControlHudScale = 0.027f;
+        private const float FloorHudScale = 0.038f;
+        private const float ControlHudScale = 0.030f;
         private const float CardInfoScale = 0.021f;
-        private const float DuelLogPanelScale = 0.034f;
+        private const float DuelLogPanelScale = 0.039f;
         private const float CardSelectorScale = 0.0185f;
-        private const float WorldCanvasDynamicPixelsPerUnit = 8f;
+        private const float WorldCanvasDynamicPixelsPerUnit = 13f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const int CardGridPageSize = 12;
@@ -44,6 +44,12 @@ namespace MDPro3
         private const float CardGridFloatHoverLift = 118f;
         private const float CardGridHoverScaleBoost = 0.34f;
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, -0.005f, -1.5f);
+        private static readonly Quaternion RightSideWallRotation = Quaternion.LookRotation(Vector3.right, Vector3.up);
+        private static readonly Color HudPanelBackground = new Color(0.008f, 0.012f, 0.018f, 0.90f);
+        private static readonly Color HudPanelInner = new Color(0.020f, 0.031f, 0.041f, 0.62f);
+        private static readonly Color HudAccentCyan = new Color(0.16f, 0.90f, 1f, 0.64f);
+        private static readonly Color HudAccentGold = new Color(1f, 0.72f, 0.20f, 0.58f);
+        private static readonly Color HudAccentRed = new Color(1f, 0.30f, 0.36f, 0.62f);
 
         private Camera xrCamera;
         private Transform duelWorldAnchor;
@@ -548,19 +554,29 @@ namespace MDPro3
             {
                 var canvasObject = CreateCanvasObject("QuestDuelPhaseHud", out phaseHudCanvas, out phaseHudRect);
                 phaseHudRect.sizeDelta = new Vector2(1020f, 330f);
-                AddPanelBackground(canvasObject, new Color(0.008f, 0.012f, 0.018f, 0.82f));
-                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(38f, -28f), new Vector2(470f, 250f), 60f, TextAlignmentOptions.Left);
-                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(560f, -40f), new Vector2(400f, 220f), 46f, TextAlignmentOptions.Left);
+                AddPanelBackground(canvasObject, HudPanelBackground);
+                AddHudPanelChrome(phaseHudRect, HudAccentCyan);
+                AddHudSection(phaseHudRect, "LifeSection", new Vector2(34f, -48f), new Vector2(468f, 232f), HudAccentCyan);
+                AddHudSection(phaseHudRect, "PhaseSection", new Vector2(540f, -48f), new Vector2(420f, 232f), HudAccentGold);
+                CreateHudCaption("LifeCaption", phaseHudRect, new Vector2(58f, -54f), new Vector2(250f, 34f), "LP");
+                CreateHudCaption("PhaseCaption", phaseHudRect, new Vector2(564f, -54f), new Vector2(250f, 34f), "\u9636\u6bb5");
+                lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(58f, -92f), new Vector2(420f, 166f), 56f, TextAlignmentOptions.Left);
+                phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(564f, -94f), new Vector2(356f, 160f), 42f, TextAlignmentOptions.Left);
                 canvasObject.SetActive(false);
             }
 
             if (controlHudCanvas == null)
             {
                 var controlObject = CreateCanvasObject("QuestDuelControlHud", out controlHudCanvas, out controlHudRect);
-                controlHudRect.sizeDelta = new Vector2(840f, 440f);
-                AddPanelBackground(controlObject, new Color(0.008f, 0.012f, 0.018f, 0.84f));
-                phaseHudButtonRoot = CreateRect("PhaseButtons", controlHudRect, new Vector2(34f, -34f), new Vector2(712f, 160f), new Vector2(0f, 1f));
-                systemHudButtonRoot = CreateRect("SystemButtons", controlHudRect, new Vector2(34f, -226f), new Vector2(712f, 150f), new Vector2(0f, 1f));
+                controlHudRect.sizeDelta = new Vector2(900f, 470f);
+                AddPanelBackground(controlObject, HudPanelBackground);
+                AddHudPanelChrome(controlHudRect, HudAccentGold);
+                AddHudSection(controlHudRect, "PhaseControlSection", new Vector2(34f, -70f), new Vector2(796f, 166f), HudAccentGold);
+                AddHudSection(controlHudRect, "SystemControlSection", new Vector2(34f, -280f), new Vector2(796f, 142f), HudAccentRed);
+                CreateHudCaption("ActionCaption", controlHudRect, new Vector2(44f, -30f), new Vector2(360f, 34f), "\u53ef\u7528\u64cd\u4f5c");
+                CreateHudCaption("SystemCaption", controlHudRect, new Vector2(44f, -240f), new Vector2(360f, 34f), "\u7cfb\u7edf");
+                phaseHudButtonRoot = CreateRect("PhaseButtons", controlHudRect, new Vector2(52f, -88f), new Vector2(756f, 138f), new Vector2(0f, 1f));
+                systemHudButtonRoot = CreateRect("SystemButtons", controlHudRect, new Vector2(52f, -298f), new Vector2(756f, 116f), new Vector2(0f, 1f));
                 controlObject.SetActive(false);
             }
         }
@@ -624,14 +640,16 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestDuelLogPanel", out duelLogCanvas, out duelLogRect);
-            duelLogRect.sizeDelta = new Vector2(1120f, 560f);
-            AddPanelBackground(canvasObject, new Color(0.008f, 0.012f, 0.018f, 0.80f));
+            duelLogRect.sizeDelta = new Vector2(1260f, 620f);
+            AddPanelBackground(canvasObject, HudPanelBackground);
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
-            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(36f, -24f), new Vector2(1040f, 72f), 46f, TextAlignmentOptions.Left);
-            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(36f, -108f), new Vector2(1040f, 410f), 38f, TextAlignmentOptions.TopLeft);
+            AddHudPanelChrome(duelLogRect, HudAccentCyan);
+            AddHudSection(duelLogRect, "LogBodySection", new Vector2(40f, -124f), new Vector2(1168f, 438f), HudAccentCyan);
+            duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(58f, -36f), new Vector2(1140f, 74f), 54f, TextAlignmentOptions.Left);
+            duelLogBodyText = CreateText("Body", duelLogRect, new Vector2(64f, -144f), new Vector2(1120f, 390f), 43f, TextAlignmentOptions.TopLeft);
             duelLogBodyText.enableWordWrapping = true;
             duelLogBodyText.overflowMode = TextOverflowModes.Truncate;
             duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
@@ -811,6 +829,7 @@ namespace MDPro3
                 onClick,
                 new Color(0.10f, 0.32f, 0.46f, 0.98f),
                 new Vector2(0f, 1f));
+            AddButtonChrome(row, HudAccentCyan);
             phaseHudRows.Add(row.gameObject);
         }
 
@@ -825,6 +844,7 @@ namespace MDPro3
                 RequestSurrender,
                 new Color(0.48f, 0.16f, 0.18f, 0.98f),
                 new Vector2(0f, 1f));
+            AddButtonChrome(surrender, HudAccentRed);
             phaseHudRows.Add(surrender.gameObject);
 
             var exit = CreateButton(
@@ -836,6 +856,7 @@ namespace MDPro3
                 RequestExitDuel,
                 new Color(0.22f, 0.23f, 0.28f, 0.98f),
                 new Vector2(0f, 1f));
+            AddButtonChrome(exit, HudAccentGold);
             phaseHudRows.Add(exit.gameObject);
         }
 
@@ -1560,11 +1581,23 @@ namespace MDPro3
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
                 PlacePanel(phaseMenuRect, DuelWorldCenterOnGround + new Vector3(0f, 8.4f, -18f), SmallPanelScale);
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
-                PlacePanel(phaseHudRect, DuelWorldCenterOnGround + new Vector3(58f, 22.5f, -24f), FloorHudScale);
+                PlacePanel(
+                    phaseHudRect,
+                    DuelWorldCenterOnGround + new Vector3(61.5f, 38f, -36f),
+                    RightSideWallRotation,
+                    FloorHudScale);
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
-                PlacePanel(controlHudRect, DuelWorldCenterOnGround + new Vector3(34f, 12.8f, -50f), ControlHudScale);
+                PlacePanel(
+                    controlHudRect,
+                    DuelWorldCenterOnGround + new Vector3(61.5f, 8.4f, -45f),
+                    RightSideWallRotation,
+                    ControlHudScale);
             if (duelLogRect != null && duelLogCanvas.gameObject.activeSelf)
-                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(58f, 6.4f, 12f), DuelLogPanelScale);
+                PlacePanel(
+                    duelLogRect,
+                    DuelWorldCenterOnGround + new Vector3(61.5f, 20.5f, 4f),
+                    RightSideWallRotation,
+                    DuelLogPanelScale);
         }
 
         private Vector3 ResolveOptionPanelPosition()
@@ -1582,15 +1615,20 @@ namespace MDPro3
 
         private void PlacePanel(RectTransform rect, Vector3 position, float scale)
         {
+            PlacePanel(rect, position, Quaternion.identity, scale);
+        }
+
+        private void PlacePanel(RectTransform rect, Vector3 position, Quaternion rotation, float scale)
+        {
             if (duelWorldAnchor != null && rect.parent == duelWorldAnchor)
             {
                 rect.localPosition = position - DuelWorldCenterOnGround;
-                rect.localRotation = Quaternion.identity;
+                rect.localRotation = rotation;
             }
             else
             {
                 rect.position = position;
-                rect.rotation = Quaternion.identity;
+                rect.rotation = rotation;
             }
             rect.localScale = Vector3.one * scale;
         }
@@ -1635,6 +1673,66 @@ namespace MDPro3
             var image = rect.gameObject.AddComponent<Image>();
             image.color = color;
             image.raycastTarget = false;
+        }
+
+        private static void AddHudPanelChrome(RectTransform rect, Color accent)
+        {
+            if (rect == null)
+                return;
+
+            var size = rect.sizeDelta;
+            var inner = CreateRect("ChromeInner", rect, new Vector2(18f, -24f), new Vector2(size.x - 36f, size.y - 48f), new Vector2(0f, 1f));
+            AddRectBackground(inner, HudPanelInner);
+
+            var top = CreateRect("ChromeTop", rect, Vector2.zero, new Vector2(size.x, 12f), new Vector2(0f, 1f));
+            AddRectBackground(top, accent);
+
+            var left = CreateRect("ChromeLeft", rect, new Vector2(0f, -12f), new Vector2(10f, size.y - 24f), new Vector2(0f, 1f));
+            AddRectBackground(left, new Color(accent.r, accent.g, accent.b, accent.a * 0.72f));
+
+            var bottom = CreateRect("ChromeBottom", rect, new Vector2(18f, -size.y + 14f), new Vector2(size.x - 36f, 4f), new Vector2(0f, 1f));
+            AddRectBackground(bottom, new Color(accent.r, accent.g, accent.b, accent.a * 0.42f));
+        }
+
+        private static RectTransform AddHudSection(RectTransform parent, string name, Vector2 anchoredPosition, Vector2 size, Color accent)
+        {
+            var section = CreateRect(name, parent, anchoredPosition, size, new Vector2(0f, 1f));
+            AddRectBackground(section, new Color(0.030f, 0.044f, 0.056f, 0.54f));
+
+            var rail = CreateRect(name + "Rail", section, Vector2.zero, new Vector2(7f, size.y), new Vector2(0f, 1f));
+            AddRectBackground(rail, new Color(accent.r, accent.g, accent.b, accent.a * 0.72f));
+
+            var line = CreateRect(name + "TopLine", section, Vector2.zero, new Vector2(size.x, 3f), new Vector2(0f, 1f));
+            AddRectBackground(line, new Color(accent.r, accent.g, accent.b, accent.a * 0.58f));
+            return section;
+        }
+
+        private static TextMeshProUGUI CreateHudCaption(string name, Transform parent, Vector2 anchoredPosition, Vector2 size, string label)
+        {
+            var text = CreateText(name, parent, anchoredPosition, size, 26f, TextAlignmentOptions.Left);
+            text.text = label;
+            text.fontStyle = FontStyles.Bold;
+            text.color = new Color(0.68f, 0.94f, 1f, 0.96f);
+            return text;
+        }
+
+        private static void AddButtonChrome(Button button, Color accent)
+        {
+            if (button == null)
+                return;
+
+            var rect = button.transform as RectTransform;
+            if (rect == null)
+                return;
+
+            var size = rect.sizeDelta;
+            var top = CreateRect("ButtonTopLine", rect, Vector2.zero, new Vector2(size.x, 6f), new Vector2(0f, 1f));
+            AddRectBackground(top, new Color(accent.r, accent.g, accent.b, accent.a * 0.78f));
+            top.SetAsFirstSibling();
+
+            var left = CreateRect("ButtonLeftLine", rect, Vector2.zero, new Vector2(5f, size.y), new Vector2(0f, 1f));
+            AddRectBackground(left, new Color(accent.r, accent.g, accent.b, accent.a * 0.58f));
+            left.SetAsFirstSibling();
         }
 
         private static RectTransform CreateRect(string name, Transform parent, Vector2 anchoredPosition, Vector2 size, Vector2 anchor)
