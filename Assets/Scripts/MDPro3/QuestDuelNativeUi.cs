@@ -138,6 +138,12 @@ namespace MDPro3
 
         public void Tick()
         {
+            if (!CanShowDuelUi())
+            {
+                HideAllQuestUi();
+                return;
+            }
+
             UpdatePhaseHud();
             UpdatePanelPoses();
         }
@@ -145,7 +151,7 @@ namespace MDPro3
         public bool ShowPhaseMenu(List<string> selections)
         {
             var core = Program.instance?.ocgcore;
-            if (core == null || selections == null || selections.Count == 0)
+            if (!CanShowDuelUi() || core == null || selections == null || selections.Count == 0)
                 return false;
 
             EnsurePhaseMenu();
@@ -178,7 +184,7 @@ namespace MDPro3
 
         private bool ShowSelection(List<string> selections, List<int> responses, GameCard anchorCard)
         {
-            if (Program.instance?.ocgcore == null || selections == null || responses == null)
+            if (!CanShowDuelUi() || Program.instance?.ocgcore == null || selections == null || responses == null)
                 return false;
 
             EnsureOptionPanel();
@@ -209,7 +215,7 @@ namespace MDPro3
 
         public bool ShowYesOrNo(List<string> selections, Action confirmAction, Action cancelAction)
         {
-            if (Program.instance?.ocgcore == null || selections == null)
+            if (!CanShowDuelUi() || Program.instance?.ocgcore == null || selections == null)
                 return false;
 
             EnsureOptionPanel();
@@ -236,7 +242,7 @@ namespace MDPro3
 
         public bool ShowPositionSelection(int code, int count, int option1, int option2)
         {
-            if (Program.instance?.ocgcore == null)
+            if (!CanShowDuelUi() || Program.instance?.ocgcore == null)
                 return false;
 
             EnsureOptionPanel();
@@ -268,7 +274,7 @@ namespace MDPro3
 
         public bool ShowCardSelection(string hint, List<GameCard> sourceCards, int min, int max, bool exitable, bool sendable)
         {
-            if (Program.instance?.ocgcore == null || sourceCards == null)
+            if (!CanShowDuelUi() || Program.instance?.ocgcore == null || sourceCards == null)
                 return false;
 
             HideCardInfoPanel();
@@ -299,7 +305,7 @@ namespace MDPro3
 
         public bool ShowCardBrowser(string title, List<GameCard> sourceCards)
         {
-            if (Program.instance?.ocgcore == null || sourceCards == null)
+            if (!CanShowDuelUi() || Program.instance?.ocgcore == null || sourceCards == null)
                 return false;
 
             HideCardInfoPanel();
@@ -329,7 +335,7 @@ namespace MDPro3
 
         public bool ShowCardInfo(GameCard card)
         {
-            if (card == null)
+            if (!CanShowDuelUi() || card == null)
                 return false;
 
             EnsureCardInfoPanel();
@@ -360,7 +366,7 @@ namespace MDPro3
         public bool ShowLocationBrowser(uint controller, CardLocation location)
         {
             var core = Program.instance?.ocgcore;
-            if (core == null)
+            if (!CanShowDuelUi() || core == null)
                 return false;
 
             var list = core.GCS_GetLocationCards((int)controller, (int)location);
@@ -383,10 +389,22 @@ namespace MDPro3
             HidePhaseMenu();
             if (phaseHudCanvas != null && phaseHudCanvas.gameObject.activeSelf)
                 phaseHudCanvas.gameObject.SetActive(false);
+            if (controlHudCanvas != null && controlHudCanvas.gameObject.activeSelf)
+                controlHudCanvas.gameObject.SetActive(false);
             if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                 duelLogCanvas.gameObject.SetActive(false);
             lastPhaseHudSignature = null;
             lastDuelLogSignature = null;
+        }
+
+        private static bool CanShowDuelUi()
+        {
+            var program = Program.instance;
+            var core = program == null ? null : program.ocgcore;
+            return program != null
+                && core != null
+                && program.currentServant == core
+                && core.showing;
         }
 
         private void EnsureCardPanel()

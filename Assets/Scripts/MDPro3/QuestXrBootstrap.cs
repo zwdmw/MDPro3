@@ -97,6 +97,8 @@ namespace MDPro3
         private const float ControllerPoseDiagnosticInterval = 5f;
         private const float MdproCameraConfigureInterval = 0.5f;
         private const float QuestMainMenuUiRecoverySuppressDuration = 0.75f;
+        private const float QuestMainMenuUiRecoveryDuration = 1.8f;
+        private const float QuestMainMenuUiRecoveryInterval = 0.18f;
         private const int QuestDuelSleepCompressionThreshold = 20;
         private const int QuestDuelSleepCompressionMax = 55;
         private const float QuestDuelSleepCompressionScale = 0.35f;
@@ -182,6 +184,8 @@ namespace MDPro3
         private float lastUiRenderPanelHitDiagnosticsLog;
         private bool uiRenderCameraLogged;
         private bool wasQuestNativeDuelActive;
+        private float questMainMenuUiRecoveryUntil;
+        private float lastQuestMainMenuUiRecoveryTime;
         private bool questGraphicsSafeModeLogged;
         private CompositionLayer passthroughCompositionLayer;
         private ARSession arSession;
@@ -357,6 +361,7 @@ namespace MDPro3
             ResetPointerState();
             UserInput.ClearPointerOverride();
             SetControllerRayVisible(false, false);
+            StartQuestMainMenuUiRecoveryWindow();
 
             anchoredDuelContainer = null;
             lockedDuelAlignmentContainer = null;
@@ -382,6 +387,7 @@ namespace MDPro3
 
         private void ForceQuestMainMenuUiRecovery(string reason)
         {
+            questDuelNativeUi?.HideAllQuestUi();
             var restoredCanvasCount = RestoreLegacyDuelCanvases();
             mdproCameraRenderModeInitialized = false;
             lastMdproCameraConfigureTime = -999f;
@@ -393,6 +399,23 @@ namespace MDPro3
             ConfigureOverlayCanvases();
             ConfigureUiRenderPanel();
             LogQuestMainMenuUiRecovery(reason, restoredCanvasCount);
+        }
+
+        private void StartQuestMainMenuUiRecoveryWindow()
+        {
+            questMainMenuUiRecoveryUntil = Time.unscaledTime + QuestMainMenuUiRecoveryDuration;
+            lastQuestMainMenuUiRecoveryTime = -999f;
+        }
+
+        private void MaintainQuestMainMenuUiRecovery(bool questNativeDuelActive)
+        {
+            if (questNativeDuelActive || Time.unscaledTime > questMainMenuUiRecoveryUntil)
+                return;
+            if (Time.unscaledTime - lastQuestMainMenuUiRecoveryTime < QuestMainMenuUiRecoveryInterval)
+                return;
+
+            lastQuestMainMenuUiRecoveryTime = Time.unscaledTime;
+            ForceQuestMainMenuUiRecovery("duel-return-maintain");
         }
 
         public static bool IsQuestFastNativeDuelActive()
@@ -442,10 +465,15 @@ namespace MDPro3
                 || message == GameMessage.ChainDisabled;
         }
 
+        private static bool CanShowQuestNativeDuelUi()
+        {
+            return activeInstance != null && IsQuestNativeDuelActive();
+        }
+
         public static bool ShowQuestDuelButton(MDPro3.UI.DuelButton button)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null || button == null)
+            if (!CanShowQuestNativeDuelUi() || button == null)
                 return false;
 
             activeInstance.ShowQuestDuelActionButton(button);
@@ -471,7 +499,7 @@ namespace MDPro3
         public static bool ShowQuestPhaseMenu(List<string> selections)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null)
+            if (!CanShowQuestNativeDuelUi())
                 return false;
 
             activeInstance.EnsureQuestDuelNativeUi();
@@ -485,7 +513,7 @@ namespace MDPro3
         public static bool ShowQuestSelectCardPanel(string hint, List<GameCard> cards, int min, int max, bool exitable, bool sendable)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null)
+            if (!CanShowQuestNativeDuelUi())
                 return false;
 
             if (ShouldUseQuestFieldDirectCardSelection(cards))
@@ -550,7 +578,7 @@ namespace MDPro3
         public static bool ShowQuestSelectionPanel(List<string> selections, List<int> responses)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null)
+            if (!CanShowQuestNativeDuelUi())
                 return false;
 
             activeInstance.EnsureQuestDuelNativeUi();
@@ -564,7 +592,7 @@ namespace MDPro3
         public static bool ShowQuestYesOrNoPanel(List<string> selections, Action confirmAction, Action cancelAction)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null)
+            if (!CanShowQuestNativeDuelUi())
                 return false;
 
             activeInstance.EnsureQuestDuelNativeUi();
@@ -578,7 +606,7 @@ namespace MDPro3
         public static bool PrepareQuestMonsterCutin(GameObject root)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null || root == null)
+            if (!CanShowQuestNativeDuelUi() || root == null)
                 return false;
 
             activeInstance.AttachMonsterCutinToWorld(root);
@@ -591,7 +619,7 @@ namespace MDPro3
         public static bool ShowQuestPositionPanel(int code, int count, int option1, int option2)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null)
+            if (!CanShowQuestNativeDuelUi())
                 return false;
 
             activeInstance.EnsureQuestDuelNativeUi();
@@ -605,7 +633,7 @@ namespace MDPro3
         public static bool ShowQuestLocationBrowser(uint controller, CardLocation location)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            if (activeInstance == null)
+            if (!CanShowQuestNativeDuelUi())
                 return false;
 
             activeInstance.EnsureQuestDuelNativeUi();
@@ -661,6 +689,7 @@ namespace MDPro3
                 questNativeDuelFrontendSuppressedUntil = Mathf.Max(
                     questNativeDuelFrontendSuppressedUntil,
                     Time.unscaledTime + QuestMainMenuUiRecoverySuppressDuration);
+                StartQuestMainMenuUiRecoveryWindow();
                 ForceQuestMainMenuUiRecovery("duel-state-exit");
             }
             wasQuestNativeDuelActive = questNativeDuelActive;
@@ -685,6 +714,7 @@ namespace MDPro3
                 ClearQuestDuelActionMenu();
                 ResetQuestWorldControlsWhenNoDuel();
             }
+            MaintainQuestMainMenuUiRecovery(questNativeDuelActive);
             UpdateQuestDuelActionMenuPose();
             UpdateQuestPointer();
 #endif
