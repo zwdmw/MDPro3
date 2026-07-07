@@ -423,6 +423,8 @@ namespace MDPro3
         private const bool QuestAutoDebugCapture = false;
         private const int MaxPresentationTransients = 56;
         private const int MaxAutomaticDebugCaptures = 6;
+        private const float SelectionGuideSourceHoldSeconds = 8f;
+        private const int SelectionGuideCircleSegments = 56;
         private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
 
         private Camera xrCamera;
@@ -446,7 +448,12 @@ namespace MDPro3
         private readonly List<PresentationTransient> presentationTransients = new List<PresentationTransient>();
         private readonly List<GameCard> visibleCards = new List<GameCard>();
         private readonly List<GameCard> staleCards = new List<GameCard>();
+        private readonly List<GameObject> selectionGuideObjects = new List<GameObject>();
+        private readonly List<Material> selectionGuideMaterials = new List<Material>();
         private GameCard hoveredCard;
+        private GameCard selectionSourceCard;
+        private string selectionGuideSignature;
+        private float selectionSourceValidUntil;
         private float lastDiagnosticsTime;
         private float lastDebugCaptureTime;
         private int automaticDebugCaptureCount;
@@ -481,6 +488,7 @@ namespace MDPro3
         {
             DuelPresentationDirector.EventRaised -= HandleDuelPresentationEvent;
             ClearPresentationTransients();
+            ClearSelectionGuides();
         }
 
         public void Sync(Transform legacyDuelContainer)
@@ -494,6 +502,7 @@ namespace MDPro3
             if (core == null || core.cards == null)
             {
                 HideAllProxies();
+                ClearSelectionGuides();
                 return;
             }
 
@@ -512,6 +521,7 @@ namespace MDPro3
 
             RemoveStaleCardProxies();
             UpdatePileProxies(core);
+            UpdateFieldSelectionGuides(core);
             LogDiagnostics(core, legacyDuelContainer);
             CaptureDebugFrameIfUseful();
         }
@@ -535,6 +545,13 @@ namespace MDPro3
         public void SetHoveredCard(GameCard card)
         {
             hoveredCard = card;
+        }
+
+        public void SetSelectionSourceCard(GameCard card)
+        {
+            selectionSourceCard = card;
+            selectionSourceValidUntil = card == null ? 0f : Time.unscaledTime + SelectionGuideSourceHoldSeconds;
+            selectionGuideSignature = null;
         }
 
         public bool TryGetCardWorldBounds(GameCard card, out Bounds bounds)
@@ -589,6 +606,201 @@ namespace MDPro3
             controller = hit.Controller;
             location = hit.Location;
             return true;
+        }
+
+        private void UpdateFieldSelectionGuides(OcgCore core)
+        {
+            if (core == null || core.places == null || presentationRoot == null)
+            {
+                ClearSelectionGuides();
+                return;
+            }
+
+            var targets = new List<GameCard>();
+            foreach (var place in core.places)
+            {
+                if (place == null || !place.cardSelecting || place.cookieCard == null)
+                    continue;
+                if (!cardProxies.ContainsKey(place.cookieCard))
+                    continue;
+                if (!targets.Contains(place.cookieCard))
+                    targets.Add(place.cookieCard);
+            }
+
+            if (targets.Count == 0)
+            {
+                ClearSelectionGuides();
+                if (Time.unscaledTime > selectionSourceValidUntil)
+                    selectionSourceCard = null;
+                return;
+            }
+
+            targets.Sort((left, right) =>
+            {
+                var leftId = left == null ? 0 : left.md5;
+                var rightId = right == null ? 0 : right.md5;
+                return leftId.CompareTo(rightId);
+            });
+
+            var source = ResolveValidSelectionSource(targets);
+            var signature = BuildSelectionGuideSignature(source, targets);
+            if (signature == selectionGuideSignature && selectionGuideObjects.Count > 0)
+                return;
+
+            ClearSelectionGuides();
+            selectionGuideSignature = signature;
+            BuildSelectionGuides(source, targets);
+        }
+
+        private GameCard ResolveValidSelectionSource(List<GameCard> targets)
+        {
+            if (selectionSourceCard != null && Time.unscaledTime <= selectionSourceValidUntil && !targets.Contains(selectionSourceCard))
+            {
+                if (TryGetCardWorldPoint(selectionSourceCard, out _))
+                    return selectionSourceCard;
+            }
+
+            if (hoveredCard != null && !targets.Contains(hoveredCard) && TryGetCardWorldPoint(hoveredCard, out _))
+                return hoveredCard;
+
+            return null;
+        }
+
+        private static string BuildSelectionGuideSignature(GameCard source, List<GameCard> targets)
+        {
+            var signature = source == null ? "source:none" : "source:" + source.md5;
+            signature += "|targets:";
+            if (targets != null)
+                foreach (var target in targets)
+                    signature += target == null ? "0," : target.md5 + ",";
+            return signature;
+        }
+
+        private void BuildSelectionGuides(GameCard source, List<GameCard> targets)
+        {
+            if (targets == null || targets.Count == 0)
+                return;
+
+            var sourcePoint = Vector3.zero;
+            var hasSource = source != null && TryGetSelectionGuideSourcePoint(source, out sourcePoint);
+            foreach (var target in targets)
+            {
+                if (target == null || !TryGetCardWorldBounds(target, out var bounds))
+                    continue;
+
+                var radius = Mathf.Max(bounds.extents.x, bounds.extents.z, 0.4f) + 0.34f;
+                var center = bounds.center;
+                center.y = bounds.max.y + 0.08f;
+                CreateSelectionTargetRing(center, radius);
+
+                if (hasSource)
+                    CreateSelectionGuideArc(sourcePoint, bounds.center + Vector3.up * 0.62f, targets.Count);
+            }
+        }
+
+        private bool TryGetSelectionGuideSourcePoint(GameCard source, out Vector3 point)
+        {
+            if (TryGetCardActionAnchor(source, out var anchor, out _))
+            {
+                point = anchor + Vector3.up * 0.34f;
+                return true;
+            }
+
+            if (TryGetCardWorldPoint(source, out point))
+            {
+                point += Vector3.up * 0.92f;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void CreateSelectionTargetRing(Vector3 center, float radius)
+        {
+            var ringObject = new GameObject("QuestSelectionTargetRing");
+            SetQuestOverlayLayer(ringObject);
+            ringObject.transform.SetParent(presentationRoot, false);
+            var line = ringObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.loop = true;
+            line.positionCount = SelectionGuideCircleSegments;
+            line.numCapVertices = 4;
+            line.alignment = LineAlignment.View;
+            line.startWidth = 0.16f;
+            line.endWidth = 0.16f;
+            var color = new Color(0.24f, 1f, 0.82f, 0.90f);
+            var material = CreateMaterial("QuestSelectionTargetRingMaterial", color, true);
+            line.material = material;
+            var localCenter = presentationRoot.InverseTransformPoint(center);
+            var localRadius = radius / GetPresentationRootWorldScale();
+
+            for (var index = 0; index < SelectionGuideCircleSegments; index += 1)
+            {
+                var angle = Mathf.PI * 2f * index / SelectionGuideCircleSegments;
+                var position = localCenter + new Vector3(Mathf.Cos(angle) * localRadius, 0f, Mathf.Sin(angle) * localRadius);
+                line.SetPosition(index, position);
+            }
+
+            selectionGuideObjects.Add(ringObject);
+            selectionGuideMaterials.Add(material);
+        }
+
+        private void CreateSelectionGuideArc(Vector3 from, Vector3 to, int targetCount)
+        {
+            if ((to - from).sqrMagnitude < 0.01f)
+                return;
+
+            var lineObject = new GameObject("QuestSelectionGuideArc");
+            SetQuestOverlayLayer(lineObject);
+            lineObject.transform.SetParent(presentationRoot, false);
+            var line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.positionCount = 14;
+            line.numCapVertices = 5;
+            line.alignment = LineAlignment.View;
+            line.startWidth = Mathf.Clamp(0.12f + targetCount * 0.012f, 0.12f, 0.22f);
+            line.endWidth = 0.045f;
+            var color = new Color(0.22f, 0.82f, 1f, 0.64f);
+            var material = CreateMaterial("QuestSelectionGuideArcMaterial", color, true);
+            line.material = material;
+
+            var localFrom = presentationRoot.InverseTransformPoint(from);
+            var localTo = presentationRoot.InverseTransformPoint(to);
+            var planarDistance = Vector3.Distance(new Vector3(localFrom.x, 0f, localFrom.z), new Vector3(localTo.x, 0f, localTo.z));
+            var apex = Mathf.Clamp(planarDistance * 0.16f, 0.65f, 2.6f);
+            for (var index = 0; index < line.positionCount; index += 1)
+            {
+                var t = index / (float)(line.positionCount - 1);
+                var position = Vector3.Lerp(localFrom, localTo, t);
+                position.y += Mathf.Sin(t * Mathf.PI) * apex;
+                line.SetPosition(index, position);
+            }
+
+            selectionGuideObjects.Add(lineObject);
+            selectionGuideMaterials.Add(material);
+        }
+
+        private float GetPresentationRootWorldScale()
+        {
+            if (presentationRoot == null)
+                return 1f;
+
+            var scale = presentationRoot.lossyScale;
+            return Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z), 0.001f);
+        }
+
+        private void ClearSelectionGuides()
+        {
+            foreach (var material in selectionGuideMaterials)
+                if (material != null)
+                    Destroy(material);
+            selectionGuideMaterials.Clear();
+
+            foreach (var guide in selectionGuideObjects)
+                if (guide != null)
+                    Destroy(guide);
+            selectionGuideObjects.Clear();
+            selectionGuideSignature = null;
         }
 
         private void EnsureRoot()

@@ -67,15 +67,15 @@ namespace MDPro3
         private const float ControllerRayStartWidth = 0.012f * DuelWorldUnitsPerMeter;
         private const float ControllerRayEndWidth = 0.004f * DuelWorldUnitsPerMeter;
         private const float ControllerCursorScale = 0.055f * DuelWorldUnitsPerMeter;
-        private const float QuestDuelActionMenuScale = 0.030f;
-        private const float QuestDuelActionMenuWidth = 680f;
-        private const float QuestDuelActionMenuPadding = 20f;
-        private const float QuestDuelActionItemHeight = 112f;
-        private const float QuestDuelActionItemGap = 16f;
-        private const float QuestDuelActionCardYOffset = 1.05f;
-        private const float QuestDuelActionCardForwardOffset = 0.95f;
-        private const float QuestDuelActionFloatAmplitude = 5.5f;
-        private const float QuestDuelActionHoverScaleBoost = 0.08f;
+        private const float QuestDuelActionMenuScale = 0.037f;
+        private const float QuestDuelActionMenuWidth = 820f;
+        private const float QuestDuelActionMenuPadding = 18f;
+        private const float QuestDuelActionItemHeight = 132f;
+        private const float QuestDuelActionItemGap = 18f;
+        private const float QuestDuelActionCardYOffset = 0.82f;
+        private const float QuestDuelActionCardForwardOffset = 0.56f;
+        private const float QuestDuelActionFloatAmplitude = 7.0f;
+        private const float QuestDuelActionHoverScaleBoost = 0.12f;
         private const int FallbackGridLineCount = 33;
         private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
@@ -6475,6 +6475,7 @@ namespace MDPro3
                     if (action != null && action.Response != null && action.Response.Count > 0)
                         questDuelActions.Add(action);
             }
+            questDuelActions.Sort(CompareQuestDuelActions);
 
             if (questDuelActions.Count == 0)
             {
@@ -6572,6 +6573,7 @@ namespace MDPro3
                 HideQuestDuelActionMenu();
                 return;
             }
+            questDuelActions.Sort(CompareQuestDuelActions);
 
             var count = questDuelActions.Count;
             var columns = ResolveQuestDuelActionColumns(count);
@@ -6658,10 +6660,10 @@ namespace MDPro3
             label.text = GetQuestDuelActionLabel(action);
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
-            label.fontSize = columns == 1 ? 34f : 30f;
+            label.fontSize = columns == 1 ? 42f : 36f;
             label.enableAutoSizing = true;
-            label.fontSizeMin = 18f;
-            label.fontSizeMax = columns == 1 ? 34f : 30f;
+            label.fontSizeMin = 24f;
+            label.fontSizeMax = columns == 1 ? 42f : 36f;
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.raycastTarget = false;
             var font = Program.instance?.ui_?.tmpFont;
@@ -6729,6 +6731,8 @@ namespace MDPro3
 
             AudioManager.PlaySE("SE_DUEL_DECIDE");
             var response = action.FirstResponse;
+            if (action.Card != null)
+                questDuelWorldPresenter?.SetSelectionSourceCard(action.Card);
             if (response >= 0)
             {
                 if ((core.currentMessage == GameMessage.SelectBattleCmd || core.currentMessage == GameMessage.SelectIdleCmd)
@@ -6938,7 +6942,7 @@ namespace MDPro3
                 : Mathf.Max(questDuelActionMenuRect.sizeDelta.y, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);
             var menuHeightWorld = height * QuestDuelActionMenuScale;
             var toViewer = ResolvePlanarDirectionToViewer(anchor);
-            var planarOffset = Mathf.Clamp(radius * 0.10f + QuestDuelActionCardForwardOffset, 0.75f, 1.75f);
+            var planarOffset = Mathf.Clamp(radius * 0.10f + QuestDuelActionCardForwardOffset, 0.45f, 1.25f);
             return anchor + Vector3.up * (QuestDuelActionCardYOffset + menuHeightWorld * 0.5f) + toViewer * planarOffset;
         }
 
@@ -6952,8 +6956,8 @@ namespace MDPro3
             var y = bounds.max.y + menuHeightWorld * 0.5f + 0.22f;
             var planarOffset = Mathf.Clamp(
                 Mathf.Max(bounds.extents.x, bounds.extents.z) * 0.18f + QuestDuelActionCardForwardOffset,
-                0.65f,
-                1.55f);
+                0.42f,
+                1.16f);
 
             return new Vector3(center.x, y, center.z) + ResolvePlanarDirectionToViewer(center) * planarOffset;
         }
@@ -7024,6 +7028,50 @@ namespace MDPro3
                 return left.Sequence == right.Sequence;
 
             return true;
+        }
+
+        private static int CompareQuestDuelActions(QuestDuelAction left, QuestDuelAction right)
+        {
+            var priority = GetQuestDuelActionPriority(left).CompareTo(GetQuestDuelActionPriority(right));
+            if (priority != 0)
+                return priority;
+
+            var leftLabel = GetQuestDuelActionLabel(left);
+            var rightLabel = GetQuestDuelActionLabel(right);
+            return string.Compare(leftLabel, rightLabel, StringComparison.Ordinal);
+        }
+
+        private static int GetQuestDuelActionPriority(QuestDuelAction action)
+        {
+            if (action == null)
+                return 999;
+
+            switch (action.Type)
+            {
+                case MDPro3.UI.ButtonType.Battle:
+                    return 10;
+                case MDPro3.UI.ButtonType.Activate:
+                    return 20;
+                case MDPro3.UI.ButtonType.SpSummon:
+                case MDPro3.UI.ButtonType.PenSummon:
+                    return 30;
+                case MDPro3.UI.ButtonType.Summon:
+                    return 40;
+                case MDPro3.UI.ButtonType.SetMonster:
+                case MDPro3.UI.ButtonType.SetSpell:
+                case MDPro3.UI.ButtonType.SetPendulum:
+                    return 50;
+                case MDPro3.UI.ButtonType.ToAttackPosition:
+                case MDPro3.UI.ButtonType.ToDefensePosition:
+                    return 60;
+                case MDPro3.UI.ButtonType.Select:
+                case MDPro3.UI.ButtonType.Decide:
+                    return 70;
+                case MDPro3.UI.ButtonType.Cancel:
+                    return 900;
+                default:
+                    return 500;
+            }
         }
 
         private static bool IsQuestFieldSelectionAction(int response)
@@ -7307,6 +7355,7 @@ namespace MDPro3
             EnsureQuestDuelNativeUi();
             questDuelNativeUi?.HideAllPopups();
             ClearQuestDuelActionMenu();
+            questDuelWorldPresenter?.SetSelectionSourceCard(null);
             Debug.LogFormat(
                 "Quest XR selected field card: id={0}, selectPtr={1}, location={2}, controller={3}, sequence={4}, message={5}",
                 card.GetData() == null ? 0 : card.GetData().Id,
