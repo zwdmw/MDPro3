@@ -1105,6 +1105,8 @@ namespace MDPro3
             if ((cacheP.location & (uint)CardLocation.Overlay) > 0
                 && ((p.reason & (uint)CardReason.RULE) > 0 || (p.location & (uint)CardLocation.Extra) > 0))
                 return 0;
+            if (!rush)
+                DuelPresentationDirector.NotifyCardMoved(this, cacheP, p, Program.instance.ocgcore.currentMessage);
 
             float moveTime = 0.3f;
 
@@ -1661,6 +1663,8 @@ namespace MDPro3
             if ((cacheP.location & (uint)CardLocation.Overlay) > 0
                 && ((p.reason & (uint)CardReason.RULE) > 0 || (p.location & (uint)CardLocation.Extra) > 0))
                 return 0;
+            if (!rush)
+                DuelPresentationDirector.NotifyCardMoved(this, cacheP, p, Program.instance.ocgcore.currentMessage);
 
             float moveTime = 0.3f;
 

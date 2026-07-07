@@ -25,6 +25,7 @@ namespace MDPro3
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const int CardGridPageSize = 12;
+        private const int MaxPresentationLogLines = 7;
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, -0.005f, -1.5f);
 
         private Camera xrCamera;
@@ -93,6 +94,7 @@ namespace MDPro3
         private RectTransform duelLogRect;
         private TextMeshProUGUI duelLogTitleText;
         private TextMeshProUGUI duelLogBodyText;
+        private readonly List<string> presentationLogLines = new List<string>();
         private string lastDuelLogSignature;
         private bool duelLogPanelLogged;
 
@@ -104,6 +106,18 @@ namespace MDPro3
                     || (optionCanvas != null && optionCanvas.gameObject.activeSelf)
                     || (phaseMenuCanvas != null && phaseMenuCanvas.gameObject.activeSelf);
             }
+        }
+
+        private void OnEnable()
+        {
+            DuelPresentationDirector.EventRaised += HandlePresentationEvent;
+        }
+
+        private void OnDisable()
+        {
+            DuelPresentationDirector.EventRaised -= HandlePresentationEvent;
+            presentationLogLines.Clear();
+            lastDuelLogSignature = null;
         }
 
         public void Configure(Camera camera, Transform worldAnchor = null)
@@ -613,8 +627,9 @@ namespace MDPro3
             var logText = LocalizeQuestLabel(SanitizeText(OcgCore.lastDuelLog));
             if (string.IsNullOrWhiteSpace(logText))
                 logText = "\u7b49\u5f85\u5bf9\u5c40\u4fe1\u606f";
+            var detailText = BuildPresentationLogText(logText);
 
-            var signature = turnText + "|" + phaseText + "|" + messageText + "|" + logText;
+            var signature = turnText + "|" + phaseText + "|" + messageText + "|" + detailText;
             if (signature != lastDuelLogSignature)
             {
                 lastDuelLogSignature = signature;
@@ -626,7 +641,7 @@ namespace MDPro3
                         "\u56de\u5408: " + turnText + "\n"
                         + "\u9636\u6bb5: " + phaseText + "\n"
                         + "\u72b6\u6001: " + messageText + "\n"
-                        + "\u8bb0\u5f55: " + logText;
+                        + detailText;
                 }
             }
 
@@ -643,6 +658,107 @@ namespace MDPro3
                         logText);
                 }
             }
+        }
+
+        private void HandlePresentationEvent(DuelPresentationEvent evt)
+        {
+            var line = FormatPresentationLogLine(evt);
+            if (string.IsNullOrEmpty(line))
+                return;
+
+            presentationLogLines.Insert(0, line);
+            while (presentationLogLines.Count > MaxPresentationLogLines)
+                presentationLogLines.RemoveAt(presentationLogLines.Count - 1);
+            lastDuelLogSignature = null;
+        }
+
+        private string BuildPresentationLogText(string fallbackLogText)
+        {
+            if (presentationLogLines.Count == 0)
+                return "\u8bb0\u5f55: " + fallbackLogText;
+
+            var text = "\u6700\u8fd1:\n";
+            for (var i = 0; i < presentationLogLines.Count; i += 1)
+                text += "\u2022 " + presentationLogLines[i] + "\n";
+
+            if (!string.IsNullOrWhiteSpace(fallbackLogText))
+                text += "\u8bb0\u5f55: " + fallbackLogText;
+            return text.TrimEnd();
+        }
+
+        private static string FormatPresentationLogLine(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return string.Empty;
+
+            var player = GetPresentationControllerName(evt.Controller);
+            var cardName = GetCardName(evt.Card);
+            switch (evt.Kind)
+            {
+                case DuelPresentationKind.CardMoved:
+                    return FormatMovePresentationLine(evt, player, cardName);
+                case DuelPresentationKind.CardSet:
+                    return player + " \u653e\u7f6e " + cardName;
+                case DuelPresentationKind.CardSummoned:
+                    return player + " \u53ec\u5524 " + cardName;
+                case DuelPresentationKind.CardActivated:
+                    return evt.ChainIndex > 1
+                        ? "\u8fde\u9501 " + evt.ChainIndex + ": " + cardName
+                        : player + " \u53d1\u52a8 " + cardName;
+                case DuelPresentationKind.ChainStacked:
+                    return "\u8fde\u9501 " + evt.ChainIndex + ": " + cardName;
+                case DuelPresentationKind.CardDestroyed:
+                    return "\u7834\u574f " + cardName;
+                case DuelPresentationKind.CardSentToGrave:
+                    return "\u9001\u53bb\u5893\u5730 " + cardName;
+                case DuelPresentationKind.CardBanished:
+                    return "\u9664\u5916 " + cardName;
+                case DuelPresentationKind.AttackDeclared:
+                    return "\u653b\u51fb: " + cardName + " \u2192 " + GetPresentationTargetName(evt);
+                case DuelPresentationKind.AttackImpact:
+                    return "\u6218\u6597\u547d\u4e2d: " + cardName;
+                case DuelPresentationKind.Damage:
+                    return GetPresentationControllerName(evt.Controller) + " LP -" + Mathf.Abs(evt.Value);
+                case DuelPresentationKind.Recover:
+                    return GetPresentationControllerName(evt.Controller) + " LP +" + Mathf.Abs(evt.Value);
+                case DuelPresentationKind.PhaseChanged:
+                    return player + " " + GetPhaseName(evt.Phase);
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private static string FormatMovePresentationLine(DuelPresentationEvent evt, string player, string cardName)
+        {
+            switch (evt.MoveKind)
+            {
+                case DuelPresentationMoveKind.Draw:
+                    return player + " \u62bd\u5361";
+                case DuelPresentationMoveKind.ToHand:
+                    return cardName + " \u52a0\u5165\u624b\u724c";
+                case DuelPresentationMoveKind.ToField:
+                    return cardName + " \u51fa\u73b0\u5728\u573a\u4e0a";
+                case DuelPresentationMoveKind.Released:
+                    return "\u89e3\u653e " + cardName;
+                case DuelPresentationMoveKind.Material:
+                    return cardName + " \u6210\u4e3a\u7d20\u6750";
+                case DuelPresentationMoveKind.Overlay:
+                    return cardName + " \u53e0\u653e\u4e3a\u7d20\u6750";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private static string GetPresentationTargetName(DuelPresentationEvent evt)
+        {
+            if (evt == null || evt.Direct || evt.TargetCard == null)
+                return "\u76f4\u63a5\u653b\u51fb";
+            return GetCardName(evt.TargetCard);
+        }
+
+        private static string GetPresentationControllerName(int controller)
+        {
+            return controller == 0 ? "\u6211\u65b9" : "\u5bf9\u65b9";
         }
 
         private void AddPhaseMenuButton(string label, bool interactable, Action onClick)

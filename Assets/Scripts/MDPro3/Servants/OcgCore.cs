@@ -3109,6 +3109,7 @@ namespace MDPro3
                     effect.transform.position = lastMoveCard.model.transform.position;
                     Destroy(effect, 3f);
                     AudioManager.PlaySE("SE_LAND_MT_SET");
+                    DuelPresentationDirector.NotifyCardSet(lastMoveCard);
                     break;
                 case GameMessage.Swap:
                     ES_hint = StringHelper.GetUnsafe(1602);//卡的控制权改变了
@@ -3182,6 +3183,8 @@ namespace MDPro3
                         if (GetAutoInfo())
                             description.Show(card, card.GetMaterial());
                     }
+                    if (card != null)
+                        DuelPresentationDirector.NotifyCardSummoned(card, false, GameCard.NeedStrongSummon(card.GetData()));
                     AudioManager.PlaySE(se);
                     foreach (var c in cards)
                         c.AnimationLandShake(card, card.GetData().Level > 6);
@@ -3285,6 +3288,7 @@ namespace MDPro3
                                 effect.transform.localEulerAngles = new Vector3(0, 90, 0);
                             Destroy(effect, 10);
                         }
+                        DuelPresentationDirector.NotifyCardSummoned(card, true, GameCard.NeedStrongSummon(card.GetData()));
                         AudioManager.PlaySE(se);
                         if (se.EndsWith("HIGH"))
                             CameraManager.ShakeCamera(true);
@@ -3318,6 +3322,7 @@ namespace MDPro3
                         var delay = card.Move(card.p);
                         card.RefreshData();
                         card.AnimationPositon(delay);
+                        DuelPresentationDirector.NotifyCardSummoned(card, false, false);
                         ES_hint = InterString.Get("「[?]」反转召唤宣言时", card.GetData().Name);
                         if (GetAutoInfo())
                             description.Show(card, card.GetMaterial());
@@ -3339,6 +3344,7 @@ namespace MDPro3
                         codesInChain.Add(code);
                         controllerInChain.Add(card.p.controller);
                         card.AnimationActivate();
+                        DuelPresentationDirector.NotifyCardActivated(card, cardsInChain.Count);
                         Sleep(100);
                         ES_hint = InterString.Get("「[?]」被发动时", card.GetData().Name);
                     }
@@ -3359,6 +3365,7 @@ namespace MDPro3
                     var currentChainCard = cardsInChain[cardsInChain.Count - 1];
                     currentChainCard.AddChain(cardsInChain.Count);
                     ShowChainStack();
+                    DuelPresentationDirector.NotifyChainStacked(currentChainCard, cardsInChain.Count);
                     int sleepIn100 = 0;
                     if (CheckChain())
                     {
@@ -3995,6 +4002,7 @@ namespace MDPro3
                             AudioManager.PlaySE("SE_DA_TEXT");
                         }
                         ShowAttackLine(attackingCard.model.transform.localPosition, endPosition);
+                        DuelPresentationDirector.NotifyAttackDeclared(attackCard, attacked, attacked == null, finalBlow);
                         if (finalBlow)
                         {
                             if (duelFinalBlow != null)
@@ -4090,6 +4098,7 @@ namespace MDPro3
                     }
                     needDamageResponseInstant = true;
                     messagePass = false;
+                    DuelPresentationDirector.NotifyAttackImpact(attackCard, attackedCard, directAttack != 0, isFinalAttack);
                     if (isFinalAttack && GetSpecialFinalAttackType(attackCard, attackedPosition) != FinalAttackType.Normal)
                         break;
 
@@ -4300,6 +4309,7 @@ namespace MDPro3
                         life1 -= val;
                         ES_hint = InterString.Get("对方受到伤害时");
                     }
+                    DuelPresentationDirector.NotifyDamage(player, val, player == 0 ? life0 : life1, life0 <= 0 || life1 <= 0);
                     if (life0 <= 0 || life1 <= 0)
                     {
                         AudioManager.StopBGM();
@@ -4337,6 +4347,7 @@ namespace MDPro3
                     else
                         life1 -= val;
                     UpdateBgEffect(player);
+                    DuelPresentationDirector.NotifyDamage(player, val, player == 0 ? life0 : life1, life0 <= 0 || life1 <= 0);
                     SetLP(player, -val);
                     Sleep(50);
                     break;
@@ -4352,6 +4363,7 @@ namespace MDPro3
                     {
                         life1 += val;
                     }
+                    DuelPresentationDirector.NotifyRecover(player, val);
                     SetLP(player, val);
                     Sleep(50);
                     break;
@@ -4391,6 +4403,10 @@ namespace MDPro3
                         }
                     }
                     UpdateBgEffect(player);
+                    if (log.cacheLp < 0)
+                        DuelPresentationDirector.NotifyDamage(player, -log.cacheLp, player == 0 ? life0 : life1, life0 <= 0 || life1 <= 0);
+                    else if (log.cacheLp > 0)
+                        DuelPresentationDirector.NotifyRecover(player, log.cacheLp);
                     SetLP(player, log.cacheLp);
                     Sleep(50);
                     break;
@@ -4816,6 +4832,7 @@ namespace MDPro3
                         PhaseBanner(player, phase);
                         PhaseButtonHandler.SetTextMain("End");
                     }
+                    DuelPresentationDirector.NotifyPhaseChanged(player, phase);
                     break;
                 case GameMessage.ConfirmDecktop:
                     player = LocalPlayer(r.ReadByte());

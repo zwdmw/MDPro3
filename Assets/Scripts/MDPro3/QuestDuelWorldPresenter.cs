@@ -2,14 +2,370 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using DG.Tweening;
 using MDPro3.YGOSharp;
 using MDPro3.YGOSharp.OCGWrapper.Enums;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.XR;
 
 namespace MDPro3
 {
+    public enum DuelPresentationKind
+    {
+        CardMoved,
+        CardSet,
+        CardSummoned,
+        CardActivated,
+        ChainStacked,
+        CardDestroyed,
+        CardSentToGrave,
+        CardBanished,
+        AttackDeclared,
+        AttackImpact,
+        Damage,
+        Recover,
+        PhaseChanged
+    }
+
+    public enum DuelPresentationMoveKind
+    {
+        Generic,
+        Draw,
+        Set,
+        ToField,
+        ToHand,
+        ToGrave,
+        Banished,
+        Destroyed,
+        Released,
+        Material,
+        Overlay
+    }
+
+    public enum DuelPresentationWeight
+    {
+        Light,
+        Medium,
+        Heavy,
+        Finisher
+    }
+
+    public sealed class DuelPresentationEvent
+    {
+        public DuelPresentationKind Kind;
+        public DuelPresentationMoveKind MoveKind;
+        public DuelPresentationWeight Weight;
+        public GameCard Card;
+        public GameCard TargetCard;
+        public GPS From;
+        public GPS To;
+        public int Controller;
+        public int Value;
+        public int ChainIndex;
+        public bool Direct;
+        public bool Final;
+        public DuelPhase Phase;
+        public uint Reason;
+    }
+
+    public static class DuelPresentationDirector
+    {
+        public static event Action<DuelPresentationEvent> EventRaised;
+
+        public static void NotifyCardMoved(GameCard card, GPS from, GPS to, GameMessage message)
+        {
+            if (card == null || from == null || to == null)
+                return;
+
+            var moveKind = ResolveMoveKind(from, to, message);
+            var weight = ResolveMoveWeight(card, from, to, moveKind);
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardMoved,
+                MoveKind = moveKind,
+                Weight = weight,
+                Card = card,
+                From = CloneGps(from),
+                To = CloneGps(to),
+                Controller = (int)to.controller,
+                Reason = to.reason
+            });
+
+            if ((to.reason & (uint)CardReason.DESTROY) > 0)
+                NotifyCardDestroyed(card, weight, from, to);
+
+            if ((to.location & (uint)CardLocation.Grave) > 0)
+                NotifyCardSentToGrave(card, weight, from, to);
+            else if ((to.location & (uint)CardLocation.Removed) > 0)
+                NotifyCardBanished(card, weight, from, to);
+        }
+
+        public static void NotifyCardSet(GameCard card)
+        {
+            RaiseForCard(DuelPresentationKind.CardSet, card, DuelPresentationWeight.Medium);
+        }
+
+        public static void NotifyCardSummoned(GameCard card, bool special, bool strong)
+        {
+            RaiseForCard(
+                DuelPresentationKind.CardSummoned,
+                card,
+                strong ? DuelPresentationWeight.Heavy : special ? DuelPresentationWeight.Medium : DuelPresentationWeight.Light);
+        }
+
+        public static void NotifyCardActivated(GameCard card, int chainIndex)
+        {
+            if (card == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardActivated,
+                Weight = chainIndex >= 3 ? DuelPresentationWeight.Heavy : DuelPresentationWeight.Medium,
+                Card = card,
+                Controller = card.p == null ? 0 : (int)card.p.controller,
+                ChainIndex = chainIndex
+            });
+        }
+
+        public static void NotifyChainStacked(GameCard card, int chainIndex)
+        {
+            if (card == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.ChainStacked,
+                Weight = chainIndex >= 3 ? DuelPresentationWeight.Heavy : DuelPresentationWeight.Medium,
+                Card = card,
+                Controller = card.p == null ? 0 : (int)card.p.controller,
+                ChainIndex = chainIndex
+            });
+        }
+
+        public static void NotifyAttackDeclared(GameCard attacker, GameCard target, bool direct, bool final)
+        {
+            if (attacker == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.AttackDeclared,
+                Weight = final ? DuelPresentationWeight.Finisher : ResolveAttackWeight(attacker),
+                Card = attacker,
+                TargetCard = target,
+                Controller = attacker.p == null ? 0 : (int)attacker.p.controller,
+                Direct = direct,
+                Final = final
+            });
+        }
+
+        public static void NotifyAttackImpact(GameCard attacker, GameCard target, bool direct, bool final)
+        {
+            if (attacker == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.AttackImpact,
+                Weight = final ? DuelPresentationWeight.Finisher : ResolveAttackWeight(attacker),
+                Card = attacker,
+                TargetCard = target,
+                Controller = attacker.p == null ? 0 : (int)attacker.p.controller,
+                Direct = direct,
+                Final = final
+            });
+        }
+
+        public static void NotifyDamage(int player, int value, int remainingLife, bool final)
+        {
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.Damage,
+                Weight = final ? DuelPresentationWeight.Finisher : value >= 2000 ? DuelPresentationWeight.Heavy : DuelPresentationWeight.Medium,
+                Controller = player,
+                Value = value,
+                Final = final
+            });
+        }
+
+        public static void NotifyRecover(int player, int value)
+        {
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.Recover,
+                Weight = value >= 2000 ? DuelPresentationWeight.Medium : DuelPresentationWeight.Light,
+                Controller = player,
+                Value = value
+            });
+        }
+
+        public static void NotifyPhaseChanged(int player, DuelPhase phase)
+        {
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.PhaseChanged,
+                Weight = phase == DuelPhase.BattleStart || phase == DuelPhase.Battle ? DuelPresentationWeight.Medium : DuelPresentationWeight.Light,
+                Controller = player,
+                Phase = phase
+            });
+        }
+
+        private static void NotifyCardDestroyed(GameCard card, DuelPresentationWeight weight, GPS from, GPS to)
+        {
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardDestroyed,
+                MoveKind = DuelPresentationMoveKind.Destroyed,
+                Weight = weight < DuelPresentationWeight.Heavy ? DuelPresentationWeight.Heavy : weight,
+                Card = card,
+                From = CloneGps(from),
+                To = CloneGps(to),
+                Controller = to == null ? 0 : (int)to.controller,
+                Reason = to == null ? 0 : to.reason
+            });
+        }
+
+        private static void NotifyCardSentToGrave(GameCard card, DuelPresentationWeight weight, GPS from, GPS to)
+        {
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardSentToGrave,
+                MoveKind = DuelPresentationMoveKind.ToGrave,
+                Weight = weight,
+                Card = card,
+                From = CloneGps(from),
+                To = CloneGps(to),
+                Controller = to == null ? 0 : (int)to.controller,
+                Reason = to == null ? 0 : to.reason
+            });
+        }
+
+        private static void NotifyCardBanished(GameCard card, DuelPresentationWeight weight, GPS from, GPS to)
+        {
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardBanished,
+                MoveKind = DuelPresentationMoveKind.Banished,
+                Weight = weight < DuelPresentationWeight.Medium ? DuelPresentationWeight.Medium : weight,
+                Card = card,
+                From = CloneGps(from),
+                To = CloneGps(to),
+                Controller = to == null ? 0 : (int)to.controller,
+                Reason = to == null ? 0 : to.reason
+            });
+        }
+
+        private static void RaiseForCard(DuelPresentationKind kind, GameCard card, DuelPresentationWeight weight)
+        {
+            if (card == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = kind,
+                Weight = weight,
+                Card = card,
+                Controller = card.p == null ? 0 : (int)card.p.controller,
+                To = CloneGps(card.p)
+            });
+        }
+
+        private static DuelPresentationMoveKind ResolveMoveKind(GPS from, GPS to, GameMessage message)
+        {
+            if ((to.reason & (uint)CardReason.DESTROY) > 0)
+                return DuelPresentationMoveKind.Destroyed;
+            if ((to.reason & (uint)CardReason.RELEASE) > 0)
+                return DuelPresentationMoveKind.Released;
+            if ((to.reason & (uint)CardReason.MATERIAL) > 0)
+                return DuelPresentationMoveKind.Material;
+            if ((to.location & (uint)CardLocation.Grave) > 0)
+                return DuelPresentationMoveKind.ToGrave;
+            if ((to.location & (uint)CardLocation.Removed) > 0)
+                return DuelPresentationMoveKind.Banished;
+            if ((to.location & (uint)CardLocation.Overlay) > 0)
+                return DuelPresentationMoveKind.Overlay;
+            if ((from.location & (uint)CardLocation.Deck) > 0 && (to.location & (uint)CardLocation.Hand) > 0)
+                return DuelPresentationMoveKind.Draw;
+            if (message == GameMessage.Draw)
+                return DuelPresentationMoveKind.Draw;
+            if ((to.location & (uint)CardLocation.Hand) > 0)
+                return DuelPresentationMoveKind.ToHand;
+            if ((to.location & (uint)CardLocation.Onfield) > 0)
+                return DuelPresentationMoveKind.ToField;
+            return DuelPresentationMoveKind.Generic;
+        }
+
+        private static DuelPresentationWeight ResolveMoveWeight(GameCard card, GPS from, GPS to, DuelPresentationMoveKind moveKind)
+        {
+            switch (moveKind)
+            {
+                case DuelPresentationMoveKind.Destroyed:
+                case DuelPresentationMoveKind.Banished:
+                    return DuelPresentationWeight.Heavy;
+                case DuelPresentationMoveKind.ToGrave:
+                case DuelPresentationMoveKind.Released:
+                case DuelPresentationMoveKind.Material:
+                case DuelPresentationMoveKind.ToField:
+                    return DuelPresentationWeight.Medium;
+                case DuelPresentationMoveKind.Draw:
+                case DuelPresentationMoveKind.ToHand:
+                    return DuelPresentationWeight.Light;
+            }
+
+            var data = card == null ? null : card.GetData();
+            if (data != null && data.HasType(CardType.Monster) && GameCard.NeedStrongSummon(data))
+                return DuelPresentationWeight.Heavy;
+            return DuelPresentationWeight.Light;
+        }
+
+        private static DuelPresentationWeight ResolveAttackWeight(GameCard card)
+        {
+            var data = card == null ? null : card.GetData();
+            if (data == null)
+                return DuelPresentationWeight.Medium;
+            if (data.Attack >= 3000)
+                return DuelPresentationWeight.Heavy;
+            return DuelPresentationWeight.Medium;
+        }
+
+        private static GPS CloneGps(GPS value)
+        {
+            if (value == null)
+                return null;
+
+            return new GPS
+            {
+                controller = value.controller,
+                location = value.location,
+                sequence = value.sequence,
+                position = value.position,
+                reason = value.reason
+            };
+        }
+
+        private static void Raise(DuelPresentationEvent evt)
+        {
+            var handler = EventRaised;
+            if (handler == null || evt == null)
+                return;
+
+            foreach (Action<DuelPresentationEvent> subscriber in handler.GetInvocationList())
+            {
+                try
+                {
+                    subscriber(evt);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("Duel presentation subscriber failed: " + ex.Message);
+                }
+            }
+        }
+    }
+
     public sealed class QuestDuelWorldPresenter : MonoBehaviour
     {
         private const int FallbackQuestOverlayLayer = 24;
@@ -25,9 +381,13 @@ namespace MDPro3
         private const float PowerLabelY = CardThickness + 0.92f;
         private const float PowerLabelZ = -4.18f;
         private const float PowerLabelScale = 0.32f;
+        private const float InteractionLabelY = CardThickness + 1.18f;
+        private const float InteractionLabelZ = 4.16f;
+        private const float InteractionLabelScale = 0.42f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
+        private const int MaxPresentationTransients = 56;
         private const int MaxAutomaticDebugCaptures = 6;
         private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
 
@@ -35,16 +395,20 @@ namespace MDPro3
         private Transform worldAnchor;
         private Transform proxyRoot;
         private Transform pileRoot;
+        private Transform presentationRoot;
         private Material cardBackMaterial;
         private Material cardSideMaterial;
         private Material placeholderFaceMaterial;
         private Material highlightMaterial;
+        private Material actionHighlightMaterial;
+        private Material targetHighlightMaterial;
         private Material pileFaceMaterial;
         private Material portraitMaterial;
         private static Texture2D fallbackCardBackTexture;
         private static Texture2D preferredCardBackTexture;
         private readonly Dictionary<GameCard, QuestCardProxy> cardProxies = new Dictionary<GameCard, QuestCardProxy>();
         private readonly Dictionary<string, QuestPileProxy> pileProxies = new Dictionary<string, QuestPileProxy>();
+        private readonly List<PresentationTransient> presentationTransients = new List<PresentationTransient>();
         private readonly List<GameCard> visibleCards = new List<GameCard>();
         private readonly List<GameCard> staleCards = new List<GameCard>();
         private float lastDiagnosticsTime;
@@ -65,6 +429,17 @@ namespace MDPro3
         {
             if (proxyRoot != null && proxyRoot.gameObject.activeSelf != visible)
                 proxyRoot.gameObject.SetActive(visible);
+        }
+
+        private void OnEnable()
+        {
+            DuelPresentationDirector.EventRaised += HandleDuelPresentationEvent;
+        }
+
+        private void OnDisable()
+        {
+            DuelPresentationDirector.EventRaised -= HandleDuelPresentationEvent;
+            ClearPresentationTransients();
         }
 
         public void Sync(Transform legacyDuelContainer)
@@ -176,6 +551,14 @@ namespace MDPro3
                 pileRoot = pileObject.transform;
                 pileRoot.SetParent(proxyRoot, false);
             }
+
+            if (presentationRoot == null)
+            {
+                var presentationObject = new GameObject("QuestNativeDuelPresentation");
+                SetQuestOverlayLayer(presentationObject);
+                presentationRoot = presentationObject.transform;
+                presentationRoot.SetParent(proxyRoot, false);
+            }
         }
 
         private void HideAllProxies()
@@ -191,6 +574,550 @@ namespace MDPro3
                 if (pile.Root != null && pile.Root.activeSelf)
                     pile.Root.SetActive(false);
             }
+        }
+
+        private void HandleDuelPresentationEvent(DuelPresentationEvent evt)
+        {
+            if (evt == null || worldAnchor == null)
+                return;
+
+            EnsureRoot();
+            if (presentationRoot == null || proxyRoot == null || !proxyRoot.gameObject.activeInHierarchy)
+                return;
+
+            switch (evt.Kind)
+            {
+                case DuelPresentationKind.CardMoved:
+                    PlayCardMovePresentation(evt);
+                    break;
+                case DuelPresentationKind.CardSet:
+                    PlayCardPulse(evt.Card, new Color(0.30f, 0.42f, 0.95f, 0.70f), evt.Weight, 1.18f);
+                    break;
+                case DuelPresentationKind.CardSummoned:
+                    PlayCardPulse(evt.Card, ResolveSummonColor(evt.Card), evt.Weight, 1.65f);
+                    PlaySummonPortraitRise(evt.Card, evt.Weight);
+                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), "\u53ec\u5524", ResolveSummonColor(evt.Card), evt.Weight);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.CardActivated:
+                    PlayCardPulse(evt.Card, new Color(0.45f, 0.92f, 1f, 0.82f), evt.Weight, 1.32f);
+                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), evt.ChainIndex > 1 ? "CHAIN " + evt.ChainIndex : "\u53d1\u52a8", new Color(0.45f, 0.92f, 1f, 1f), evt.Weight);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.ChainStacked:
+                    PlayCardPulse(evt.Card, new Color(1f, 0.78f, 0.24f, 0.82f), evt.Weight, 1.42f);
+                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), "CHAIN " + evt.ChainIndex, new Color(1f, 0.82f, 0.28f, 1f), evt.Weight);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.CardDestroyed:
+                    PlayCardPulse(evt.Card, new Color(1f, 0.18f, 0.12f, 0.86f), evt.Weight, 1.55f);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.CardSentToGrave:
+                    PlayMoveLine(evt, new Color(0.62f, 0.68f, 0.78f, 0.92f));
+                    PlayPulseAt(ResolveGpsWorldPoint(evt.To, evt.Card), new Color(0.45f, 0.52f, 0.70f, 0.55f), evt.Weight, 1.12f);
+                    break;
+                case DuelPresentationKind.CardBanished:
+                    PlayMoveLine(evt, new Color(0.36f, 0.82f, 1f, 0.96f));
+                    PlayPulseAt(ResolveGpsWorldPoint(evt.To, evt.Card), new Color(0.20f, 0.68f, 1f, 0.66f), evt.Weight, 1.26f);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.AttackDeclared:
+                    PlayAttackLine(evt);
+                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), evt.Final ? "FINAL" : "\u653b\u51fb", new Color(1f, 0.38f, 0.18f, 1f), evt.Weight);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.AttackImpact:
+                    PlayPulseAt(ResolveAttackTargetPoint(evt), new Color(1f, 0.52f, 0.18f, 0.90f), evt.Weight, evt.Final ? 2.2f : 1.55f);
+                    SendPresentationHaptic(evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.Damage:
+                    PlayDamageText(evt.Controller, -Mathf.Abs(evt.Value), evt.Final ? DuelPresentationWeight.Finisher : evt.Weight);
+                    SendPresentationHaptic(evt.Final ? DuelPresentationWeight.Finisher : evt.Weight, evt.Controller);
+                    break;
+                case DuelPresentationKind.Recover:
+                    PlayDamageText(evt.Controller, Mathf.Abs(evt.Value), evt.Weight);
+                    break;
+                case DuelPresentationKind.PhaseChanged:
+                    PlayPhaseText(evt.Controller, evt.Phase);
+                    break;
+            }
+        }
+
+        private void PlayCardMovePresentation(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return;
+
+            switch (evt.MoveKind)
+            {
+                case DuelPresentationMoveKind.Draw:
+                    PlayMoveLine(evt, new Color(0.42f, 0.82f, 1f, 0.74f));
+                    PlayPulseAt(ResolveGpsWorldPoint(evt.To, evt.Card), new Color(0.42f, 0.82f, 1f, 0.45f), evt.Weight, 0.82f);
+                    break;
+                case DuelPresentationMoveKind.ToField:
+                    PlayPulseAt(ResolveGpsWorldPoint(evt.To, evt.Card), new Color(0.34f, 1f, 0.62f, 0.48f), evt.Weight, 1.0f);
+                    break;
+                case DuelPresentationMoveKind.ToHand:
+                    PlayMoveLine(evt, new Color(0.70f, 0.78f, 1f, 0.52f));
+                    break;
+                case DuelPresentationMoveKind.Material:
+                case DuelPresentationMoveKind.Released:
+                    PlayMoveLine(evt, new Color(1f, 0.78f, 0.28f, 0.70f));
+                    PlayCardPulse(evt.Card, new Color(1f, 0.78f, 0.28f, 0.58f), DuelPresentationWeight.Medium, 1.0f);
+                    break;
+            }
+        }
+
+        private void PlayMoveLine(DuelPresentationEvent evt, Color color)
+        {
+            if (evt == null)
+                return;
+
+            var from = ResolveGpsWorldPoint(evt.From, evt.Card);
+            var to = ResolveGpsWorldPoint(evt.To, evt.Card);
+            PlayLine(from, to, color, evt.Weight, 0.38f);
+        }
+
+        private void PlayAttackLine(DuelPresentationEvent evt)
+        {
+            var from = ResolveCardWorldPoint(evt.Card);
+            var to = ResolveAttackTargetPoint(evt);
+            var outer = evt.Final ? new Color(1f, 0.10f, 0.04f, 0.68f) : new Color(1f, 0.42f, 0.10f, 0.46f);
+            var inner = evt.Final ? new Color(1f, 0.84f, 0.34f, 1f) : new Color(1f, 0.78f, 0.22f, 0.95f);
+            PlayLine(from, to, outer, evt.Weight, evt.Final ? 0.72f : 0.48f, 2.8f);
+            PlayLine(from, to, inner, evt.Weight, evt.Final ? 0.62f : 0.38f, 1.0f);
+        }
+
+        private void PlayCardPulse(GameCard card, Color color, DuelPresentationWeight weight, float size)
+        {
+            PlayPulseAt(ResolveCardWorldPoint(card), color, weight, size);
+        }
+
+        private void PlaySummonPortraitRise(GameCard card, DuelPresentationWeight weight)
+        {
+            if (card == null || !cardProxies.TryGetValue(card, out var proxy) || proxy == null || proxy.Portrait == null)
+                return;
+
+            StartCoroutine(PlaySummonPortraitRiseDelayed(proxy, weight));
+        }
+
+        private IEnumerator PlaySummonPortraitRiseDelayed(QuestCardProxy proxy, DuelPresentationWeight weight)
+        {
+            for (var frame = 0; frame < 18; frame += 1)
+            {
+                if (proxy == null || proxy.Portrait == null)
+                    yield break;
+                if (proxy.Portrait.activeInHierarchy && proxy.PortraitRenderer != null && proxy.PortraitRenderer.sharedMaterial != null)
+                    break;
+                yield return null;
+            }
+
+            if (proxy == null || proxy.Portrait == null || !proxy.Portrait.activeInHierarchy)
+                yield break;
+
+            var targetScale = proxy.Portrait.transform.localScale;
+            var targetPosition = proxy.Portrait.transform.localPosition;
+            var startScale = targetScale * 0.22f;
+            var startPosition = targetPosition - new Vector3(0f, Mathf.Max(2.2f, PortraitHeight * 0.16f), 0f);
+            var duration = weight >= DuelPresentationWeight.Heavy ? 0.48f : 0.34f;
+
+            proxy.Portrait.transform.DOKill(false);
+            proxy.Portrait.transform.localScale = startScale;
+            proxy.Portrait.transform.localPosition = startPosition;
+            DOTween.Sequence()
+                .Join(proxy.Portrait.transform.DOLocalMove(targetPosition, duration).SetEase(Ease.OutCubic))
+                .Join(proxy.Portrait.transform.DOScale(targetScale * (weight >= DuelPresentationWeight.Heavy ? 1.10f : 1.04f), duration * 0.72f).SetEase(Ease.OutBack))
+                .Append(proxy.Portrait.transform.DOScale(targetScale, duration * 0.28f).SetEase(Ease.InOutSine));
+        }
+
+        private void PlayPulseAt(Vector3 position, Color color, DuelPresentationWeight weight, float size)
+        {
+            if (presentationRoot == null)
+                return;
+
+            var pulse = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            pulse.name = "QuestPresentationPulse";
+            SetQuestOverlayLayer(pulse);
+            Destroy(pulse.GetComponent<Collider>());
+            pulse.transform.SetParent(presentationRoot, true);
+            pulse.transform.position = position + Vector3.up * 0.04f;
+            pulse.transform.localRotation = Quaternion.identity;
+            var radius = size * ResolveWeightScale(weight);
+            pulse.transform.localScale = new Vector3(radius * 0.18f, 0.018f, radius * 0.18f);
+
+            var material = CreateMaterial("QuestPresentationPulseMaterial", color, true);
+            QuestCardProxy.ConfigureRenderer(pulse.GetComponent<MeshRenderer>(), material);
+            RegisterPresentationTransient(pulse, material);
+
+            var targetScale = new Vector3(radius, 0.018f, radius);
+            var duration = ResolveWeightDuration(weight);
+            DOTween.Sequence()
+                .Join(pulse.transform.DOScale(targetScale, duration).SetEase(Ease.OutCubic))
+                .Join(DOTween.To(() => color.a, alpha =>
+                {
+                    var c = color;
+                    c.a = alpha;
+                    SetMaterialColor(material, c);
+                }, 0f, duration).SetEase(Ease.OutQuad))
+                .OnComplete(() =>
+                {
+                    DestroyPresentationTransient(pulse, material);
+                });
+        }
+
+        private void PlayLine(Vector3 from, Vector3 to, Color color, DuelPresentationWeight weight, float duration, float widthMultiplier = 1f)
+        {
+            if (presentationRoot == null || (to - from).sqrMagnitude < 0.01f)
+                return;
+
+            var lineObject = new GameObject("QuestPresentationLine");
+            SetQuestOverlayLayer(lineObject);
+            lineObject.transform.SetParent(presentationRoot, true);
+            var line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = 2;
+            line.numCapVertices = 5;
+            line.alignment = LineAlignment.View;
+            line.startWidth = 0.10f * ResolveWeightScale(weight) * widthMultiplier;
+            line.endWidth = 0.03f * ResolveWeightScale(weight) * widthMultiplier;
+            line.SetPosition(0, from + Vector3.up * 0.32f);
+            line.SetPosition(1, from + Vector3.up * 0.32f);
+            var material = CreateMaterial("QuestPresentationLineMaterial", color, true);
+            line.material = material;
+            RegisterPresentationTransient(lineObject, material);
+            var end = to + Vector3.up * 0.32f;
+            DOTween.Sequence()
+                .Join(DOTween.To(() => 0f, t =>
+                {
+                    if (line != null)
+                        line.SetPosition(1, Vector3.Lerp(from + Vector3.up * 0.32f, end, t));
+                }, 1f, Mathf.Max(0.12f, duration * 0.55f)).SetEase(Ease.OutCubic))
+                .AppendInterval(duration * 0.35f)
+                .Append(DOTween.To(() => color.a, alpha =>
+                {
+                    var c = color;
+                    c.a = alpha;
+                    SetMaterialColor(material, c);
+                    if (line != null)
+                    {
+                        line.startColor = c;
+                        line.endColor = new Color(c.r, c.g, c.b, c.a * 0.35f);
+                    }
+                }, 0f, duration * 0.45f))
+                .OnComplete(() =>
+                {
+                    DestroyPresentationTransient(lineObject, material);
+                });
+        }
+
+        private void PlayFloatingText(Vector3 position, string content, Color color, DuelPresentationWeight weight)
+        {
+            if (presentationRoot == null || string.IsNullOrEmpty(content))
+                return;
+
+            var textObject = new GameObject("QuestPresentationText");
+            SetQuestOverlayLayer(textObject);
+            textObject.transform.SetParent(presentationRoot, true);
+            textObject.transform.position = position + Vector3.up * (1.4f + ResolveWeightScale(weight) * 0.18f);
+            textObject.transform.localScale = Vector3.one * (0.58f * ResolveWeightScale(weight));
+            var text = textObject.AddComponent<TextMeshPro>();
+            text.alignment = TextAlignmentOptions.Center;
+            text.fontSize = 3.6f;
+            text.fontStyle = FontStyles.Bold;
+            text.enableWordWrapping = false;
+            text.text = content;
+            text.color = color;
+            text.outlineWidth = 0.24f;
+            text.outlineColor = new Color(0f, 0f, 0f, 0.95f);
+            FaceTextToCamera(textObject.transform);
+            RegisterPresentationTransient(textObject, null);
+
+            var startColor = color;
+            var duration = 0.85f + ResolveWeightScale(weight) * 0.12f;
+            DOTween.Sequence()
+                .Join(textObject.transform.DOMove(textObject.transform.position + Vector3.up * (0.95f * ResolveWeightScale(weight)), duration).SetEase(Ease.OutCubic))
+                .Join(DOTween.To(() => startColor.a, alpha =>
+                {
+                    var c = startColor;
+                    c.a = alpha;
+                    if (text != null)
+                        text.color = c;
+                }, 0f, duration).SetEase(Ease.InQuad))
+                .OnComplete(() =>
+                {
+                    DestroyPresentationTransient(textObject, null);
+                });
+        }
+
+        private void RegisterPresentationTransient(GameObject root, Material material)
+        {
+            if (root == null)
+                return;
+
+            CleanupPresentationTransients();
+            presentationTransients.Add(new PresentationTransient(root, material));
+            while (presentationTransients.Count > MaxPresentationTransients)
+                DestroyPresentationTransient(presentationTransients[0]);
+        }
+
+        private void DestroyPresentationTransient(GameObject root, Material material)
+        {
+            for (var i = presentationTransients.Count - 1; i >= 0; i -= 1)
+            {
+                var transient = presentationTransients[i];
+                if (transient != null && transient.Root == root)
+                    presentationTransients.RemoveAt(i);
+            }
+
+            if (material != null)
+                Destroy(material);
+            if (root != null)
+                Destroy(root);
+        }
+
+        private void DestroyPresentationTransient(PresentationTransient transient)
+        {
+            if (transient == null)
+                return;
+
+            presentationTransients.Remove(transient);
+            if (transient.Material != null)
+                Destroy(transient.Material);
+            if (transient.Root != null)
+                Destroy(transient.Root);
+        }
+
+        private void ClearPresentationTransients()
+        {
+            for (var i = presentationTransients.Count - 1; i >= 0; i -= 1)
+                DestroyPresentationTransient(presentationTransients[i]);
+            presentationTransients.Clear();
+        }
+
+        private void CleanupPresentationTransients()
+        {
+            for (var i = presentationTransients.Count - 1; i >= 0; i -= 1)
+            {
+                var transient = presentationTransients[i];
+                if (transient == null)
+                {
+                    presentationTransients.RemoveAt(i);
+                    continue;
+                }
+
+                if (transient.Root == null)
+                {
+                    if (transient.Material != null)
+                        Destroy(transient.Material);
+                    presentationTransients.RemoveAt(i);
+                }
+            }
+        }
+
+        private void PlayDamageText(int player, int signedValue, DuelPresentationWeight weight)
+        {
+            var local = new Vector3(player == 0 ? -24f : 24f, 2.2f, player == 0 ? -18f : 18f);
+            var position = worldAnchor.TransformPoint(local);
+            var color = signedValue < 0 ? new Color(1f, 0.24f, 0.18f, 1f) : new Color(0.36f, 1f, 0.50f, 1f);
+            var prefix = signedValue < 0 ? "-" : "+";
+            PlayFloatingText(position, prefix + Mathf.Abs(signedValue), color, weight);
+            PlayPulseAt(position, color, weight, signedValue < 0 ? 1.7f : 1.2f);
+        }
+
+        private void PlayPhaseText(int player, DuelPhase phase)
+        {
+            var local = new Vector3(player == 0 ? -13f : 13f, 2.0f, player == 0 ? -8f : 8f);
+            PlayFloatingText(worldAnchor.TransformPoint(local), GetPhasePresentationName(phase), new Color(0.72f, 0.92f, 1f, 1f), DuelPresentationWeight.Light);
+        }
+
+        private Vector3 ResolveAttackTargetPoint(DuelPresentationEvent evt)
+        {
+            if (evt != null && evt.TargetCard != null)
+                return ResolveCardWorldPoint(evt.TargetCard);
+
+            var controller = evt == null ? 0 : evt.Controller;
+            var local = controller == 0 ? new Vector3(0f, TableCardY, 31f) : new Vector3(0f, TableCardY, -31f);
+            return worldAnchor == null ? local : worldAnchor.TransformPoint(local);
+        }
+
+        private Vector3 ResolveCardWorldPoint(GameCard card)
+        {
+            if (TryGetCardWorldPoint(card, out var position))
+                return position;
+            if (card != null && card.p != null)
+                return ResolveGpsWorldPoint(card.p, card);
+            return worldAnchor == null ? Vector3.zero : worldAnchor.TransformPoint(new Vector3(0f, TableCardY, 0f));
+        }
+
+        private bool TryGetCardWorldPoint(GameCard card, out Vector3 position)
+        {
+            position = default;
+            if (card == null)
+                return false;
+
+            if (cardProxies.TryGetValue(card, out var proxy) && proxy != null && proxy.Root != null && proxy.Root.activeInHierarchy)
+            {
+                if (TryCollectWorldBounds(proxy.Root, out var bounds))
+                {
+                    position = bounds.center;
+                    return true;
+                }
+            }
+
+            if (card.p == null || worldAnchor == null)
+                return false;
+
+            position = ResolveGpsWorldPoint(card.p, card);
+            return true;
+        }
+
+        private Vector3 ResolveGpsWorldPoint(GPS gps, GameCard card)
+        {
+            if (gps == null)
+                return ResolveCardWorldPoint(card);
+
+            var local = ResolveQuestGpsLocalPosition(gps, card);
+            return worldAnchor == null ? local : worldAnchor.TransformPoint(local);
+        }
+
+        private static Vector3 ResolveQuestGpsLocalPosition(GPS gps, GameCard card)
+        {
+            if (gps == null)
+                return Vector3.zero;
+
+            var position = ScaleQuestBoardPosition(GameCard.GetCardPosition(gps, card, card == null ? null : card.overlayParent));
+            if ((gps.location & (uint)CardLocation.Hand) > 0)
+            {
+                if (gps.controller == 0)
+                    position.z = Mathf.Max(position.z, PlayerHandMaxNearZ);
+                position.y = HandCardY;
+                return position;
+            }
+
+            if ((gps.location & (uint)(CardLocation.Deck | CardLocation.Extra)) > 0)
+            {
+                position.y = PileCardY;
+                return position;
+            }
+
+            if ((gps.location & (uint)(CardLocation.Grave | CardLocation.Removed)) > 0)
+            {
+                position.y = TableCardY + Mathf.Clamp((int)gps.sequence, 0, 8) * 0.035f;
+                return position;
+            }
+
+            if ((gps.location & (uint)CardLocation.Overlay) > 0)
+            {
+                position.y = TableCardY + 0.05f + Mathf.Clamp(gps.position, 0, 8) * 0.025f;
+                return position;
+            }
+
+            position.y = TableCardY;
+            return position;
+        }
+
+        private static Color ResolveSummonColor(GameCard card)
+        {
+            var data = card == null ? null : card.GetData();
+            if (data == null)
+                return new Color(0.55f, 0.95f, 1f, 0.82f);
+            if (data.HasType(CardType.Fusion))
+                return new Color(0.82f, 0.40f, 1f, 0.84f);
+            if (data.HasType(CardType.Synchro))
+                return new Color(0.88f, 1f, 0.92f, 0.86f);
+            if (data.HasType(CardType.Xyz))
+                return new Color(0.95f, 0.86f, 0.30f, 0.86f);
+            if (data.HasType(CardType.Link))
+                return new Color(0.24f, 0.62f, 1f, 0.86f);
+            if (data.HasType(CardType.Ritual))
+                return new Color(0.28f, 0.54f, 1f, 0.86f);
+            return new Color(0.52f, 1f, 0.70f, 0.82f);
+        }
+
+        private static float ResolveWeightScale(DuelPresentationWeight weight)
+        {
+            switch (weight)
+            {
+                case DuelPresentationWeight.Finisher:
+                    return 2.0f;
+                case DuelPresentationWeight.Heavy:
+                    return 1.55f;
+                case DuelPresentationWeight.Medium:
+                    return 1.18f;
+                default:
+                    return 0.86f;
+            }
+        }
+
+        private static float ResolveWeightDuration(DuelPresentationWeight weight)
+        {
+            switch (weight)
+            {
+                case DuelPresentationWeight.Finisher:
+                    return 0.95f;
+                case DuelPresentationWeight.Heavy:
+                    return 0.72f;
+                case DuelPresentationWeight.Medium:
+                    return 0.52f;
+                default:
+                    return 0.36f;
+            }
+        }
+
+        private static string GetPhasePresentationName(DuelPhase phase)
+        {
+            switch (phase)
+            {
+                case DuelPhase.Draw:
+                    return "DRAW";
+                case DuelPhase.Standby:
+                    return "STANDBY";
+                case DuelPhase.Main1:
+                    return "MAIN 1";
+                case DuelPhase.BattleStart:
+                case DuelPhase.BattleStep:
+                case DuelPhase.Battle:
+                    return "BATTLE";
+                case DuelPhase.Main2:
+                    return "MAIN 2";
+                case DuelPhase.End:
+                    return "END";
+                default:
+                    return phase.ToString().ToUpperInvariant();
+            }
+        }
+
+        private static void SendPresentationHaptic(DuelPresentationWeight weight, int controller)
+        {
+            var amplitude = 0.12f;
+            var duration = 0.035f;
+            switch (weight)
+            {
+                case DuelPresentationWeight.Finisher:
+                    amplitude = 0.62f;
+                    duration = 0.16f;
+                    break;
+                case DuelPresentationWeight.Heavy:
+                    amplitude = 0.42f;
+                    duration = 0.10f;
+                    break;
+                case DuelPresentationWeight.Medium:
+                    amplitude = 0.24f;
+                    duration = 0.06f;
+                    break;
+            }
+
+            SendHapticImpulse(XRNode.RightHand, amplitude, duration);
+            if (weight >= DuelPresentationWeight.Heavy)
+                SendHapticImpulse(XRNode.LeftHand, amplitude * 0.75f, duration);
+        }
+
+        private static void SendHapticImpulse(XRNode node, float amplitude, float duration)
+        {
+            var device = InputDevices.GetDeviceAtXRNode(node);
+            if (device.isValid)
+                device.SendHapticImpulse(0u, Mathf.Clamp01(amplitude), Mathf.Max(0.01f, duration));
         }
 
         private static bool IsQuestVisibleCard(GameCard card)
@@ -218,7 +1145,15 @@ namespace MDPro3
             if (cardProxies.TryGetValue(card, out var proxy) && proxy.Root != null)
                 return proxy;
 
-            proxy = QuestCardProxy.Create(card, proxyRoot, GetCardSideMaterial(), GetCardBackMaterial(), GetPlaceholderFaceMaterial(), GetHighlightMaterial());
+            proxy = QuestCardProxy.Create(
+                card,
+                proxyRoot,
+                GetCardSideMaterial(),
+                GetCardBackMaterial(),
+                GetPlaceholderFaceMaterial(),
+                GetHighlightMaterial(),
+                GetActionHighlightMaterial(),
+                GetTargetHighlightMaterial());
             cardProxies[card] = proxy;
             return proxy;
         }
@@ -247,13 +1182,64 @@ namespace MDPro3
             var knownFace = ShouldShowKnownFace(card);
             proxy.Front.SetActive(knownFace);
             proxy.Back.SetActive(!knownFace);
-            proxy.Highlight.SetActive(IsQuestFieldSelectionTarget(card));
+            UpdateInteractionHintProxy(proxy, card);
 
             if (knownFace)
                 EnsureProxyFaceTexture(proxy, card.GetData().Id);
 
             UpdatePortraitProxy(proxy, card);
             UpdatePowerLabel(proxy, card);
+        }
+
+        private void UpdateInteractionHintProxy(QuestCardProxy proxy, GameCard card)
+        {
+            if (proxy == null || card == null)
+                return;
+
+            var selectable = IsQuestFieldSelectionTarget(card);
+            var actionable = !selectable && IsQuestActionableCard(card);
+            SetInteractionObject(proxy.Highlight, selectable, 0.26f, 0.18f);
+            SetInteractionObject(proxy.ActionHighlight, actionable, 0.12f, 0.10f);
+            SetInteractionObject(proxy.TargetHighlight, selectable, 0.54f, 0.30f);
+
+            if (proxy.InteractionLabelRoot == null || proxy.InteractionLabelText == null)
+                return;
+
+            var showLabel = selectable || actionable;
+            if (proxy.InteractionLabelRoot.activeSelf != showLabel)
+                proxy.InteractionLabelRoot.SetActive(showLabel);
+            if (!showLabel)
+                return;
+
+            proxy.InteractionLabelText.text = selectable ? "\u9009\u62e9\u76ee\u6807" : "\u53ef\u64cd\u4f5c";
+            proxy.InteractionLabelText.color = selectable ? new Color(0.35f, 1f, 0.82f, 1f) : new Color(1f, 0.82f, 0.24f, 1f);
+            FaceTextToCamera(proxy.InteractionLabelRoot.transform);
+        }
+
+        private static void SetInteractionObject(GameObject target, bool active, float baseExpand, float pulseExpand)
+        {
+            if (target == null)
+                return;
+
+            if (target.activeSelf != active)
+                target.SetActive(active);
+            if (!active)
+                return;
+
+            var pulse = (Mathf.Sin(Time.unscaledTime * 5.5f) + 1f) * 0.5f;
+            var expand = baseExpand + pulse * pulseExpand;
+            target.transform.localScale = new Vector3(CardWidth + expand, 0.012f, CardHeight + expand);
+        }
+
+        private static bool IsQuestActionableCard(GameCard card)
+        {
+            if (card == null || card.p == null)
+                return false;
+            if (card.buttons == null || card.buttons.Count == 0)
+                return false;
+            if ((card.p.location & (uint)(CardLocation.Hand | CardLocation.Onfield | CardLocation.Grave | CardLocation.Removed)) == 0)
+                return false;
+            return true;
         }
 
         private void UpdatePowerLabel(QuestCardProxy proxy, GameCard card)
@@ -840,6 +1826,24 @@ namespace MDPro3
             return highlightMaterial;
         }
 
+        private Material GetActionHighlightMaterial()
+        {
+            if (actionHighlightMaterial != null)
+                return actionHighlightMaterial;
+
+            actionHighlightMaterial = CreateMaterial("QuestCardPlayableHighlightMaterial", new Color(1f, 0.72f, 0.12f, 0.34f), true);
+            return actionHighlightMaterial;
+        }
+
+        private Material GetTargetHighlightMaterial()
+        {
+            if (targetHighlightMaterial != null)
+                return targetHighlightMaterial;
+
+            targetHighlightMaterial = CreateMaterial("QuestCardTargetHighlightMaterial", new Color(0.10f, 0.88f, 1f, 0.46f), true);
+            return targetHighlightMaterial;
+        }
+
         private static Material CreateMaterial(string name, Color color, bool transparent)
         {
             var shader = Shader.Find("Universal Render Pipeline/Unlit")
@@ -1027,11 +2031,15 @@ namespace MDPro3
             public GameObject Front;
             public GameObject Back;
             public GameObject Highlight;
+            public GameObject ActionHighlight;
+            public GameObject TargetHighlight;
             public GameObject Portrait;
             public GameObject PowerLabelRoot;
+            public GameObject InteractionLabelRoot;
             public MeshRenderer FrontRenderer;
             public MeshRenderer PortraitRenderer;
             public TextMeshPro PowerLabelText;
+            public TextMeshPro InteractionLabelText;
             public QuestCardProxyHit Hit;
             public GameCard Card;
             public int LoadedFaceCode;
@@ -1045,7 +2053,9 @@ namespace MDPro3
                 Material sideMaterial,
                 Material backMaterial,
                 Material faceMaterial,
-                Material highlightMaterial)
+                Material highlightMaterial,
+                Material actionHighlightMaterial,
+                Material targetHighlightMaterial)
             {
                 var root = new GameObject("QuestCardProxy_" + (card == null ? "null" : card.md5.ToString()));
                 SetQuestOverlayLayer(root);
@@ -1070,15 +2080,10 @@ namespace MDPro3
                 var back = CreateCardQuad("QuestCardProxyBack", root.transform, CardThickness + 0.012f, backMaterial);
                 var portrait = CreatePortraitQuad("QuestCardProxyPortrait", root.transform, faceMaterial);
                 var powerLabel = CreatePowerLabel(root.transform);
-                var highlight = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                highlight.name = "QuestCardProxyHighlight";
-                SetQuestOverlayLayer(highlight);
-                UnityEngine.Object.Destroy(highlight.GetComponent<Collider>());
-                highlight.transform.SetParent(root.transform, false);
-                highlight.transform.localPosition = new Vector3(0f, CardThickness + 0.018f, 0f);
-                highlight.transform.localScale = new Vector3(CardWidth + 0.26f, 0.012f, CardHeight + 0.26f);
-                ConfigureRenderer(highlight.GetComponent<MeshRenderer>(), highlightMaterial);
-                highlight.SetActive(false);
+                var interactionLabel = CreateInteractionLabel(root.transform);
+                var highlight = CreateHighlightCube("QuestCardProxySelectionHighlight", root.transform, CardThickness + 0.018f, highlightMaterial);
+                var actionHighlight = CreateHighlightCube("QuestCardProxyPlayableHighlight", root.transform, CardThickness + 0.020f, actionHighlightMaterial);
+                var targetHighlight = CreateHighlightCube("QuestCardProxyTargetHighlight", root.transform, CardThickness + 0.024f, targetHighlightMaterial);
 
                 return new QuestCardProxy
                 {
@@ -1087,14 +2092,32 @@ namespace MDPro3
                     Front = front,
                     Back = back,
                     Highlight = highlight,
+                    ActionHighlight = actionHighlight,
+                    TargetHighlight = targetHighlight,
                     Portrait = portrait,
                     PowerLabelRoot = powerLabel,
+                    InteractionLabelRoot = interactionLabel,
                     FrontRenderer = front.GetComponent<MeshRenderer>(),
                     PortraitRenderer = portrait.GetComponent<MeshRenderer>(),
                     PowerLabelText = powerLabel.GetComponentInChildren<TextMeshPro>(true),
+                    InteractionLabelText = interactionLabel.GetComponentInChildren<TextMeshPro>(true),
                     Hit = hit,
                     Card = card
                 };
+            }
+
+            private static GameObject CreateHighlightCube(string name, Transform parent, float y, Material material)
+            {
+                var highlight = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                highlight.name = name;
+                SetQuestOverlayLayer(highlight);
+                UnityEngine.Object.Destroy(highlight.GetComponent<Collider>());
+                highlight.transform.SetParent(parent, false);
+                highlight.transform.localPosition = new Vector3(0f, y, 0f);
+                highlight.transform.localScale = new Vector3(CardWidth + 0.26f, 0.012f, CardHeight + 0.26f);
+                ConfigureRenderer(highlight.GetComponent<MeshRenderer>(), material);
+                highlight.SetActive(false);
+                return highlight;
             }
 
             private static GameObject CreateCardQuad(string name, Transform parent, float y, Material material)
@@ -1158,6 +2181,38 @@ namespace MDPro3
                 return labelRoot;
             }
 
+            private static GameObject CreateInteractionLabel(Transform parent)
+            {
+                var labelRoot = new GameObject("QuestCardProxyInteractionLabel");
+                SetQuestOverlayLayer(labelRoot);
+                labelRoot.transform.SetParent(parent, false);
+                labelRoot.transform.localPosition = new Vector3(0f, InteractionLabelY, InteractionLabelZ);
+                labelRoot.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                labelRoot.transform.localScale = Vector3.one * InteractionLabelScale;
+
+                var textObject = new GameObject("QuestCardProxyInteractionText");
+                SetQuestOverlayLayer(textObject);
+                textObject.transform.SetParent(labelRoot.transform, false);
+                textObject.transform.localPosition = Vector3.zero;
+                textObject.transform.localRotation = Quaternion.identity;
+                textObject.transform.localScale = Vector3.one;
+
+                var text = textObject.AddComponent<TextMeshPro>();
+                text.alignment = TextAlignmentOptions.Center;
+                text.fontSize = 10.5f;
+                text.fontStyle = FontStyles.Bold;
+                text.richText = true;
+                text.enableWordWrapping = false;
+                text.text = string.Empty;
+                text.color = Color.white;
+                text.outlineWidth = 0.22f;
+                text.outlineColor = new Color(0f, 0f, 0f, 0.95f);
+                text.margin = new Vector4(0.3f, 0.1f, 0.3f, 0.1f);
+
+                labelRoot.SetActive(false);
+                return labelRoot;
+            }
+
             public static void ConfigureRenderer(Renderer renderer, Material material)
             {
                 if (renderer == null)
@@ -1166,6 +2221,18 @@ namespace MDPro3
                 renderer.sharedMaterial = material;
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
+            }
+        }
+
+        private sealed class PresentationTransient
+        {
+            public readonly GameObject Root;
+            public readonly Material Material;
+
+            public PresentationTransient(GameObject root, Material material)
+            {
+                Root = root;
+                Material = material;
             }
         }
 
