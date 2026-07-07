@@ -1283,7 +1283,10 @@ namespace MDPro3
                 card.SetData(datas[i]);
                 cards.Add(card);
             }
-            currentPopup.whenQuitDo = () => { ShowPopupSelectCard(InterString.Get("请选择需要宣言的卡片。"), cards, 1, 1, true, false); };
+            if (currentPopup != null)
+                currentPopup.whenQuitDo = () => { ShowPopupSelectCard(InterString.Get("请选择需要宣言的卡片。"), cards, 1, 1, true, false); };
+            else
+                ShowPopupSelectCard(InterString.Get("请选择需要宣言的卡片。"), cards, 1, 1, true, false);
         }
         public void ClearAnnounceCards()
         {
@@ -7481,6 +7484,9 @@ namespace MDPro3
 
         public void ShowPopupInput(List<string> selections, Action<string> confirmAction, Action cancelAction, InputValidation.ValidationType type = InputValidation.ValidationType.None)
         {
+            if (QuestXrBootstrap.ShowQuestInputPanel(selections, confirmAction, cancelAction))
+                return;
+
             AddressablesSafe.InstantiateAsync("PopupDuelInput", popup, popupObject =>
             {
                 var popupInput = popupObject.GetComponent<PopupDuelInput>();

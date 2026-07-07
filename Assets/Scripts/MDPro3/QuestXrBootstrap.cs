@@ -687,6 +687,24 @@ namespace MDPro3
 #endif
         }
 
+        public static bool ShowQuestInputPanel(List<string> selections, Action<string> confirmAction, Action cancelAction)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (!CanShowQuestNativeDuelUi())
+                return false;
+
+            var core = Program.instance == null ? null : Program.instance.ocgcore;
+            if (core == null || core.currentMessage != GameMessage.AnnounceCard || confirmAction == null)
+                return false;
+
+            Debug.Log("Quest native input bridge: AnnounceCard uses direct candidate list.");
+            confirmAction(string.Empty);
+            return true;
+#else
+            return false;
+#endif
+        }
+
         public static bool ShowQuestYesOrNoPanel(List<string> selections, Action confirmAction, Action cancelAction)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
