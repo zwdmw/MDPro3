@@ -76,6 +76,7 @@ namespace MDPro3
         private const float QuestDuelActionCardForwardOffset = 0.56f;
         private const float QuestDuelActionFloatAmplitude = 7.0f;
         private const float QuestDuelActionHoverScaleBoost = 0.12f;
+        private const float QuestCardInfoHoverDelay = 0.28f;
         private const int FallbackGridLineCount = 33;
         private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
@@ -300,11 +301,14 @@ namespace MDPro3
         private GameObject lastLoggedQuestPressedUi;
         private GameObject lastLoggedQuestClickedUi;
         private GameCard questPressedCard;
+        private GameCard questInfoHoverCard;
         private QuestPileProxyHit questPressedPile;
         private bool questDirectCardClickEligible;
         private bool questPileClickEligible;
         private bool lastQuestCardPointerPressed;
         private bool lastQuestPilePointerPressed;
+        private bool questInfoHoverShown;
+        private float questInfoHoverStartTime;
         private GameCard lastLoggedQuestCardHit;
         private float lastQuestCardHitLog;
         private GameObject questPressedDuelActionUi;
@@ -1212,9 +1216,11 @@ namespace MDPro3
             questPressedDuelActionUi = null;
             questPressedDuelAction = null;
             questPressedCard = null;
+            questInfoHoverCard = null;
             questPressedPile = null;
             questDirectCardClickEligible = false;
             questPileClickEligible = false;
+            questInfoHoverShown = false;
             lastQuestPointerPressed = false;
             lastQuestCardPointerPressed = false;
             lastQuestPilePointerPressed = false;
@@ -7277,6 +7283,7 @@ namespace MDPro3
         private void UpdateQuestCardPointer(GameCard card, GameObject hitObject, float distance, bool pressed)
         {
             questDuelWorldPresenter?.SetHoveredCard(card);
+            UpdateQuestCardInfoHover(card, pressed);
 
             if (card != null)
                 LogQuestCardHit(card, hitObject, distance, pressed);
@@ -7317,6 +7324,37 @@ namespace MDPro3
             }
         }
 
+        private void UpdateQuestCardInfoHover(GameCard card, bool pressed)
+        {
+            if (pressed || card == null)
+            {
+                if (card == null)
+                {
+                    questInfoHoverCard = null;
+                    questInfoHoverShown = false;
+                }
+                return;
+            }
+
+            if (card != questInfoHoverCard)
+            {
+                questInfoHoverCard = card;
+                questInfoHoverStartTime = Time.unscaledTime;
+                questInfoHoverShown = false;
+                return;
+            }
+
+            if (questInfoHoverShown || Time.unscaledTime - questInfoHoverStartTime < QuestCardInfoHoverDelay)
+                return;
+
+            EnsureQuestDuelNativeUi();
+            if (questDuelNativeUi == null || questDuelNativeUi.HasBlockingPanel)
+                return;
+
+            if (questDuelNativeUi.ShowCardInfo(card))
+                questInfoHoverShown = true;
+        }
+
         private void HandleQuestCardClick(GameCard card)
         {
             if (card == null || Program.instance?.ocgcore == null)
@@ -7325,7 +7363,11 @@ namespace MDPro3
             AudioManager.PlaySE("SE_DUEL_SELECT");
             EnsureQuestDuelNativeUi();
             if (questDuelNativeUi != null)
+            {
                 questDuelNativeUi.ShowCardInfo(card);
+                questInfoHoverCard = card;
+                questInfoHoverShown = true;
+            }
 
             if (Program.instance.ocgcore.currentPopup != null)
             {

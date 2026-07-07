@@ -20,7 +20,7 @@ namespace MDPro3
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
-        private const float CardInfoScale = 0.021f;
+        private const float CardInfoScale = 0.025f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -86,6 +86,8 @@ namespace MDPro3
         private RectTransform cardInfoRect;
         private TextMeshProUGUI cardInfoNameText;
         private TextMeshProUGUI cardInfoMetaText;
+        private TextMeshProUGUI cardInfoStateText;
+        private TextMeshProUGUI cardInfoActionText;
         private TextMeshProUGUI cardInfoDescriptionText;
         private RawImage cardInfoImage;
 
@@ -391,14 +393,18 @@ namespace MDPro3
             {
                 cardInfoNameText.text = "\u672a\u77e5\u5361\u7247";
                 cardInfoMetaText.text = string.Empty;
+                cardInfoStateText.text = BuildCardRuntimeState(card);
+                cardInfoActionText.text = BuildCardActionSummary(card);
                 cardInfoDescriptionText.text = string.Empty;
                 cardInfoImage.texture = TextureManager.container == null ? null : TextureManager.container.unknownCard.texture;
             }
             else
             {
                 cardInfoNameText.text = SanitizeText(data.Name);
-                cardInfoMetaText.text = GetLongCardMeta(data);
-                cardInfoDescriptionText.text = SanitizeText(data.GetDescription(true));
+                cardInfoMetaText.text = BuildCardInfoMeta(data);
+                cardInfoStateText.text = BuildCardRuntimeState(card);
+                cardInfoActionText.text = BuildCardActionSummary(card);
+                cardInfoDescriptionText.text = BuildCardDescriptionText(data);
                 StartCoroutine(LoadCardTexture(cardInfoImage, data.Id));
             }
 
@@ -509,18 +515,42 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestCardInfoPanel", out cardInfoCanvas, out cardInfoRect);
-            cardInfoRect.sizeDelta = new Vector2(1180f, 860f);
-            AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.019f, 0.94f));
+            cardInfoRect.sizeDelta = new Vector2(1560f, 980f);
+            AddPanelBackground(canvasObject, HudPanelBackground);
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
-            cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(32f, -34f), new Vector2(390f, 546f));
-            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(454f, -34f), new Vector2(690f, 118f), 46f, TextAlignmentOptions.TopLeft);
-            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(454f, -166f), new Vector2(690f, 122f), 34f, TextAlignmentOptions.TopLeft);
-            cardInfoDescriptionText = CreateText("Description", cardInfoRect, new Vector2(454f, -318f), new Vector2(690f, 500f), 31f, TextAlignmentOptions.TopLeft);
+            AddHudPanelChrome(cardInfoRect, HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardImageSection", new Vector2(36f, -42f), new Vector2(492f, 744f), HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardMetaSection", new Vector2(560f, -42f), new Vector2(452f, 332f), HudAccentGold);
+            AddHudSection(cardInfoRect, "CardStateSection", new Vector2(1040f, -42f), new Vector2(472f, 332f), HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardActionSection", new Vector2(560f, -416f), new Vector2(452f, 242f), HudAccentGold);
+            AddHudSection(cardInfoRect, "CardTextSection", new Vector2(1040f, -416f), new Vector2(472f, 472f), HudAccentCyan);
+            CreateHudCaption("CardMetaCaption", cardInfoRect, new Vector2(586f, -58f), new Vector2(300f, 34f), "\u5361\u7247\u4fe1\u606f");
+            CreateHudCaption("CardStateCaption", cardInfoRect, new Vector2(1066f, -58f), new Vector2(300f, 34f), "\u5f53\u524d\u72b6\u6001");
+            CreateHudCaption("CardActionCaption", cardInfoRect, new Vector2(586f, -432f), new Vector2(300f, 34f), "\u53ef\u7528\u64cd\u4f5c");
+            CreateHudCaption("CardTextCaption", cardInfoRect, new Vector2(1066f, -432f), new Vector2(300f, 34f), "\u6548\u679c\u6587\u672c");
+
+            cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(72f, -78f), new Vector2(420f, 588f));
+            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(64f, -706f), new Vector2(452f, 86f), 43f, TextAlignmentOptions.TopLeft);
+            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(590f, -100f), new Vector2(380f, 242f), 36f, TextAlignmentOptions.TopLeft);
+            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(1070f, -100f), new Vector2(394f, 242f), 36f, TextAlignmentOptions.TopLeft);
+            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(590f, -476f), new Vector2(380f, 158f), 35f, TextAlignmentOptions.TopLeft);
+            cardInfoDescriptionText = CreateText("Description", cardInfoRect, new Vector2(1070f, -476f), new Vector2(394f, 382f), 33f, TextAlignmentOptions.TopLeft);
+            cardInfoNameText.overflowMode = TextOverflowModes.Ellipsis;
+            cardInfoMetaText.enableWordWrapping = true;
+            cardInfoStateText.enableWordWrapping = true;
+            cardInfoActionText.enableWordWrapping = true;
             cardInfoDescriptionText.enableWordWrapping = true;
+            cardInfoMetaText.overflowMode = TextOverflowModes.Truncate;
+            cardInfoStateText.overflowMode = TextOverflowModes.Truncate;
+            cardInfoActionText.overflowMode = TextOverflowModes.Truncate;
             cardInfoDescriptionText.overflowMode = TextOverflowModes.Truncate;
+            cardInfoMetaText.fontSizeMin = 28f;
+            cardInfoStateText.fontSizeMin = 28f;
+            cardInfoActionText.fontSizeMin = 26f;
+            cardInfoDescriptionText.fontSizeMin = 24f;
             canvasObject.SetActive(false);
         }
 
@@ -2197,6 +2227,304 @@ namespace MDPro3
             return string.Empty;
         }
 
+        private static string BuildCardInfoMeta(Card data)
+        {
+            if (data == null)
+                return string.Empty;
+
+            if (data.HasType(CardType.Monster))
+            {
+                var text = "<b>" + GetMonsterFrameLabel(data) + "</b>\n";
+                text += GetMonsterGradeText(data) + "  " + GetAttributeLabel(data.Attribute) + "\n";
+                text += GetRaceLabel(data.Race) + " / " + GetMonsterSubtypeText(data) + "\n";
+                text += "<color=#FFD36B>ATK</color> " + data.GetAttackString();
+                if (data.HasType(CardType.Link))
+                    text += "  <color=#69D7FF>LINK</color> " + data.GetLinkCount();
+                else
+                    text += "  <color=#69D7FF>DEF</color> " + data.GetDefenseString();
+                return text;
+            }
+
+            if (data.HasType(CardType.Spell))
+                return "<b>\u9b54\u6cd5\u5361</b>\n" + GetSpellTrapSubtypeText(data);
+            if (data.HasType(CardType.Trap))
+                return "<b>\u9677\u9631\u5361</b>\n" + GetSpellTrapSubtypeText(data);
+            return "\u5361\u7247";
+        }
+
+        private static string BuildCardRuntimeState(GameCard card)
+        {
+            if (card == null || card.p == null)
+                return "\u672a\u77e5\u72b6\u6001";
+
+            var data = card.GetData();
+            var text = GetControllerName(card.p.controller) + "\n";
+            text += GetLocationName((CardLocation)card.p.location);
+            text += "  #" + ((int)card.p.sequence + 1) + "\n";
+            text += GetPositionText(card.p.position, data) + "\n";
+            if (data != null && data.HasType(CardType.Monster))
+            {
+                text += "\u5f53\u524d ATK " + data.GetAttackString();
+                if (!data.HasType(CardType.Link))
+                    text += " / DEF " + data.GetDefenseString();
+                if (data.Attack != data.rAttack || data.Defense != data.rDefense)
+                    text += "\n<color=#FFD36B>\u6570\u503c\u5df2\u53d8\u5316</color>";
+            }
+            else
+            {
+                text += IsFaceUp(card.p.position) ? "\u5df2\u516c\u5f00" : "\u672a\u516c\u5f00";
+            }
+            return text;
+        }
+
+        private static string BuildCardActionSummary(GameCard card)
+        {
+            if (card == null || card.buttons == null || card.buttons.Count == 0)
+                return "\u6682\u65e0\u53ef\u7528\u64cd\u4f5c";
+
+            var labels = new List<string>();
+            foreach (var button in card.buttons)
+            {
+                var label = GetCardActionLabel(button.type);
+                if (!string.IsNullOrEmpty(label) && !labels.Contains(label))
+                    labels.Add(label);
+            }
+
+            if (labels.Count == 0)
+                return "\u6682\u65e0\u53ef\u7528\u64cd\u4f5c";
+
+            var text = string.Empty;
+            for (var i = 0; i < labels.Count && i < 5; i += 1)
+                text += "\u2022 " + labels[i] + "\n";
+            if (labels.Count > 5)
+                text += "\u2022 ...";
+            return text.TrimEnd();
+        }
+
+        private static string BuildCardDescriptionText(Card data)
+        {
+            if (data == null)
+                return string.Empty;
+
+            var text = SanitizeText(data.GetDescription(true));
+            text = LocalizeQuestLabel(text).Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return "\u65e0\u6548\u679c\u6587\u672c";
+            return text;
+        }
+
+        private static string GetMonsterFrameLabel(Card data)
+        {
+            if (data == null)
+                return "\u602a\u517d\u5361";
+            if (data.HasType(CardType.Link))
+                return "\u8fde\u63a5\u602a\u517d";
+            if (data.HasType(CardType.Xyz))
+                return "\u8d85\u91cf\u602a\u517d";
+            if (data.HasType(CardType.Synchro))
+                return "\u540c\u8c03\u602a\u517d";
+            if (data.HasType(CardType.Fusion))
+                return "\u878d\u5408\u602a\u517d";
+            if (data.HasType(CardType.Ritual))
+                return "\u4eea\u5f0f\u602a\u517d";
+            if (data.HasType(CardType.Token))
+                return "\u884d\u751f\u7269";
+            if (data.HasType(CardType.Normal) && !data.HasType(CardType.Effect))
+                return "\u901a\u5e38\u602a\u517d";
+            return "\u6548\u679c\u602a\u517d";
+        }
+
+        private static string GetMonsterGradeText(Card data)
+        {
+            if (data == null)
+                return string.Empty;
+            if (data.HasType(CardType.Link))
+                return "LINK " + data.GetLinkCount();
+            if (data.HasType(CardType.Xyz))
+                return "\u9636\u7ea7 " + Mathf.Max(0, data.Level);
+            return "\u7b49\u7ea7 " + Mathf.Max(0, data.Level);
+        }
+
+        private static string GetMonsterSubtypeText(Card data)
+        {
+            if (data == null)
+                return string.Empty;
+
+            var labels = new List<string>();
+            if (data.HasType(CardType.Pendulum))
+                labels.Add("\u7075\u6446");
+            if (data.HasType(CardType.Tuner))
+                labels.Add("\u8c03\u6574");
+            if (data.HasType(CardType.Spirit))
+                labels.Add("\u7075\u9b42");
+            if (data.HasType(CardType.Union))
+                labels.Add("\u540c\u76df");
+            if (data.HasType(CardType.Dual))
+                labels.Add("\u4e8c\u91cd");
+            if (data.HasType(CardType.Flip))
+                labels.Add("\u53cd\u8f6c");
+            if (data.HasType(CardType.Toon))
+                labels.Add("\u5361\u901a");
+            if (data.HasType(CardType.Effect))
+                labels.Add("\u6548\u679c");
+            if (labels.Count == 0)
+                labels.Add("\u901a\u5e38");
+            return string.Join(" / ", labels);
+        }
+
+        private static string GetSpellTrapSubtypeText(Card data)
+        {
+            if (data == null)
+                return string.Empty;
+
+            var labels = new List<string>();
+            if (data.HasType(CardType.Field))
+                labels.Add("\u573a\u5730");
+            if (data.HasType(CardType.Equip))
+                labels.Add("\u88c5\u5907");
+            if (data.HasType(CardType.QuickPlay))
+                labels.Add("\u901f\u653b");
+            if (data.HasType(CardType.Ritual))
+                labels.Add("\u4eea\u5f0f");
+            if (data.HasType(CardType.Continuous))
+                labels.Add("\u6c38\u7eed");
+            if (data.HasType(CardType.Counter))
+                labels.Add("\u53cd\u51fb");
+            return labels.Count == 0 ? "\u901a\u5e38" : string.Join(" / ", labels);
+        }
+
+        private static string GetAttributeLabel(int attribute)
+        {
+            switch ((CardAttribute)attribute)
+            {
+                case CardAttribute.Earth:
+                    return "\u5730\u5c5e\u6027";
+                case CardAttribute.Water:
+                    return "\u6c34\u5c5e\u6027";
+                case CardAttribute.Fire:
+                    return "\u708e\u5c5e\u6027";
+                case CardAttribute.Wind:
+                    return "\u98ce\u5c5e\u6027";
+                case CardAttribute.Light:
+                    return "\u5149\u5c5e\u6027";
+                case CardAttribute.Dark:
+                    return "\u6697\u5c5e\u6027";
+                case CardAttribute.Divine:
+                    return "\u795e\u5c5e\u6027";
+                default:
+                    return "\u5c5e\u6027 " + attribute;
+            }
+        }
+
+        private static string GetRaceLabel(int race)
+        {
+            switch ((CardRace)race)
+            {
+                case CardRace.Warrior:
+                    return "\u6218\u58eb\u65cf";
+                case CardRace.SpellCaster:
+                    return "\u9b54\u6cd5\u4f7f\u65cf";
+                case CardRace.Fairy:
+                    return "\u5929\u4f7f\u65cf";
+                case CardRace.Fiend:
+                    return "\u6076\u9b54\u65cf";
+                case CardRace.Zombie:
+                    return "\u4e0d\u6b7b\u65cf";
+                case CardRace.Machine:
+                    return "\u673a\u68b0\u65cf";
+                case CardRace.Aqua:
+                    return "\u6c34\u65cf";
+                case CardRace.Pyro:
+                    return "\u708e\u65cf";
+                case CardRace.Rock:
+                    return "\u5ca9\u77f3\u65cf";
+                case CardRace.WindBeast:
+                    return "\u9e1f\u517d\u65cf";
+                case CardRace.Plant:
+                    return "\u690d\u7269\u65cf";
+                case CardRace.Insect:
+                    return "\u6606\u866b\u65cf";
+                case CardRace.Thunder:
+                    return "\u96f7\u65cf";
+                case CardRace.Dragon:
+                    return "\u9f99\u65cf";
+                case CardRace.Beast:
+                    return "\u517d\u65cf";
+                case CardRace.BeastWarrior:
+                    return "\u517d\u6218\u58eb\u65cf";
+                case CardRace.Dinosaur:
+                    return "\u6050\u9f99\u65cf";
+                case CardRace.Fish:
+                    return "\u9c7c\u65cf";
+                case CardRace.SeaSerpent:
+                    return "\u6d77\u9f99\u65cf";
+                case CardRace.Reptile:
+                    return "\u722c\u866b\u7c7b\u65cf";
+                case CardRace.Psycho:
+                    return "\u5ff5\u52a8\u529b\u65cf";
+                case CardRace.DivineBeast:
+                    return "\u5e7b\u795e\u517d\u65cf";
+                case CardRace.CreatorGod:
+                    return "\u521b\u9020\u795e\u65cf";
+                case CardRace.Wyrm:
+                    return "\u5e7b\u9f99\u65cf";
+                case CardRace.Cyberse:
+                    return "\u7535\u5b50\u754c\u65cf";
+                case CardRace.Illustion:
+                    return "\u5e7b\u60f3\u9b54\u65cf";
+                default:
+                    return "\u79cd\u65cf " + race;
+            }
+        }
+
+        private static string GetPositionText(int position, Card data)
+        {
+            if ((position & (int)CardPosition.FaceDown) > 0)
+                return (position & (int)CardPosition.Defence) > 0 ? "\u91cc\u4fa7\u5b88\u5907" : "\u91cc\u4fa7\u653b\u51fb";
+            if (data != null && data.HasType(CardType.Link))
+                return "\u8868\u4fa7\u8fde\u63a5";
+            return (position & (int)CardPosition.Defence) > 0 ? "\u8868\u4fa7\u5b88\u5907" : "\u8868\u4fa7\u653b\u51fb";
+        }
+
+        private static bool IsFaceUp(int position)
+        {
+            return (position & (int)CardPosition.FaceUp) > 0;
+        }
+
+        private static string GetCardActionLabel(ButtonType type)
+        {
+            switch (type)
+            {
+                case ButtonType.Activate:
+                    return "\u53d1\u52a8";
+                case ButtonType.Battle:
+                    return "\u653b\u51fb";
+                case ButtonType.SpSummon:
+                    return "\u7279\u6b8a\u53ec\u5524";
+                case ButtonType.Summon:
+                    return "\u901a\u5e38\u53ec\u5524";
+                case ButtonType.PenSummon:
+                    return "\u7075\u6446\u53ec\u5524";
+                case ButtonType.SetMonster:
+                case ButtonType.SetSpell:
+                    return "\u653e\u7f6e";
+                case ButtonType.SetPendulum:
+                    return "\u7075\u6446\u653e\u7f6e";
+                case ButtonType.ToAttackPosition:
+                    return "\u653b\u51fb\u8868\u793a";
+                case ButtonType.ToDefensePosition:
+                    return "\u5b88\u5907\u8868\u793a";
+                case ButtonType.Select:
+                    return "\u9009\u62e9";
+                case ButtonType.Decide:
+                    return "\u786e\u5b9a";
+                case ButtonType.Cancel:
+                    return "\u53d6\u6d88";
+                default:
+                    return type.ToString();
+            }
+        }
+
         private static string GetLongCardMeta(Card data)
         {
             if (data == null)
@@ -2260,6 +2588,27 @@ namespace MDPro3
 
         private static string GetLocationName(CardLocation location)
         {
+            var value = (uint)location;
+            if ((value & (uint)CardLocation.Hand) > 0)
+                return "\u624b\u724c";
+            if ((value & (uint)CardLocation.MonsterZone) > 0)
+                return "\u602a\u517d\u533a";
+            if ((value & (uint)CardLocation.SpellZone) > 0)
+                return "\u9b54\u9677\u533a";
+            if ((value & (uint)CardLocation.Deck) > 0)
+                return "\u4e3b\u5361\u7ec4";
+            if ((value & (uint)CardLocation.Extra) > 0)
+                return "\u989d\u5916\u5361\u7ec4";
+            if ((value & (uint)CardLocation.Grave) > 0)
+                return "\u5893\u5730";
+            if ((value & (uint)CardLocation.Removed) > 0)
+                return "\u9664\u5916\u533a";
+            if ((value & (uint)CardLocation.Overlay) > 0)
+                return "\u53e0\u653e\u7d20\u6750";
+            if ((value & (uint)CardLocation.FieldZone) > 0)
+                return "\u573a\u5730\u533a";
+            if ((value & (uint)CardLocation.PendulumZone) > 0)
+                return "\u7075\u6446\u533a";
             switch (location)
             {
                 case CardLocation.Deck:
@@ -2279,7 +2628,7 @@ namespace MDPro3
 
         private static string GetControllerName(uint controller)
         {
-            return controller == 0 ? "我方" : "对方";
+            return controller == 0 ? "\u6211\u65b9" : "\u5bf9\u65b9";
         }
 
         private static string SanitizeText(string text)
