@@ -20,7 +20,7 @@ namespace MDPro3
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
-        private const float CardInfoScale = 0.025f;
+        private const float CardInfoScale = 0.023f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -45,6 +45,7 @@ namespace MDPro3
         private const float CardGridHoverScaleBoost = 0.34f;
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, -0.005f, -1.5f);
         private static readonly Quaternion RightSideWallRotation = Quaternion.LookRotation(Vector3.right, Vector3.up);
+        private static readonly Quaternion LeftSideWallRotation = Quaternion.LookRotation(Vector3.left, Vector3.up);
         private static readonly Color HudPanelBackground = new Color(0.008f, 0.012f, 0.018f, 0.90f);
         private static readonly Color HudPanelInner = new Color(0.020f, 0.031f, 0.041f, 0.62f);
         private static readonly Color HudAccentCyan = new Color(0.16f, 0.90f, 1f, 0.64f);
@@ -1802,7 +1803,11 @@ namespace MDPro3
             if (cardPanelRect != null && cardPanelCanvas.gameObject.activeSelf)
                 PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 10.8f, -18f), CardSelectorScale);
             if (cardInfoRect != null && cardInfoCanvas.gameObject.activeSelf)
-                PlacePanel(cardInfoRect, DuelWorldCenterOnGround + new Vector3(30f, 9.8f, -8f), CardInfoScale);
+                PlacePanel(
+                    cardInfoRect,
+                    DuelWorldCenterOnGround + new Vector3(-72f, 21.8f, -42f),
+                    LeftSideWallRotation,
+                    CardInfoScale);
             if (optionRect != null && optionCanvas.gameObject.activeSelf)
                 PlacePanel(optionRect, ResolveOptionPanelPosition(), SmallPanelScale);
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
@@ -1810,7 +1815,7 @@ namespace MDPro3
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
                 PlacePanel(
                     phaseHudRect,
-                    DuelWorldCenterOnGround + new Vector3(60.8f, 34.2f, -31f),
+                    DuelWorldCenterOnGround + new Vector3(60.8f, 41.5f, -55f),
                     RightSideWallRotation,
                     FloorHudScale);
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
@@ -1822,7 +1827,7 @@ namespace MDPro3
             if (duelLogRect != null && duelLogCanvas.gameObject.activeSelf)
                 PlacePanel(
                     duelLogRect,
-                    DuelWorldCenterOnGround + new Vector3(60.8f, 21.6f, 9.5f),
+                    DuelWorldCenterOnGround + new Vector3(60.8f, 28.0f, 13.5f),
                     RightSideWallRotation,
                     DuelLogPanelScale);
         }

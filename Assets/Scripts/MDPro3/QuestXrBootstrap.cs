@@ -146,7 +146,9 @@ namespace MDPro3
         private const float QuestWorldScaleMinPositive = 0.0001f;
         private const float QuestPlayerYawTurnSpeed = 90f;
         private const float QuestWorldFastControlMultiplier = 3f;
+        private const float QuestWorldControlAxisSmoothing = 8f;
         private const float QuestWorldControlLogInterval = 3f;
+        private const float QuestDuelInactiveResetDelay = 1.25f;
         private static readonly Quaternion DuelWorldFloorRotation = Quaternion.identity;
         private static readonly Vector3 DuelEyePosition = new Vector3(0f, 24f, -54f);
         private static readonly Vector3 DuelLookTarget = new Vector3(0f, DuelGroundY + 0.5f, -1.5f);
@@ -349,6 +351,9 @@ namespace MDPro3
         private bool questPreviewDeletePressedLastFrame;
         private bool questMainUiRecenterPressedLastFrame;
         private bool questMainUiRecenterActive;
+        private float lastQuestNativeDuelActiveTime = -999f;
+        private Vector2 smoothedQuestRightWorldAxis;
+        private Vector2 smoothedQuestLeftWorldAxis;
         private bool questRuntimePerformanceTuningLogged;
 
         private InputAction pointerPositionAction;
@@ -847,6 +852,7 @@ namespace MDPro3
             questNativeMainMenu?.Tick();
             if (questNativeDuelActive)
             {
+                lastQuestNativeDuelActiveTime = Time.unscaledTime;
                 if (questMainUiRecenterActive)
                 {
                     questMainUiRecenterActive = false;
@@ -860,7 +866,8 @@ namespace MDPro3
             {
                 questDuelNativeUi?.HideAllQuestUi();
                 ClearQuestDuelActionMenu();
-                ResetQuestWorldControlsWhenNoDuel();
+                if (Time.unscaledTime - lastQuestNativeDuelActiveTime >= QuestDuelInactiveResetDelay)
+                    ResetQuestWorldControlsWhenNoDuel();
             }
             UpdateQuestMainUiRecenterInput(questNativeDuelActive);
             MaintainQuestMainMenuUiRecovery(questNativeDuelActive);
@@ -1026,6 +1033,9 @@ namespace MDPro3
                 || questInputXrRestartAttempts >= QuestInputXrRestartMaxAttempts
                 || now < questInputXrRestartNotBefore
                 || now - createdAt < QuestInputXrRestartDelay)
+                return;
+
+            if (IsQuestNativeDuelActive())
                 return;
 
             StartCoroutine(RestartQuestXrForInputRecovery());
@@ -5848,12 +5858,16 @@ namespace MDPro3
             if (!IsQuestNativeDuelActive())
                 return;
 
-            var rightAxis = ReadQuestThumbstick(rightThumbstickAction, XRNode.RightHand);
-            var leftAxis = ReadQuestThumbstick(leftThumbstickAction, XRNode.LeftHand);
+            var rawRightAxis = ReadQuestThumbstick(rightThumbstickAction, XRNode.RightHand);
+            var rawLeftAxis = ReadQuestThumbstick(leftThumbstickAction, XRNode.LeftHand);
             var rotateViewHeld = ReadQuestButton(rightSecondaryButtonAction, XRNode.RightHand, true);
             var fastControlHeld = ReadQuestButton(rightPrimaryButtonAction, XRNode.RightHand, false);
             var speedMultiplier = fastControlHeld ? QuestWorldFastControlMultiplier : 1f;
             var dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            var rightAxis = Vector2.MoveTowards(smoothedQuestRightWorldAxis, rawRightAxis, QuestWorldControlAxisSmoothing * dt);
+            var leftAxis = Vector2.MoveTowards(smoothedQuestLeftWorldAxis, rawLeftAxis, QuestWorldControlAxisSmoothing * dt);
+            smoothedQuestRightWorldAxis = rightAxis;
+            smoothedQuestLeftWorldAxis = leftAxis;
             var positionChanged = false;
             var viewYawChanged = false;
             var scaleChanged = false;
@@ -6364,6 +6378,9 @@ namespace MDPro3
 
         private void ResetQuestWorldControlsWhenNoDuel()
         {
+            smoothedQuestRightWorldAxis = Vector2.zero;
+            smoothedQuestLeftWorldAxis = Vector2.zero;
+
             if (questPlayerWorldOffset.sqrMagnitude < 0.0001f && Mathf.Abs(questPlayerYawOffsetDegrees) < 0.001f)
                 return;
 
