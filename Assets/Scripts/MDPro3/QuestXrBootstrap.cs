@@ -99,6 +99,8 @@ namespace MDPro3
         private const float QuestMainMenuUiRecoverySuppressDuration = 0.75f;
         private const float QuestMainMenuUiRecoveryDuration = 1.8f;
         private const float QuestMainMenuUiRecoveryInterval = 0.18f;
+        private const float UiRenderCameraDepthBase = -200f;
+        private const float UiRenderCameraDepthUi = 200f;
         private const int QuestDuelSleepCompressionThreshold = 20;
         private const int QuestDuelSleepCompressionMax = 55;
         private const float QuestDuelSleepCompressionScale = 0.35f;
@@ -1460,6 +1462,7 @@ namespace MDPro3
 
                     data.renderType = CameraRenderType.Base;
                     camera.targetTexture = uiRenderTexture;
+                    ConfigureUiRenderCameraOrder(camera, cameraManager);
                     if (camera == cameraManager.camera2D)
                     {
                         camera.clearFlags = CameraClearFlags.SolidColor;
@@ -1610,6 +1613,23 @@ namespace MDPro3
                 || camera == cameraManager.cameraDuelOverlayEffect2D
                 || camera == cameraManager.cameraUI
                 || camera == cameraManager.cameraUIBlur;
+        }
+
+        private static void ConfigureUiRenderCameraOrder(Camera camera, CameraManager cameraManager)
+        {
+            if (camera == null || cameraManager == null)
+                return;
+
+            if (camera == cameraManager.camera2D)
+                camera.depth = UiRenderCameraDepthBase;
+            else if (camera == cameraManager.cameraDuelOverlay2D)
+                camera.depth = UiRenderCameraDepthBase + 20f;
+            else if (camera == cameraManager.cameraDuelOverlayEffect2D)
+                camera.depth = UiRenderCameraDepthBase + 30f;
+            else if (camera == cameraManager.cameraUI)
+                camera.depth = UiRenderCameraDepthUi;
+            else
+                camera.depth = UiRenderCameraDepthBase + 10f;
         }
 
         private Camera[] GetMdproCameras()
@@ -2880,7 +2900,7 @@ namespace MDPro3
             }
 
             Debug.LogFormat(
-                "Quest XR UI panel diagnostics. Pos={0}, Rot={1}, Size={2:F1}x{3:F1}, ViewportCenter={4}, L/R/T/B=({5},{6},{7},{8}), RT={9}x{10}/{11}, UICamera={12}, UICameraEnabled={13}, UICameraTarget={14}, ActiveRootCanvases={15}, VisibleGraphics={16}",
+                "Quest XR UI panel diagnostics. Pos={0}, Rot={1}, Size={2:F1}x{3:F1}, ViewportCenter={4}, L/R/T/B=({5},{6},{7},{8}), RT={9}x{10}/{11}, UICamera={12}, UICameraEnabled={13}, UICameraTarget={14}, UICameraDepth={15:F1}, Camera2DDepth={16:F1}, ActiveRootCanvases={17}, VisibleGraphics={18}",
                 anchorPosition,
                 panelRotation.eulerAngles,
                 width,
@@ -2896,6 +2916,8 @@ namespace MDPro3
                 uiCamera == null ? "<null>" : GetTransformPath(uiCamera.transform),
                 uiCamera != null && uiCamera.enabled && uiCamera.gameObject.activeInHierarchy,
                 uiCamera == null || uiCamera.targetTexture == null ? "<null>" : uiCamera.targetTexture.name,
+                uiCamera == null ? 0f : uiCamera.depth,
+                cameraManager == null || cameraManager.camera2D == null ? 0f : cameraManager.camera2D.depth,
                 activeCanvasCount,
                 visibleGraphicCount);
         }
@@ -2931,7 +2953,7 @@ namespace MDPro3
             }
 
             Debug.LogFormat(
-                "Quest main menu UI recovery. Reason={0}, RestoredLegacyCanvases={1}, SuppressedUntil={2:F2}, CurrentServant={3}, MenuShowing={4}, CoreShowing={5}, CoreMessage={6}, CoreCards={7}, PanelActive={8}, PanelRenderer={9}, PanelMaterial={10}, PanelTexture={11}, RT={12}x{13}/{14}, UICamera={15}, UICameraEnabled={16}, UICameraTarget={17}, ActiveRootCanvases={18}, EnabledRootCanvases={19}, EnabledRaycasters={20}, VisibleGraphics={21}, XrMask=0x{22:X8}",
+                "Quest main menu UI recovery. Reason={0}, RestoredLegacyCanvases={1}, SuppressedUntil={2:F2}, CurrentServant={3}, MenuShowing={4}, CoreShowing={5}, CoreMessage={6}, CoreCards={7}, PanelActive={8}, PanelRenderer={9}, PanelMaterial={10}, PanelTexture={11}, RT={12}x{13}/{14}, UICamera={15}, UICameraEnabled={16}, UICameraTarget={17}, UICameraDepth={18:F1}, Camera2DDepth={19:F1}, ActiveRootCanvases={20}, EnabledRootCanvases={21}, EnabledRaycasters={22}, VisibleGraphics={23}, XrMask=0x{24:X8}",
                 reason,
                 restoredCanvasCount,
                 questNativeDuelFrontendSuppressedUntil,
@@ -2950,6 +2972,8 @@ namespace MDPro3
                 uiCamera == null ? "<null>" : GetTransformPath(uiCamera.transform),
                 uiCamera != null && uiCamera.enabled && uiCamera.gameObject.activeInHierarchy,
                 uiCamera == null || uiCamera.targetTexture == null ? "<null>" : uiCamera.targetTexture.name,
+                uiCamera == null ? 0f : uiCamera.depth,
+                cameraManager == null || cameraManager.camera2D == null ? 0f : cameraManager.camera2D.depth,
                 activeRootCanvasCount,
                 enabledRootCanvasCount,
                 enabledRaycasterCount,
