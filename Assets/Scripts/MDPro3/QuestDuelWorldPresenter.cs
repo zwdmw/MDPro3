@@ -401,20 +401,20 @@ namespace MDPro3
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
-        private const float PowerLabelY = CardThickness + 1.18f;
-        private const float PowerLabelZ = -4.62f;
-        private const float PowerLabelScale = 0.43f;
-        private const float InteractionLabelY = CardThickness + 1.64f;
-        private const float InteractionLabelZ = 4.30f;
-        private const float InteractionLabelScale = 0.52f;
+        private const float PowerLabelY = CardThickness + 1.62f;
+        private const float PowerLabelZ = -5.16f;
+        private const float PowerLabelScale = 0.56f;
+        private const float InteractionLabelY = CardThickness + 1.95f;
+        private const float InteractionLabelZ = 4.92f;
+        private const float InteractionLabelScale = 0.62f;
         private const float ActionMarkerBaseWidth = CardWidth * 0.72f;
         private const float ActionMarkerBaseDepth = 0.34f;
         private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
-        private const float ActionableCardLift = 0.82f;
-        private const float SelectionTargetCardLift = 1.68f;
-        private const float HoveredCardLift = 0.46f;
-        private const float ActionableCardBob = 0.15f;
-        private const float SelectionTargetCardBob = 0.30f;
+        private const float ActionableCardLift = 0.64f;
+        private const float SelectionTargetCardLift = 1.22f;
+        private const float HoveredCardLift = 0.36f;
+        private const float ActionableCardBob = 0.12f;
+        private const float SelectionTargetCardBob = 0.22f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
@@ -425,6 +425,10 @@ namespace MDPro3
         private const int MaxAutomaticDebugCaptures = 6;
         private const float SelectionGuideSourceHoldSeconds = 8f;
         private const int SelectionGuideCircleSegments = 56;
+        private const float AttackPortraitLungeDistance = 5.8f;
+        private const float DirectAttackPortraitLungeDistance = 7.2f;
+        private const float AttackProjectileHeight = 1.35f;
+        private const float AttackImpactHeight = 1.15f;
         private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
 
         private Camera xrCamera;
@@ -904,11 +908,18 @@ namespace MDPro3
                     break;
                 case DuelPresentationKind.AttackDeclared:
                     PlayAttackLine(evt);
-                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), evt.Final ? "FINAL" : "\u653b\u51fb", new Color(1f, 0.38f, 0.18f, 1f), evt.Weight);
+                    PlayAttackProjectile(evt);
+                    PlayAttackPortraitLunge(evt);
+                    PlayFloatingText(
+                        ResolveCardWorldPoint(evt.Card),
+                        evt.Final ? "FINAL" : evt.Direct ? "DIRECT" : "\u653b\u51fb",
+                        new Color(1f, 0.38f, 0.18f, 1f),
+                        evt.Weight);
                     SendPresentationHaptic(evt.Weight, evt.Controller);
                     break;
                 case DuelPresentationKind.AttackImpact:
-                    PlayPulseAt(ResolveAttackTargetPoint(evt), new Color(1f, 0.52f, 0.18f, 0.90f), evt.Weight, evt.Final ? 2.2f : 1.55f);
+                    PlayAttackImpact(evt);
+                    PlayAttackTargetReaction(evt);
                     SendPresentationHaptic(evt.Weight, evt.Controller);
                     break;
                 case DuelPresentationKind.Damage:
@@ -967,6 +978,166 @@ namespace MDPro3
             var inner = evt.Final ? new Color(1f, 0.84f, 0.34f, 1f) : new Color(1f, 0.78f, 0.22f, 0.95f);
             PlayLine(from, to, outer, evt.Weight, evt.Final ? 0.72f : 0.48f, 2.8f);
             PlayLine(from, to, inner, evt.Weight, evt.Final ? 0.62f : 0.38f, 1.0f);
+        }
+
+        private void PlayAttackProjectile(DuelPresentationEvent evt)
+        {
+            if (evt == null || presentationRoot == null)
+                return;
+
+            var from = ResolveCardWorldPoint(evt.Card) + Vector3.up * AttackProjectileHeight;
+            var to = ResolveAttackTargetPoint(evt) + Vector3.up * AttackImpactHeight;
+            if ((to - from).sqrMagnitude < 0.01f)
+                return;
+
+            var projectile = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            projectile.name = evt.Direct ? "QuestDirectAttackProjectile" : "QuestAttackProjectile";
+            SetQuestOverlayLayer(projectile);
+            Destroy(projectile.GetComponent<Collider>());
+            projectile.transform.SetParent(presentationRoot, true);
+            projectile.transform.position = from;
+            projectile.transform.localScale = Vector3.one * (evt.Final ? 0.95f : evt.Direct ? 0.78f : 0.62f);
+
+            var color = evt.Final
+                ? new Color(1f, 0.30f, 0.08f, 0.92f)
+                : evt.Direct ? new Color(1f, 0.58f, 0.16f, 0.84f) : new Color(1f, 0.76f, 0.24f, 0.78f);
+            var material = CreateMaterial("QuestAttackProjectileMaterial", color, true);
+            QuestCardProxy.ConfigureRenderer(projectile.GetComponent<MeshRenderer>(), material);
+            RegisterPresentationTransient(projectile, material);
+
+            var duration = evt.Direct ? 0.42f : 0.30f;
+            var arc = Mathf.Min(4.2f, Vector3.Distance(from, to) * 0.10f);
+            DOTween.Sequence()
+                .Join(DOTween.To(() => 0f, t =>
+                {
+                    if (projectile == null)
+                        return;
+
+                    var position = Vector3.Lerp(from, to, t);
+                    position.y += Mathf.Sin(t * Mathf.PI) * arc;
+                    projectile.transform.position = position;
+                }, 1f, duration).SetEase(Ease.InCubic))
+                .Join(projectile.transform.DOScale(projectile.transform.localScale * (evt.Final ? 1.45f : 1.22f), duration).SetEase(Ease.InQuad))
+                .Join(DOTween.To(() => color.a, alpha =>
+                {
+                    var c = color;
+                    c.a = alpha;
+                    SetMaterialColor(material, c);
+                }, 0.12f, duration).SetEase(Ease.InQuad))
+                .OnComplete(() =>
+                {
+                    DestroyPresentationTransient(projectile, material);
+                });
+        }
+
+        private void PlayAttackPortraitLunge(DuelPresentationEvent evt)
+        {
+            if (evt == null || evt.Card == null)
+                return;
+            if (!cardProxies.TryGetValue(evt.Card, out var proxy) || proxy == null)
+                return;
+
+            var lungeTarget = proxy.Portrait != null && proxy.Portrait.activeInHierarchy
+                ? proxy.Portrait.transform
+                : proxy.Front != null && proxy.Front.activeInHierarchy ? proxy.Front.transform : null;
+            if (lungeTarget == null)
+                return;
+
+            var from = lungeTarget.position;
+            var to = ResolveAttackTargetPoint(evt) + Vector3.up * AttackImpactHeight;
+            var direction = to - from;
+            if (direction.sqrMagnitude < 0.01f)
+                return;
+            direction.Normalize();
+
+            var originalLocalPosition = lungeTarget.localPosition;
+            var originalLocalScale = lungeTarget.localScale;
+            var lungeDistance = evt.Direct ? DirectAttackPortraitLungeDistance : AttackPortraitLungeDistance;
+            var peak = from + direction * lungeDistance + Vector3.up * (evt.Final ? 0.72f : 0.34f);
+            var scaleBoost = evt.Final ? 1.18f : evt.Direct ? 1.12f : 1.08f;
+
+            lungeTarget.DOKill(false);
+            DOTween.Sequence()
+                .Append(lungeTarget.DOMove(peak, evt.Direct ? 0.22f : 0.16f).SetEase(Ease.OutCubic))
+                .Join(lungeTarget.DOScale(originalLocalScale * scaleBoost, evt.Direct ? 0.22f : 0.16f).SetEase(Ease.OutQuad))
+                .AppendInterval(evt.Direct ? 0.05f : 0.03f)
+                .Append(lungeTarget.DOLocalMove(originalLocalPosition, 0.28f).SetEase(Ease.OutBack))
+                .Join(lungeTarget.DOScale(originalLocalScale, 0.28f).SetEase(Ease.OutBack))
+                .OnKill(() =>
+                {
+                    if (lungeTarget != null)
+                    {
+                        lungeTarget.localPosition = originalLocalPosition;
+                        lungeTarget.localScale = originalLocalScale;
+                    }
+                });
+        }
+
+        private void PlayAttackImpact(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return;
+
+            var point = ResolveAttackTargetPoint(evt);
+            var color = evt.Final
+                ? new Color(1f, 0.18f, 0.08f, 0.96f)
+                : evt.Direct ? new Color(1f, 0.48f, 0.12f, 0.92f) : new Color(1f, 0.62f, 0.18f, 0.88f);
+            PlayPulseAt(point, color, evt.Weight, evt.Final ? 2.4f : evt.Direct ? 2.0f : 1.55f);
+            PlayImpactSlash(point, color, evt.Weight, 0f, evt.Final ? 4.2f : 3.1f);
+            PlayImpactSlash(point, new Color(1f, 0.95f, 0.42f, color.a), evt.Weight, 64f, evt.Final ? 3.5f : 2.5f);
+            if (evt.Direct)
+                PlayFloatingText(point + Vector3.up * 0.35f, evt.Final ? "DIRECT FINAL" : "DIRECT HIT", color, evt.Weight);
+        }
+
+        private void PlayImpactSlash(Vector3 point, Color color, DuelPresentationWeight weight, float angle, float radius)
+        {
+            if (presentationRoot == null)
+                return;
+
+            var right = xrCamera == null ? Vector3.right : xrCamera.transform.right;
+            var up = xrCamera == null ? Vector3.up : xrCamera.transform.up;
+            var radians = angle * Mathf.Deg2Rad;
+            var axis = (Mathf.Cos(radians) * right + Mathf.Sin(radians) * up).normalized;
+            var center = point + Vector3.up * AttackImpactHeight;
+            var from = center - axis * radius;
+            var to = center + axis * radius;
+            PlayLine(from, to, color, weight, 0.26f, 1.65f);
+        }
+
+        private void PlayAttackTargetReaction(DuelPresentationEvent evt)
+        {
+            if (evt == null || evt.TargetCard == null)
+                return;
+            if (!cardProxies.TryGetValue(evt.TargetCard, out var proxy) || proxy == null)
+                return;
+
+            var target = proxy.Portrait != null && proxy.Portrait.activeInHierarchy
+                ? proxy.Portrait.transform
+                : proxy.Front != null && proxy.Front.activeInHierarchy ? proxy.Front.transform : null;
+            if (target == null)
+                return;
+
+            var originalLocalPosition = target.localPosition;
+            var originalLocalScale = target.localScale;
+            var magnitude = evt.Final ? 0.62f : 0.34f;
+            var side = new Vector3(magnitude, magnitude * 0.35f, 0f);
+
+            target.DOKill(false);
+            DOTween.Sequence()
+                .Append(target.DOLocalMove(originalLocalPosition + side, 0.045f).SetEase(Ease.OutQuad))
+                .Append(target.DOLocalMove(originalLocalPosition - side * 0.62f, 0.055f).SetEase(Ease.InOutQuad))
+                .Append(target.DOLocalMove(originalLocalPosition + side * 0.28f, 0.045f).SetEase(Ease.InOutQuad))
+                .Join(target.DOScale(originalLocalScale * (evt.Final ? 1.08f : 1.04f), 0.08f).SetEase(Ease.OutQuad))
+                .Append(target.DOLocalMove(originalLocalPosition, 0.11f).SetEase(Ease.OutCubic))
+                .Join(target.DOScale(originalLocalScale, 0.11f).SetEase(Ease.OutCubic))
+                .OnKill(() =>
+                {
+                    if (target != null)
+                    {
+                        target.localPosition = originalLocalPosition;
+                        target.localScale = originalLocalScale;
+                    }
+                });
         }
 
         private void PlayCardPulse(GameCard card, Color color, DuelPresentationWeight weight, float size)
@@ -1479,14 +1650,16 @@ namespace MDPro3
 
             var selectable = state == QuestCardInteractionState.SelectionTarget;
             var actionable = state == QuestCardInteractionState.Actionable;
-            SetInteractionObject(proxy.Highlight, false, 0f, 0f);
+            var hovered = card == hoveredCard;
+            var source = selectionSourceCard == card && Time.unscaledTime <= selectionSourceValidUntil;
+            SetInteractionObject(proxy.Highlight, hovered || source, source ? 0.34f : 0.18f, source ? 0.12f : 0.06f);
             SetActionMarkerObject(proxy.ActionHighlight, actionable);
             SetTargetMarkerObject(proxy.TargetHighlight, selectable);
 
             if (proxy.InteractionLabelRoot == null || proxy.InteractionLabelText == null)
                 return;
 
-            var showLabel = selectable || actionable;
+            var showLabel = selectable || actionable || source;
             if (proxy.InteractionLabelRoot.activeSelf != showLabel)
                 proxy.InteractionLabelRoot.SetActive(showLabel);
             if (!showLabel)
@@ -1494,10 +1667,10 @@ namespace MDPro3
 
             proxy.InteractionLabelText.text = selectable
                 ? "\u9009\u62e9\u76ee\u6807"
-                : GetQuestActionHintLabel(card);
+                : source ? "\u64cd\u4f5c\u6765\u6e90" : GetQuestActionHintLabel(card);
             proxy.InteractionLabelText.color = selectable
                 ? new Color(0.35f, 1f, 0.82f, 1f)
-                : new Color(1f, 0.82f, 0.28f, 1f);
+                : source ? new Color(0.56f, 0.90f, 1f, 1f) : new Color(1f, 0.82f, 0.28f, 1f);
             FaceTextToCamera(proxy.InteractionLabelRoot.transform);
         }
 
@@ -1625,7 +1798,8 @@ namespace MDPro3
 
             var pulse = (Mathf.Sin(Time.unscaledTime * 5.5f) + 1f) * 0.5f;
             var expand = baseExpand + pulse * pulseExpand;
-            target.transform.localScale = new Vector3(CardWidth + expand, 0.012f, CardHeight + expand);
+            target.transform.localPosition = new Vector3(0f, CardThickness + 0.020f, -CardHeight * 0.5f - 0.18f);
+            target.transform.localScale = new Vector3(CardWidth * 0.84f + expand, 0.012f, 0.20f + pulse * 0.045f);
         }
 
         private static void SetActionMarkerObject(GameObject target, bool active)
@@ -1762,22 +1936,24 @@ namespace MDPro3
             if (data.HasType(CardType.Tuner))
                 extras += "  \u8c03\u6574";
 
-            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 0);
+            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 18);
             var attackActive = card != null && card.p != null && ((card.p.position & (uint)CardPosition.Attack) > 0 || data.HasType(CardType.Link));
             var defenseActive = !data.HasType(CardType.Link) && !attackActive;
             var stance = data.HasType(CardType.Link)
                 ? "LINK"
                 : attackActive ? "\u653b\u51fb\u8868\u793a" : "\u5b88\u5907\u8868\u793a";
-            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 20 : 15);
+            var stanceText = ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 18);
+            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 28 : 22);
             if (data.HasType(CardType.Link))
-                return grade + "  " + ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 0) + "\n" + attack;
+                return grade + "  " + stanceText + "\n" + attack;
 
             return grade
-                + "  " + ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 0)
+                + "  "
+                + stanceText
                 + "\n"
                 + attack
                 + "   "
-                + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 20 : 15);
+                + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 28 : 22);
         }
 
         private static string GetMonsterGradeLabel(Card data)
@@ -2819,15 +2995,15 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 20f;
+                text.fontSize = 23f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.28f;
+                text.outlineWidth = 0.34f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
-                text.margin = new Vector4(0.6f, 0.3f, 0.6f, 0.3f);
+                text.margin = new Vector4(0.9f, 0.4f, 0.9f, 0.4f);
 
                 labelRoot.SetActive(false);
                 return labelRoot;
@@ -2851,15 +3027,15 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 13.2f;
+                text.fontSize = 15.5f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.22f;
+                text.outlineWidth = 0.26f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.95f);
-                text.margin = new Vector4(0.3f, 0.1f, 0.3f, 0.1f);
+                text.margin = new Vector4(0.5f, 0.15f, 0.5f, 0.15f);
 
                 labelRoot.SetActive(false);
                 return labelRoot;

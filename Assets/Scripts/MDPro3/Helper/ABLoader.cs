@@ -546,6 +546,12 @@ namespace MDPro3
                 return RuntimeDuelFallbackFactory.CreateDummyCardTimeline(path);
             }
 
+            if (IsSummonLandingHandEffectPath(path))
+            {
+                LogRuntimeFallbackCreated(path);
+                return RuntimeDuelFallbackFactory.CreateSummonLandingHandEffect();
+            }
+
             if (IsDuelEffectPath(path))
             {
                 LogRuntimeFallbackCreated(path);
@@ -713,6 +719,11 @@ namespace MDPro3
         private static bool IsDuelCardMoveTimelinePath(string path)
         {
             return PathContains(path, "MasterDuel/Timeline/DuelCardMove/");
+        }
+
+        private static bool IsSummonLandingHandEffectPath(string path)
+        {
+            return PathEndsWith(path, "MasterDuel/Effects/summon/fxp_somldg/hand/fxp_somldg_hand_001");
         }
 
         private static bool IsDuelEffectPath(string path)

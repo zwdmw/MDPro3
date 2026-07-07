@@ -194,6 +194,14 @@ namespace MDPro3
             return root;
         }
 
+        public static GameObject CreateSummonLandingHandEffect()
+        {
+            var root = new GameObject("FallbackSummonLandingHand");
+            CreateSummonLandingBranch(root.transform, "AttackLanding", new Color(1f, 0.72f, 0.18f, 0.42f));
+            CreateSummonLandingBranch(root.transform, "DefenseLanding", new Color(0.28f, 0.72f, 1f, 0.34f));
+            return root;
+        }
+
         public static GameObject CreateDummyCardTimeline(string sourcePath)
         {
             var root = new GameObject("Fallback" + PathSafeName(sourcePath));
@@ -216,6 +224,27 @@ namespace MDPro3
             var rootManager = root.AddComponent<ElementObjectManager>();
             rootManager.serializedElements = rootElements.ToArray();
             return root;
+        }
+
+        static void CreateSummonLandingBranch(Transform parent, string name, Color color)
+        {
+            var branch = new GameObject(name);
+            branch.transform.SetParent(parent, false);
+
+            var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            ring.name = name + "Pulse";
+            Object.Destroy(ring.GetComponent<Collider>());
+            ring.transform.SetParent(branch.transform, false);
+            ring.transform.localPosition = new Vector3(0f, 0.018f, 0f);
+            ring.transform.localScale = new Vector3(2.8f, 0.018f, 2.8f);
+
+            var renderer = ring.GetComponent<MeshRenderer>();
+            if (renderer != null)
+            {
+                renderer.sharedMaterial = CreateTransparentColorMaterial("FallbackSummonLandingMat", color);
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
         }
 
         static LineRenderer CreateLine(Transform parent, string label, Color color, List<ElementObject> elements)
@@ -431,6 +460,14 @@ namespace MDPro3
             material.renderQueue = (int)RenderQueue.Transparent;
             material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             material.EnableKeyword("_ALPHABLEND_ON");
+            return material;
+        }
+
+        static Material CreateTransparentColorMaterial(string name, Color color)
+        {
+            var material = CreateEffectMaterial(name);
+            material.name = name;
+            SetMaterialColor(material, color);
             return material;
         }
 
