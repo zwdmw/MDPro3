@@ -74,8 +74,8 @@ namespace MDPro3
         private const float QuestDuelActionItemGap = 14f;
         private const float QuestDuelActionCardYOffset = 1.65f;
         private const float QuestDuelActionCardForwardOffset = 0.42f;
-        private const int FallbackGridLineCount = 65;
-        private const float FallbackGridSpacing = 5f;
+        private const int FallbackGridLineCount = 33;
+        private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
         private const float DuelWorldTargetWidth = 112f;
         private const float DuelWorldTargetDepth = 92f;
@@ -85,7 +85,7 @@ namespace MDPro3
         private const float DuelArenaWidth = 116f;
         private const float DuelArenaDepth = 94f;
         private const float DuelArenaLineY = 0.055f;
-        private const float DuelArenaLineWidth = 0.075f;
+        private const float DuelArenaLineWidth = 0.055f;
         private const float DuelZoneWidth = 10.4f;
         private const float DuelZoneDepth = 11.1f;
         private const float DuelZoneGap = 0.9f;
@@ -193,6 +193,7 @@ namespace MDPro3
         private Material controllerRayMaterial;
         private Material controllerRayCursorMaterial;
         private Material fallbackGridMaterial;
+        private Material duelFloorMaterial;
         private Material duelArenaLineMaterial;
         private Material worldCanvasPanelMaterial;
         private Material uiRenderPanelMaterial;
@@ -842,6 +843,8 @@ namespace MDPro3
                 Destroy(controllerRayCursorMaterial);
             if (fallbackGridMaterial != null)
                 Destroy(fallbackGridMaterial);
+            if (duelFloorMaterial != null)
+                Destroy(duelFloorMaterial);
             if (duelArenaLineMaterial != null)
                 Destroy(duelArenaLineMaterial);
             if (worldCanvasPanelMaterial != null)
@@ -1513,11 +1516,15 @@ namespace MDPro3
             fallbackEnvironmentRoot.SetParent(transform, false);
             fallbackGridMaterial = CreateColorMaterial(
                 "Quest World Reference Grid Material",
-                new Color(0.35f, 0.9f, 1f, 0.65f),
+                new Color(0.10f, 0.28f, 0.34f, 0.18f),
                 true);
+            duelFloorMaterial = CreateColorMaterial(
+                "Quest Duel Matte Floor Material",
+                new Color(0.018f, 0.023f, 0.030f, 1f),
+                false);
             duelArenaLineMaterial = CreateColorMaterial(
                 "Quest Anime Duel Arena Line Material",
-                new Color(0.28f, 1f, 0.95f, 0.82f),
+                new Color(0.16f, 0.72f, 0.68f, 0.38f),
                 true);
 
             var lightObject = new GameObject("QuestVirtualWorldKeyLight");
@@ -1527,6 +1534,8 @@ namespace MDPro3
             light.type = LightType.Directional;
             light.intensity = 1.15f;
             light.color = new Color(0.82f, 0.92f, 1f, 1f);
+
+            CreateDuelMatteFloor();
 
             var half = (FallbackGridLineCount - 1) * 0.5f * FallbackGridSpacing;
             var y = 0.001f;
@@ -1545,6 +1554,23 @@ namespace MDPro3
             AttachFallbackEnvironmentToDuelWorldAnchor();
         }
 
+        private void CreateDuelMatteFloor()
+        {
+            var floorObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            floorObject.name = "QuestDuelMatteFloor";
+            SetQuestOverlayLayer(floorObject);
+            floorObject.transform.SetParent(fallbackEnvironmentRoot, false);
+            floorObject.transform.localPosition = new Vector3(0f, DuelGroundY - 0.018f, -1.5f);
+            floorObject.transform.localRotation = Quaternion.identity;
+            floorObject.transform.localScale = new Vector3(DuelArenaWidth * 1.08f, 0.02f, DuelArenaDepth * 1.10f);
+            var collider = floorObject.GetComponent<Collider>();
+            if (collider != null)
+                Destroy(collider);
+            var renderer = floorObject.GetComponent<MeshRenderer>();
+            if (renderer != null)
+                renderer.sharedMaterial = duelFloorMaterial;
+        }
+
         private void CreateReferenceLine(Vector3 start, Vector3 end)
         {
             var lineObject = new GameObject("QuestWorldReferenceLine");
@@ -1555,13 +1581,13 @@ namespace MDPro3
             line.useWorldSpace = false;
             line.SetPosition(0, start);
             line.SetPosition(1, end);
-            line.startWidth = 0.035f;
-            line.endWidth = 0.035f;
+            line.startWidth = 0.018f;
+            line.endWidth = 0.018f;
             line.numCapVertices = 2;
             line.alignment = LineAlignment.View;
             line.material = fallbackGridMaterial;
-            line.startColor = new Color(0.25f, 0.78f, 0.95f, 0.14f);
-            line.endColor = new Color(0.25f, 0.78f, 0.95f, 0.14f);
+            line.startColor = new Color(0.16f, 0.58f, 0.70f, 0.045f);
+            line.endColor = new Color(0.16f, 0.58f, 0.70f, 0.045f);
         }
 
         private void CreateAnimeDuelArena()
@@ -1657,8 +1683,8 @@ namespace MDPro3
             line.numCapVertices = 2;
             line.alignment = LineAlignment.View;
             line.material = duelArenaLineMaterial ?? fallbackGridMaterial;
-            line.startColor = new Color(0.25f, 1f, 0.95f, 0.55f);
-            line.endColor = new Color(0.25f, 1f, 0.95f, 0.55f);
+            line.startColor = new Color(0.18f, 0.86f, 0.78f, 0.30f);
+            line.endColor = new Color(0.18f, 0.86f, 0.78f, 0.30f);
         }
 
         private static Material CreateColorMaterial(string name, Color color, bool transparent)
@@ -6303,6 +6329,8 @@ namespace MDPro3
 
         private void UpdateQuestCardPointer(GameCard card, GameObject hitObject, float distance, bool pressed)
         {
+            questDuelWorldPresenter?.SetHoveredCard(card);
+
             if (card != null)
                 LogQuestCardHit(card, hitObject, distance, pressed);
 
@@ -6471,6 +6499,22 @@ namespace MDPro3
                 if (candidateObject == null || ShouldIgnoreQuestCardHit(candidateObject))
                     continue;
 
+                var candidateCard = ResolveQuestProxyCardFromHit(candidateObject);
+                if (candidateCard == null)
+                    continue;
+
+                card = candidateCard;
+                hitObject = candidateObject;
+                distance = hit.distance;
+                return true;
+            }
+
+            foreach (var hit in hits)
+            {
+                var candidateObject = hit.collider == null ? null : hit.collider.gameObject;
+                if (candidateObject == null || ShouldIgnoreQuestCardHit(candidateObject))
+                    continue;
+
                 var candidateCard = ResolveGameCardFromHit(candidateObject);
                 if (candidateCard == null)
                     continue;
@@ -6482,6 +6526,16 @@ namespace MDPro3
             }
 
             return false;
+        }
+
+        private static GameCard ResolveQuestProxyCardFromHit(GameObject hitObject)
+        {
+            if (hitObject == null)
+                return null;
+
+            var hit = hitObject.GetComponent<QuestCardProxyHit>()
+                ?? hitObject.GetComponentInParent<QuestCardProxyHit>();
+            return hit == null ? null : hit.Card;
         }
 
         private bool TryGetQuestPileHit(Ray ray, out QuestPileProxyHit pile, out float distance)

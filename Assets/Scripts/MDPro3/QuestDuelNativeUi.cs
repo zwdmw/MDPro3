@@ -21,11 +21,27 @@ namespace MDPro3
         private const float FloorHudScale = 0.020f;
         private const float CardInfoScale = 0.021f;
         private const float DuelLogPanelScale = 0.026f;
+        private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 5f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const int CardGridPageSize = 12;
+        private const int CardGridColumns = 6;
+        private const float CardGridItemWidth = 236f;
+        private const float CardGridItemHeight = 346f;
+        private const float CardGridCardWidth = 224f;
+        private const float CardGridCardHeight = 315f;
+        private const float CardGridColumnSpacing = 238f;
+        private const float CardGridRowSpacing = 402f;
+        private const float CardGridRowOffsetX = 68f;
+        private const float CardGridFanAngle = 7.8f;
+        private const float CardGridCurveDrop = 34f;
         private const int MaxPresentationLogLines = 7;
+        private const float CardGridFloatAmplitude = 18f;
+        private const float CardGridFloatSelectedLift = 46f;
+        private const float CardGridFloatDetailLift = 22f;
+        private const float CardGridFloatHoverLift = 118f;
+        private const float CardGridHoverScaleBoost = 0.34f;
         private static readonly Vector3 DuelWorldCenterOnGround = new Vector3(0f, -0.005f, -1.5f);
 
         private Camera xrCamera;
@@ -50,6 +66,7 @@ namespace MDPro3
         private readonly HashSet<GameCard> selectedCards = new HashSet<GameCard>();
         private readonly List<GameCard> selectedOrder = new List<GameCard>();
         private readonly Dictionary<GameCard, Image> cardItemBackgrounds = new Dictionary<GameCard, Image>();
+        private readonly Dictionary<GameCard, QuestFloatingCardGridItem> cardItemFloaters = new Dictionary<GameCard, QuestFloatingCardGridItem>();
         private string cardHint;
         private int cardMin;
         private int cardMax;
@@ -304,6 +321,7 @@ namespace MDPro3
             selectedCards.Clear();
             selectedOrder.Clear();
             cardItemBackgrounds.Clear();
+            cardItemFloaters.Clear();
             foreach (var card in sourceCards)
                 if (card != null)
                     cards.Add(card);
@@ -335,6 +353,7 @@ namespace MDPro3
             selectedCards.Clear();
             selectedOrder.Clear();
             cardItemBackgrounds.Clear();
+            cardItemFloaters.Clear();
             foreach (var card in sourceCards)
                 if (card != null)
                     cards.Add(card);
@@ -427,14 +446,17 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestCardSelectionPanel", out cardPanelCanvas, out cardPanelRect);
-            cardPanelRect.sizeDelta = new Vector2(1820f, 980f);
-            AddPanelBackground(canvasObject, new Color(0.015f, 0.019f, 0.026f, 0.96f));
+            cardPanelRect.sizeDelta = new Vector2(2440f, 1240f);
+            AddPanelBackground(canvasObject, new Color(0f, 0f, 0f, 0f));
+            var panelBackground = canvasObject.GetComponent<Image>();
+            if (panelBackground != null)
+                panelBackground.raycastTarget = false;
 
-            cardTitleText = CreateText("Title", cardPanelRect, new Vector2(32f, -28f), new Vector2(1160f, 56f), 38f, TextAlignmentOptions.Left);
-            cardCountText = CreateText("Count", cardPanelRect, new Vector2(1190f, -32f), new Vector2(260f, 48f), 26f, TextAlignmentOptions.Right);
-            cardPageText = CreateText("Page", cardPanelRect, new Vector2(690f, -900f), new Vector2(300f, 44f), 24f, TextAlignmentOptions.Center);
+            cardTitleText = CreateText("Title", cardPanelRect, new Vector2(80f, -38f), new Vector2(1360f, 56f), 38f, TextAlignmentOptions.Left);
+            cardCountText = CreateText("Count", cardPanelRect, new Vector2(1460f, -42f), new Vector2(230f, 48f), 26f, TextAlignmentOptions.Right);
+            cardPageText = CreateText("Page", cardPanelRect, new Vector2(760f, -1104f), new Vector2(300f, 44f), 24f, TextAlignmentOptions.Center);
 
-            cardGridRoot = CreateRect("CardGrid", cardPanelRect, new Vector2(32f, -104f), new Vector2(1060f, 760f), new Vector2(0f, 1f));
+            cardGridRoot = CreateRect("FloatingCardFan", cardPanelRect, new Vector2(84f, -172f), new Vector2(1600f, 900f), new Vector2(0f, 1f));
 
             cardPreviousButton = CreateButton("Prev", cardPanelRect, new Vector2(405f, -892f), new Vector2(180f, 58f), "上一页", () =>
             {
@@ -454,12 +476,12 @@ namespace MDPro3
                 }
             });
 
-            var detailRoot = CreateRect("Detail", cardPanelRect, new Vector2(1135f, -102f), new Vector2(650f, 768f), new Vector2(0f, 1f));
-            AddRectBackground(detailRoot, new Color(0.035f, 0.045f, 0.057f, 0.96f));
-            detailImage = CreateRawImage("DetailImage", detailRoot, new Vector2(24f, -24f), new Vector2(260f, 364f));
-            detailNameText = CreateText("DetailName", detailRoot, new Vector2(304f, -28f), new Vector2(320f, 92f), 29f, TextAlignmentOptions.TopLeft);
-            detailMetaText = CreateText("DetailMeta", detailRoot, new Vector2(304f, -130f), new Vector2(320f, 86f), 22f, TextAlignmentOptions.TopLeft);
-            detailDescriptionText = CreateText("DetailDescription", detailRoot, new Vector2(24f, -420f), new Vector2(600f, 320f), 22f, TextAlignmentOptions.TopLeft);
+            var detailRoot = CreateRect("FloatingDetail", cardPanelRect, new Vector2(1780f, -136f), new Vector2(560f, 760f), new Vector2(0f, 1f));
+            AddRectBackground(detailRoot, new Color(0.018f, 0.024f, 0.032f, 0.54f));
+            detailImage = CreateRawImage("DetailImage", detailRoot, new Vector2(24f, -24f), new Vector2(236f, 330f));
+            detailNameText = CreateText("DetailName", detailRoot, new Vector2(284f, -28f), new Vector2(252f, 112f), 31f, TextAlignmentOptions.TopLeft);
+            detailMetaText = CreateText("DetailMeta", detailRoot, new Vector2(284f, -154f), new Vector2(252f, 98f), 23f, TextAlignmentOptions.TopLeft);
+            detailDescriptionText = CreateText("DetailDescription", detailRoot, new Vector2(24f, -390f), new Vector2(512f, 292f), 23f, TextAlignmentOptions.TopLeft);
             detailDescriptionText.enableWordWrapping = true;
             detailDescriptionText.overflowMode = TextOverflowModes.Truncate;
 
@@ -525,7 +547,7 @@ namespace MDPro3
             {
                 var canvasObject = CreateCanvasObject("QuestDuelPhaseHud", out phaseHudCanvas, out phaseHudRect);
                 phaseHudRect.sizeDelta = new Vector2(850f, 290f);
-                AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.020f, 0.92f));
+                AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.020f, 0.78f));
                 lifeHudText = CreateText("LifeText", phaseHudRect, new Vector2(34f, -24f), new Vector2(390f, 220f), 48f, TextAlignmentOptions.Left);
                 phaseHudText = CreateText("PhaseText", phaseHudRect, new Vector2(455f, -34f), new Vector2(340f, 190f), 38f, TextAlignmentOptions.Left);
                 canvasObject.SetActive(false);
@@ -535,7 +557,7 @@ namespace MDPro3
             {
                 var controlObject = CreateCanvasObject("QuestDuelControlHud", out controlHudCanvas, out controlHudRect);
                 controlHudRect.sizeDelta = new Vector2(780f, 430f);
-                AddPanelBackground(controlObject, new Color(0.010f, 0.014f, 0.020f, 0.94f));
+                AddPanelBackground(controlObject, new Color(0.010f, 0.014f, 0.020f, 0.80f));
                 phaseHudButtonRoot = CreateRect("PhaseButtons", controlHudRect, new Vector2(34f, -34f), new Vector2(712f, 160f), new Vector2(0f, 1f));
                 systemHudButtonRoot = CreateRect("SystemButtons", controlHudRect, new Vector2(34f, -226f), new Vector2(712f, 150f), new Vector2(0f, 1f));
                 controlObject.SetActive(false);
@@ -602,7 +624,7 @@ namespace MDPro3
 
             var canvasObject = CreateCanvasObject("QuestDuelLogPanel", out duelLogCanvas, out duelLogRect);
             duelLogRect.sizeDelta = new Vector2(980f, 500f);
-            AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.019f, 0.92f));
+            AddPanelBackground(canvasObject, new Color(0.010f, 0.014f, 0.019f, 0.74f));
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
@@ -966,13 +988,14 @@ namespace MDPro3
             EnsureCardPanel();
             ClearRows(cardGridItems);
             cardItemBackgrounds.Clear();
+            cardItemFloaters.Clear();
             var start = cardPage * CardGridPageSize;
             var end = Mathf.Min(cards.Count, start + CardGridPageSize);
             for (var index = start; index < end; index += 1)
             {
                 var local = index - start;
-                var column = local % 4;
-                var row = local / 4;
+                var column = local % CardGridColumns;
+                var row = local / CardGridColumns;
                 var card = cards[index];
                 var item = CreateCardGridItem(card, column, row);
                 cardGridItems.Add(item);
@@ -991,11 +1014,26 @@ namespace MDPro3
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(0f, 1f);
             rect.pivot = new Vector2(0f, 1f);
-            rect.sizeDelta = new Vector2(238f, 222f);
-            rect.anchoredPosition = new Vector2(column * 258f, -row * 246f);
+            rect.sizeDelta = new Vector2(CardGridItemWidth, CardGridItemHeight);
+            var basePosition = ResolveFloatingCardGridPosition(column, row);
+            var baseRotation = ResolveFloatingCardGridRotation(column, row);
+            rect.anchoredPosition = basePosition;
+            rect.localRotation = Quaternion.Euler(0f, 0f, baseRotation);
+            var floater = item.AddComponent<QuestFloatingCardGridItem>();
+            floater.Configure(
+                rect,
+                basePosition,
+                baseRotation,
+                Mathf.Abs(card == null ? column + row * CardGridColumns : card.md5 % 997) * 0.017f,
+                CardGridFloatAmplitude,
+                CardGridFloatSelectedLift,
+                CardGridFloatDetailLift,
+                CardGridFloatHoverLift);
+            if (card != null)
+                cardItemFloaters[card] = floater;
 
             var image = item.GetComponent<Image>();
-            image.color = new Color(0.05f, 0.064f, 0.078f, 0.98f);
+            image.color = new Color(0f, 0f, 0f, 0.01f);
             image.raycastTarget = true;
             cardItemBackgrounds[card] = image;
 
@@ -1003,16 +1041,40 @@ namespace MDPro3
             button.targetGraphic = image;
             button.onClick.AddListener(() => OnCardGridItemClicked(card));
 
-            var face = CreateRawImage("Face", rect, new Vector2(14f, -12f), new Vector2(112f, 156f));
-            var name = CreateText("Name", rect, new Vector2(136f, -16f), new Vector2(86f, 118f), 18f, TextAlignmentOptions.TopLeft);
-            name.enableWordWrapping = true;
-            name.overflowMode = TextOverflowModes.Truncate;
-            name.text = GetCardName(card);
-            var meta = CreateText("Meta", rect, new Vector2(136f, -142f), new Vector2(86f, 58f), 16f, TextAlignmentOptions.TopLeft);
-            meta.enableWordWrapping = true;
-            meta.text = GetShortCardMeta(card);
-            StartCoroutine(LoadCardTexture(face, card == null ? 0 : card.GetData().Id));
+            var shadow = CreateRect("FloatShadow", rect, new Vector2(34f, -328f), new Vector2(162f, 22f), new Vector2(0f, 1f));
+            AddRectBackground(shadow, new Color(0f, 0f, 0f, 0.34f));
+            var glowRect = CreateRect("HoverGlow", rect, new Vector2(-14f, 10f), new Vector2(CardGridCardWidth + 42f, CardGridCardHeight + 40f), new Vector2(0f, 1f));
+            AddRectBackground(glowRect, new Color(0.28f, 0.82f, 1f, 0f));
+            glowRect.SetAsFirstSibling();
+            var hoverGlow = glowRect.GetComponent<Image>();
+            var face = CreateRawImage("Face", rect, new Vector2(6f, -4f), new Vector2(CardGridCardWidth, CardGridCardHeight));
+            var hoverName = CreateText("HoverName", rect, new Vector2(-52f, -CardGridCardHeight - 54f), new Vector2(CardGridItemWidth + 104f, 46f), 25f, TextAlignmentOptions.Center);
+            hoverName.text = GetCardName(card);
+            hoverName.color = new Color(1f, 1f, 1f, 0f);
+            StartCoroutine(LoadCardTexture(face, card == null || card.GetData() == null ? 0 : card.GetData().Id));
+            floater.BindHoverVisuals(hoverGlow, hoverName, CardGridHoverScaleBoost, () =>
+            {
+                ShowCardDetail(card);
+                UpdateCardButtons();
+            });
             return item;
+        }
+
+        private static Vector2 ResolveFloatingCardGridPosition(int column, int row)
+        {
+            var center = (CardGridColumns - 1) * 0.5f;
+            var offset = column - center;
+            var x = column * CardGridColumnSpacing + row * CardGridRowOffsetX;
+            var y = -row * CardGridRowSpacing - offset * offset * CardGridCurveDrop;
+            return new Vector2(x, y);
+        }
+
+        private static float ResolveFloatingCardGridRotation(int column, int row)
+        {
+            var center = (CardGridColumns - 1) * 0.5f;
+            var offset = column - center;
+            var rowTilt = row == 0 ? 1.0f : 0.74f;
+            return -offset * CardGridFanAngle * rowTilt;
         }
 
         private void OnCardGridItemClicked(GameCard card)
@@ -1101,14 +1163,21 @@ namespace MDPro3
                     continue;
 
                 if (card == detailCard)
-                    image.color = new Color(0.12f, 0.28f, 0.38f, 0.98f);
+                    image.color = new Color(0.10f, 0.32f, 0.45f, 0.28f);
                 else
-                    image.color = new Color(0.05f, 0.064f, 0.078f, 0.98f);
+                    image.color = new Color(0f, 0f, 0f, 0.01f);
 
                 if (selectedCards.Contains(card))
-                    image.color = new Color(0.16f, 0.46f, 0.30f, 0.98f);
+                    image.color = new Color(0.12f, 0.82f, 0.44f, 0.34f);
                 if (IsForcedSelectedCard(card))
-                    image.color = new Color(0.40f, 0.30f, 0.12f, 0.98f);
+                    image.color = new Color(1f, 0.70f, 0.18f, 0.38f);
+
+                if (cardItemFloaters.TryGetValue(card, out var floater) && floater != null)
+                    floater.SetState(
+                        selectedCards.Contains(card),
+                        card == detailCard,
+                        IsForcedSelectedCard(card),
+                        cardReadOnly);
             }
         }
 
@@ -1482,7 +1551,7 @@ namespace MDPro3
                 return;
 
             if (cardPanelRect != null && cardPanelCanvas.gameObject.activeSelf)
-                PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 9.8f, -24f), PanelScale);
+                PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 10.8f, -18f), CardSelectorScale);
             if (cardInfoRect != null && cardInfoCanvas.gameObject.activeSelf)
                 PlacePanel(cardInfoRect, DuelWorldCenterOnGround + new Vector3(30f, 9.8f, -8f), CardInfoScale);
             if (optionRect != null && optionCanvas.gameObject.activeSelf)
@@ -1490,11 +1559,11 @@ namespace MDPro3
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
                 PlacePanel(phaseMenuRect, DuelWorldCenterOnGround + new Vector3(0f, 8.4f, -18f), SmallPanelScale);
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
-                PlacePanel(phaseHudRect, DuelWorldCenterOnGround + new Vector3(72f, 24.2f, -11f), FloorHudScale);
+                PlacePanel(phaseHudRect, DuelWorldCenterOnGround + new Vector3(86f, 21.5f, -16f), FloorHudScale);
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
-                PlacePanel(controlHudRect, DuelWorldCenterOnGround + new Vector3(34f, 12.8f, -44f), FloorHudScale);
+                PlacePanel(controlHudRect, DuelWorldCenterOnGround + new Vector3(46f, 12.6f, -50f), FloorHudScale);
             if (duelLogRect != null && duelLogCanvas.gameObject.activeSelf)
-                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(72f, 16.2f, 2f), DuelLogPanelScale);
+                PlacePanel(duelLogRect, DuelWorldCenterOnGround + new Vector3(86f, 13.2f, 10f), DuelLogPanelScale);
         }
 
         private Vector3 ResolveOptionPanelPosition()
@@ -1897,6 +1966,167 @@ namespace MDPro3
         private static string SanitizeText(string text)
         {
             return string.IsNullOrEmpty(text) ? string.Empty : text.Replace("\r", string.Empty);
+        }
+
+        private sealed class QuestFloatingCardGridItem : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+        {
+            private RectTransform rect;
+            private Vector2 baseAnchoredPosition;
+            private Vector3 baseScale = Vector3.one;
+            private float baseRotationZ;
+            private float phase;
+            private float amplitude;
+            private float selectedLift;
+            private float detailLift;
+            private float hoverLift;
+            private float hoverScaleBoost;
+            private float hoverBlend;
+            private Image hoverGlow;
+            private TextMeshProUGUI hoverName;
+            private Action hoverAction;
+            private int originalSiblingIndex = -1;
+            private bool restoreSiblingWhenSettled;
+            private bool selected;
+            private bool detail;
+            private bool forced;
+            private bool readOnly;
+            private bool pointerHovered;
+
+            public void Configure(
+                RectTransform rectTransform,
+                Vector2 basePosition,
+                float baseRotationDegrees,
+                float phaseOffset,
+                float bobAmplitude,
+                float selectedLiftAmount,
+                float detailLiftAmount,
+                float hoverLiftAmount)
+            {
+                rect = rectTransform;
+                baseAnchoredPosition = basePosition;
+                baseScale = rect == null ? Vector3.one : rect.localScale;
+                baseRotationZ = baseRotationDegrees;
+                phase = phaseOffset;
+                amplitude = bobAmplitude;
+                selectedLift = selectedLiftAmount;
+                detailLift = detailLiftAmount;
+                hoverLift = hoverLiftAmount;
+            }
+
+            public void BindHoverVisuals(Image glowImage, TextMeshProUGUI nameText, float scaleBoost, Action onHovered)
+            {
+                hoverGlow = glowImage;
+                hoverName = nameText;
+                hoverAction = onHovered;
+                hoverScaleBoost = Mathf.Max(0f, scaleBoost);
+                SetHoverVisualAlpha(0f);
+            }
+
+            public void SetState(bool isSelected, bool isDetail, bool isForced, bool isReadOnly)
+            {
+                selected = isSelected;
+                detail = isDetail;
+                forced = isForced;
+                readOnly = isReadOnly;
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                pointerHovered = true;
+                hoverAction?.Invoke();
+                restoreSiblingWhenSettled = false;
+                if (rect != null)
+                {
+                    originalSiblingIndex = rect.GetSiblingIndex();
+                    rect.SetAsLastSibling();
+                }
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                pointerHovered = false;
+                restoreSiblingWhenSettled = true;
+            }
+
+            private void OnDisable()
+            {
+                pointerHovered = false;
+                restoreSiblingWhenSettled = false;
+                hoverBlend = 0f;
+                SetHoverVisualAlpha(0f);
+                if (rect != null)
+                {
+                    rect.anchoredPosition = baseAnchoredPosition;
+                    rect.localRotation = Quaternion.Euler(0f, 0f, baseRotationZ);
+                    rect.localScale = baseScale;
+                }
+            }
+
+            private void Update()
+            {
+                if (rect == null)
+                    return;
+
+                var lift = 0f;
+                if (selected || forced)
+                    lift += selectedLift + (forced ? 8f : 0f);
+                if (detail && !selected && !forced)
+                    lift += detailLift;
+                if (pointerHovered)
+                    lift += hoverLift;
+
+                hoverBlend = Mathf.MoveTowards(hoverBlend, pointerHovered ? 1f : 0f, Time.unscaledDeltaTime * 7.5f);
+                var bob = Mathf.Sin(Time.unscaledTime * 2.35f + phase) * amplitude;
+                var targetPosition = baseAnchoredPosition + new Vector2(0f, lift + bob);
+                var scale = 1f
+                    + ((selected || forced) ? 0.065f : 0f)
+                    + (detail ? 0.028f : 0f)
+                    + hoverBlend * hoverScaleBoost
+                    + (readOnly ? -0.012f : 0f);
+                var delta = Mathf.Clamp01(Time.unscaledDeltaTime * 12f);
+                var targetRotationZ = hoverBlend > 0.01f || selected || forced
+                    ? Mathf.Lerp(baseRotationZ, 0f, Mathf.Lerp(0.58f, 0.88f, hoverBlend))
+                    : baseRotationZ;
+                rect.anchoredPosition = Vector2.Lerp(rect.anchoredPosition, targetPosition, delta);
+                rect.localRotation = Quaternion.Slerp(rect.localRotation, Quaternion.Euler(0f, 0f, targetRotationZ), delta);
+                rect.localScale = Vector3.Lerp(rect.localScale, baseScale * scale, delta);
+                SetHoverVisualAlpha(hoverBlend);
+
+                if (restoreSiblingWhenSettled && hoverBlend <= 0.01f)
+                {
+                    RestoreSiblingIndex();
+                    restoreSiblingWhenSettled = false;
+                }
+            }
+
+            private void RestoreSiblingIndex()
+            {
+                if (rect == null || originalSiblingIndex < 0)
+                    return;
+
+                var parent = rect.parent;
+                if (parent == null)
+                    return;
+
+                rect.SetSiblingIndex(Mathf.Clamp(originalSiblingIndex, 0, parent.childCount - 1));
+            }
+
+            private void SetHoverVisualAlpha(float alpha)
+            {
+                if (hoverGlow != null)
+                {
+                    var color = hoverGlow.color;
+                    color.a = 0.38f * alpha;
+                    hoverGlow.color = color;
+                }
+
+                if (hoverName != null)
+                {
+                    var color = hoverName.color;
+                    color.a = 0.94f * alpha;
+                    hoverName.color = color;
+                }
+            }
         }
 
         private static void SetQuestOverlayLayer(GameObject target)

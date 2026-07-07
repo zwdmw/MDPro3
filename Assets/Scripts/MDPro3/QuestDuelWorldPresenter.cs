@@ -368,13 +368,20 @@ namespace MDPro3
 
     public sealed class QuestDuelWorldPresenter : MonoBehaviour
     {
+        private enum QuestCardInteractionState
+        {
+            None,
+            Actionable,
+            SelectionTarget
+        }
+
         private const int FallbackQuestOverlayLayer = 24;
         private const float CardWidth = 5.05f;
         private const float CardHeight = 7.12f;
         private const float CardThickness = 0.14f;
         private const float TableCardY = 0.52f;
-        private const float HandCardY = 7.0f;
-        private const float PlayerHandMaxNearZ = -34f;
+        private const float HandCardY = 7.8f;
+        private const float PlayerHandMaxNearZ = -42f;
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
@@ -387,6 +394,11 @@ namespace MDPro3
         private const float ActionMarkerBaseWidth = CardWidth * 0.52f;
         private const float ActionMarkerBaseDepth = 0.22f;
         private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
+        private const float ActionableCardLift = 0.62f;
+        private const float SelectionTargetCardLift = 1.35f;
+        private const float HoveredCardLift = 0.32f;
+        private const float ActionableCardBob = 0.11f;
+        private const float SelectionTargetCardBob = 0.24f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
@@ -414,6 +426,7 @@ namespace MDPro3
         private readonly List<PresentationTransient> presentationTransients = new List<PresentationTransient>();
         private readonly List<GameCard> visibleCards = new List<GameCard>();
         private readonly List<GameCard> staleCards = new List<GameCard>();
+        private GameCard hoveredCard;
         private float lastDiagnosticsTime;
         private float lastDebugCaptureTime;
         private int automaticDebugCaptureCount;
@@ -492,6 +505,11 @@ namespace MDPro3
 
             card = hit.Card;
             return true;
+        }
+
+        public void SetHoveredCard(GameCard card)
+        {
+            hoveredCard = card;
         }
 
         public bool TryGetCardWorldBounds(GameCard card, out Bounds bounds)
@@ -1175,7 +1193,9 @@ namespace MDPro3
             if (cardMono != null)
                 cardMono.cookieCard = card;
 
+            var interactionState = ResolveQuestCardInteractionState(card);
             var localPosition = ResolveQuestCardLocalPosition(card);
+            localPosition = ApplyQuestCardInteractionLift(localPosition, card, interactionState, card == hoveredCard);
             var localRotation = ResolveQuestCardLocalRotation(card);
             var localScale = GameCard.GetCardScale(card.p);
             proxy.Transform.localPosition = localPosition;
@@ -1185,7 +1205,7 @@ namespace MDPro3
             var knownFace = ShouldShowKnownFace(card);
             proxy.Front.SetActive(knownFace);
             proxy.Back.SetActive(!knownFace);
-            UpdateInteractionHintProxy(proxy, card);
+            UpdateInteractionHintProxy(proxy, card, interactionState);
 
             if (knownFace)
                 EnsureProxyFaceTexture(proxy, card.GetData().Id);
@@ -1194,16 +1214,16 @@ namespace MDPro3
             UpdatePowerLabel(proxy, card);
         }
 
-        private void UpdateInteractionHintProxy(QuestCardProxy proxy, GameCard card)
+        private void UpdateInteractionHintProxy(QuestCardProxy proxy, GameCard card, QuestCardInteractionState state)
         {
             if (proxy == null || card == null)
                 return;
 
-            var selectable = IsQuestFieldSelectionTarget(card);
-            var actionable = !selectable && IsQuestActionableCard(card);
-            SetInteractionObject(proxy.Highlight, selectable, 0.26f, 0.18f);
+            var selectable = state == QuestCardInteractionState.SelectionTarget;
+            var actionable = state == QuestCardInteractionState.Actionable;
+            SetInteractionObject(proxy.Highlight, false, 0f, 0f);
             SetActionMarkerObject(proxy.ActionHighlight, actionable);
-            SetInteractionObject(proxy.TargetHighlight, selectable, 0.54f, 0.30f);
+            SetTargetMarkerObject(proxy.TargetHighlight, selectable);
 
             if (proxy.InteractionLabelRoot == null || proxy.InteractionLabelText == null)
                 return;
@@ -1217,6 +1237,50 @@ namespace MDPro3
             proxy.InteractionLabelText.text = "\u9009\u62e9\u76ee\u6807";
             proxy.InteractionLabelText.color = new Color(0.35f, 1f, 0.82f, 1f);
             FaceTextToCamera(proxy.InteractionLabelRoot.transform);
+        }
+
+        private static QuestCardInteractionState ResolveQuestCardInteractionState(GameCard card)
+        {
+            if (IsQuestFieldSelectionTarget(card))
+                return QuestCardInteractionState.SelectionTarget;
+            if (IsQuestActionableCard(card))
+                return QuestCardInteractionState.Actionable;
+            return QuestCardInteractionState.None;
+        }
+
+        private static Vector3 ApplyQuestCardInteractionLift(
+            Vector3 localPosition,
+            GameCard card,
+            QuestCardInteractionState state,
+            bool hovered)
+        {
+            var lift = 0f;
+            var bob = 0f;
+            var speed = 0f;
+            switch (state)
+            {
+                case QuestCardInteractionState.SelectionTarget:
+                    lift = SelectionTargetCardLift;
+                    bob = SelectionTargetCardBob;
+                    speed = 3.3f;
+                    break;
+                case QuestCardInteractionState.Actionable:
+                    lift = ActionableCardLift;
+                    bob = ActionableCardBob;
+                    speed = 2.8f;
+                    break;
+            }
+
+            if (hovered)
+                lift += HoveredCardLift;
+
+            if (lift <= 0f)
+                return localPosition;
+
+            var phase = Mathf.Abs(card == null ? 0 : card.md5 % 997) * 0.031f;
+            var pulse = bob <= 0f ? 0f : (Mathf.Sin(Time.unscaledTime * speed + phase) + 1f) * 0.5f * bob;
+            localPosition.y += lift + pulse;
+            return localPosition;
         }
 
         private static void SetInteractionObject(GameObject target, bool active, float baseExpand, float pulseExpand)
@@ -1250,6 +1314,24 @@ namespace MDPro3
                 ActionMarkerBaseWidth + pulse * 0.34f,
                 0.014f,
                 ActionMarkerBaseDepth + pulse * 0.055f);
+        }
+
+        private static void SetTargetMarkerObject(GameObject target, bool active)
+        {
+            if (target == null)
+                return;
+
+            if (target.activeSelf != active)
+                target.SetActive(active);
+            if (!active)
+                return;
+
+            var pulse = (Mathf.Sin(Time.unscaledTime * 5.9f) + 1f) * 0.5f;
+            target.transform.localPosition = new Vector3(0f, CardThickness + 0.028f, ActionMarkerZ);
+            target.transform.localScale = new Vector3(
+                CardWidth * 0.76f + pulse * 0.42f,
+                0.016f,
+                ActionMarkerBaseDepth * 1.18f + pulse * 0.07f);
         }
 
         private static bool IsQuestActionableCard(GameCard card)
