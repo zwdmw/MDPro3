@@ -172,10 +172,13 @@ namespace MDPro3
         private Material duelArenaLineMaterial;
         private Material worldCanvasPanelMaterial;
         private Material uiRenderPanelMaterial;
+        private Material uiRenderPanelBackdropMaterial;
         private Transform duelArenaRoot;
         private RenderTexture uiRenderTexture;
         private GameObject uiRenderPanel;
+        private GameObject uiRenderPanelBackdrop;
         private MeshRenderer uiRenderPanelRenderer;
+        private MeshRenderer uiRenderPanelBackdropRenderer;
         private int uiRenderTextureWidth;
         private int uiRenderTextureHeight;
         private bool uiRenderPanelLogged;
@@ -758,6 +761,8 @@ namespace MDPro3
                 Destroy(worldCanvasPanelMaterial);
             if (uiRenderPanelMaterial != null)
                 Destroy(uiRenderPanelMaterial);
+            if (uiRenderPanelBackdropMaterial != null)
+                Destroy(uiRenderPanelBackdropMaterial);
             if (uiRenderTexture != null)
             {
                 uiRenderTexture.Release();
@@ -2963,9 +2968,9 @@ namespace MDPro3
             uiRenderPanelMaterial = CreateColorMaterial(
                 "Quest UI Render Panel Material",
                 Color.white,
-                true);
+                false);
             SetMaterialTexture(uiRenderPanelMaterial, uiRenderTexture);
-            ConfigureAlwaysVisibleOverlayMaterial(uiRenderPanelMaterial);
+            ConfigureUiRenderPanelMaterial(uiRenderPanelMaterial);
 
             uiRenderPanel = new GameObject("QuestUiRenderPanel");
             uiRenderPanel.AddComponent<MeshFilter>().sharedMesh = CreateUiRenderPanelMesh();
@@ -2980,6 +2985,7 @@ namespace MDPro3
                 uiRenderPanelRenderer.shadowCastingMode = ShadowCastingMode.Off;
                 uiRenderPanelRenderer.receiveShadows = false;
             }
+            EnsureUiRenderPanelBackdrop();
         }
 
         private void RepairUiRenderPanelRenderer()
@@ -2997,17 +3003,73 @@ namespace MDPro3
                 uiRenderPanelMaterial = CreateColorMaterial(
                     "Quest UI Render Panel Material",
                     Color.white,
-                    true);
-                ConfigureAlwaysVisibleOverlayMaterial(uiRenderPanelMaterial);
+                    false);
             }
 
             SetMaterialTexture(uiRenderPanelMaterial, uiRenderTexture);
+            ConfigureUiRenderPanelMaterial(uiRenderPanelMaterial);
             if (uiRenderPanelRenderer.sharedMaterial != uiRenderPanelMaterial)
                 uiRenderPanelRenderer.sharedMaterial = uiRenderPanelMaterial;
             if (!uiRenderPanelRenderer.enabled)
                 uiRenderPanelRenderer.enabled = true;
             uiRenderPanelRenderer.shadowCastingMode = ShadowCastingMode.Off;
             uiRenderPanelRenderer.receiveShadows = false;
+            EnsureUiRenderPanelBackdrop();
+            RepairUiRenderPanelBackdrop();
+        }
+
+        private void EnsureUiRenderPanelBackdrop()
+        {
+            if (uiRenderPanel == null || uiRenderPanelBackdrop != null)
+                return;
+
+            if (uiRenderPanelBackdropMaterial == null)
+            {
+                uiRenderPanelBackdropMaterial = CreateColorMaterial(
+                    "Quest UI Render Panel Backdrop Material",
+                    new Color(0.006f, 0.010f, 0.014f, 1f),
+                    false);
+                ConfigureUiRenderPanelBackdropMaterial(uiRenderPanelBackdropMaterial);
+            }
+
+            uiRenderPanelBackdrop = new GameObject("QuestUiRenderPanelBackdrop");
+            uiRenderPanelBackdrop.transform.SetParent(uiRenderPanel.transform, false);
+            uiRenderPanelBackdrop.transform.localPosition = new Vector3(0f, 0f, 0.018f);
+            uiRenderPanelBackdrop.transform.localRotation = Quaternion.identity;
+            uiRenderPanelBackdrop.transform.localScale = new Vector3(1.025f, 1.025f, 1f);
+            uiRenderPanelBackdrop.AddComponent<MeshFilter>().sharedMesh = CreateUiRenderPanelMesh();
+            uiRenderPanelBackdrop.AddComponent<MeshRenderer>();
+            SetQuestOverlayLayer(uiRenderPanelBackdrop);
+
+            uiRenderPanelBackdropRenderer = uiRenderPanelBackdrop.GetComponent<MeshRenderer>();
+            RepairUiRenderPanelBackdrop();
+        }
+
+        private void RepairUiRenderPanelBackdrop()
+        {
+            if (uiRenderPanelBackdrop == null)
+                return;
+
+            if (uiRenderPanelBackdropRenderer == null)
+                uiRenderPanelBackdropRenderer = uiRenderPanelBackdrop.GetComponent<MeshRenderer>();
+            if (uiRenderPanelBackdropRenderer == null)
+                return;
+
+            if (uiRenderPanelBackdropMaterial == null)
+            {
+                uiRenderPanelBackdropMaterial = CreateColorMaterial(
+                    "Quest UI Render Panel Backdrop Material",
+                    new Color(0.006f, 0.010f, 0.014f, 1f),
+                    false);
+            }
+
+            ConfigureUiRenderPanelBackdropMaterial(uiRenderPanelBackdropMaterial);
+            if (uiRenderPanelBackdropRenderer.sharedMaterial != uiRenderPanelBackdropMaterial)
+                uiRenderPanelBackdropRenderer.sharedMaterial = uiRenderPanelBackdropMaterial;
+            if (!uiRenderPanelBackdropRenderer.enabled)
+                uiRenderPanelBackdropRenderer.enabled = true;
+            uiRenderPanelBackdropRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            uiRenderPanelBackdropRenderer.receiveShadows = false;
         }
 
         private static Mesh CreateUiRenderPanelMesh()
@@ -6604,6 +6666,63 @@ namespace MDPro3
                 material.SetFloat("_ZTest", (float)CompareFunction.Always);
             if (material.HasProperty("_Cull"))
                 material.SetFloat("_Cull", 0f);
+        }
+
+        private static void ConfigureUiRenderPanelMaterial(Material material)
+        {
+            if (material == null)
+                return;
+
+            ConfigureAlwaysVisibleOverlayMaterial(material);
+            material.renderQueue = 4990;
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", Color.white);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", Color.white);
+            if (material.HasProperty("_Surface"))
+                material.SetFloat("_Surface", 0f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend", (float)BlendMode.One);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend", (float)BlendMode.Zero);
+            if (material.HasProperty("_ZWrite"))
+                material.SetFloat("_ZWrite", 0f);
+            if (material.HasProperty("_ZTest"))
+                material.SetFloat("_ZTest", (float)CompareFunction.Always);
+            if (material.HasProperty("_Cull"))
+                material.SetFloat("_Cull", 0f);
+            material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.DisableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        }
+
+        private static void ConfigureUiRenderPanelBackdropMaterial(Material material)
+        {
+            if (material == null)
+                return;
+
+            ConfigureAlwaysVisibleOverlayMaterial(material);
+            material.renderQueue = 4980;
+            var color = new Color(0.006f, 0.010f, 0.014f, 1f);
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", color);
+            if (material.HasProperty("_Surface"))
+                material.SetFloat("_Surface", 0f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend", (float)BlendMode.One);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend", (float)BlendMode.Zero);
+            if (material.HasProperty("_ZWrite"))
+                material.SetFloat("_ZWrite", 0f);
+            if (material.HasProperty("_ZTest"))
+                material.SetFloat("_ZTest", (float)CompareFunction.Always);
+            if (material.HasProperty("_Cull"))
+                material.SetFloat("_Cull", 0f);
+            material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.DisableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
         }
 
         private static int GetQuestOverlayLayer()
