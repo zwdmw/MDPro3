@@ -1981,8 +1981,7 @@ namespace MDPro3
 
         private int ResolveQuestCullingMask()
         {
-            if (QuestNativeDuelFrontendOnly
-                && ShouldEarlySuppressQuestDuelPresentation(Program.instance == null ? null : Program.instance.container_3D))
+            if (ShouldSuppressQuestNativeDuelFrontendNow())
                 return 1 << GetQuestOverlayLayer();
 
             var mask = ~0;
@@ -2248,17 +2247,17 @@ namespace MDPro3
             if (!QuestNativeDuelFrontendOnly || Program.instance == null)
                 return;
 
-            var duelContainer = Program.instance.container_3D;
-            if (!ShouldEarlySuppressQuestDuelPresentation(duelContainer))
+            if (!ShouldSuppressQuestNativeDuelFrontendNow())
                 return;
 
-            if (earlySuppressedDuelContainer != duelContainer)
+            var duelContainer = Program.instance.container_3D;
+            if (duelContainer != null && earlySuppressedDuelContainer != duelContainer)
             {
                 earlySuppressedDuelContainer = duelContainer;
                 earlyDuelSuppressionLogged = false;
             }
 
-            var hiddenRenderers = SuppressLegacyDuelContainerImmediately(duelContainer);
+            var hiddenRenderers = duelContainer == null ? 0 : SuppressLegacyDuelContainerImmediately(duelContainer);
             var disabledCameras = ForceMdproDuelCamerasOff();
             ApplyResolvedXrCullingMask();
 
@@ -2266,31 +2265,20 @@ namespace MDPro3
             {
                 Debug.LogFormat(
                     "Quest XR early duel presentation suppression active. Container={0}, RenderersHiddenNow={1}, CamerasDisabledNow={2}",
-                    GetTransformPath(duelContainer),
+                    duelContainer == null ? "<pending>" : GetTransformPath(duelContainer),
                     hiddenRenderers,
                     disabledCameras);
                 earlyDuelSuppressionLogged = true;
             }
         }
 
-        private static bool ShouldEarlySuppressQuestDuelPresentation(Transform duelContainer)
+        private static bool ShouldSuppressQuestNativeDuelFrontendNow()
         {
-            if (!QuestNativeDuelFrontendOnly || duelContainer == null || Program.instance == null)
+            if (!QuestNativeDuelFrontendOnly || Program.instance == null)
                 return false;
 
             var core = Program.instance.ocgcore;
-            if (!IsOcgCoreVisibleServant(core))
-                return false;
-            if (core.currentMessage != GameMessage.Waiting)
-                return true;
-            if (core.cards != null && core.cards.Count > 0)
-                return true;
-            if (core.turns > 0)
-                return true;
-            if (core.life0 > 0 || core.life1 > 0)
-                return true;
-
-            return false;
+            return IsOcgCoreVisibleServant(core);
         }
 
         private int ForceMdproDuelCamerasOff()

@@ -384,6 +384,9 @@ namespace MDPro3
         private const float InteractionLabelY = CardThickness + 1.18f;
         private const float InteractionLabelZ = 4.16f;
         private const float InteractionLabelScale = 0.42f;
+        private const float ActionMarkerBaseWidth = CardWidth * 0.52f;
+        private const float ActionMarkerBaseDepth = 0.22f;
+        private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
@@ -1199,20 +1202,20 @@ namespace MDPro3
             var selectable = IsQuestFieldSelectionTarget(card);
             var actionable = !selectable && IsQuestActionableCard(card);
             SetInteractionObject(proxy.Highlight, selectable, 0.26f, 0.18f);
-            SetInteractionObject(proxy.ActionHighlight, actionable, 0.12f, 0.10f);
+            SetActionMarkerObject(proxy.ActionHighlight, actionable);
             SetInteractionObject(proxy.TargetHighlight, selectable, 0.54f, 0.30f);
 
             if (proxy.InteractionLabelRoot == null || proxy.InteractionLabelText == null)
                 return;
 
-            var showLabel = selectable || actionable;
+            var showLabel = selectable;
             if (proxy.InteractionLabelRoot.activeSelf != showLabel)
                 proxy.InteractionLabelRoot.SetActive(showLabel);
             if (!showLabel)
                 return;
 
-            proxy.InteractionLabelText.text = selectable ? "\u9009\u62e9\u76ee\u6807" : "\u53ef\u64cd\u4f5c";
-            proxy.InteractionLabelText.color = selectable ? new Color(0.35f, 1f, 0.82f, 1f) : new Color(1f, 0.82f, 0.24f, 1f);
+            proxy.InteractionLabelText.text = "\u9009\u62e9\u76ee\u6807";
+            proxy.InteractionLabelText.color = new Color(0.35f, 1f, 0.82f, 1f);
             FaceTextToCamera(proxy.InteractionLabelRoot.transform);
         }
 
@@ -1229,6 +1232,24 @@ namespace MDPro3
             var pulse = (Mathf.Sin(Time.unscaledTime * 5.5f) + 1f) * 0.5f;
             var expand = baseExpand + pulse * pulseExpand;
             target.transform.localScale = new Vector3(CardWidth + expand, 0.012f, CardHeight + expand);
+        }
+
+        private static void SetActionMarkerObject(GameObject target, bool active)
+        {
+            if (target == null)
+                return;
+
+            if (target.activeSelf != active)
+                target.SetActive(active);
+            if (!active)
+                return;
+
+            var pulse = (Mathf.Sin(Time.unscaledTime * 5.5f) + 1f) * 0.5f;
+            target.transform.localPosition = new Vector3(0f, CardThickness + 0.022f, ActionMarkerZ);
+            target.transform.localScale = new Vector3(
+                ActionMarkerBaseWidth + pulse * 0.34f,
+                0.014f,
+                ActionMarkerBaseDepth + pulse * 0.055f);
         }
 
         private static bool IsQuestActionableCard(GameCard card)
@@ -1831,7 +1852,7 @@ namespace MDPro3
             if (actionHighlightMaterial != null)
                 return actionHighlightMaterial;
 
-            actionHighlightMaterial = CreateMaterial("QuestCardPlayableHighlightMaterial", new Color(1f, 0.72f, 0.12f, 0.34f), true);
+            actionHighlightMaterial = CreateMaterial("QuestCardPlayableHighlightMaterial", new Color(1f, 0.72f, 0.12f, 0.70f), true);
             return actionHighlightMaterial;
         }
 

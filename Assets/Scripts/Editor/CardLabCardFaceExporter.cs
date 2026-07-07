@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using MDPro3;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -14,12 +13,10 @@ public static class CardLabCardFaceExporter
     private static readonly List<int> Codes = new();
     private static string outputDir;
     private static string manifestPath;
-    private static double deadline;
-    private static bool started;
-    private static bool exiting;
 
     public static void Export()
     {
+        var outputs = new List<Dictionary<string, object>>();
         try
         {
             ParseArgs();
@@ -32,14 +29,53 @@ public static class CardLabCardFaceExporter
             if (!string.IsNullOrEmpty(manifestPath))
                 Directory.CreateDirectory(Path.GetDirectoryName(manifestPath));
 
-            deadline = EditorApplication.timeSinceStartup + 180.0;
             EditorSceneManager.OpenScene("Assets/Main.unity");
-            EditorApplication.update += Update;
-            EditorApplication.EnterPlaymode();
+            var program = UnityEngine.Object.FindObjectOfType<Program>();
+            if (program == null)
+                throw new InvalidOperationException("Program object was not found in Assets/Main.unity");
+            Program.instance = program;
+
+            var container = AssetDatabase.LoadAssetAtPath<TextureContainer>("Assets/ScriptableObjects/TextureContainer.asset");
+            if (container == null)
+                container = AssetDatabase.LoadAssetAtPath<TextureContainer>("Assets/Resources/AddressableAliases/TextureContainer.asset");
+            if (container == null)
+                throw new InvalidOperationException("TextureContainer asset was not found");
+
+            CardLabRuntimeBridge.Initialize(container);
+
+            foreach (var code in Codes.Distinct())
+            {
+                var art = LoadArt(code);
+                if (art == null)
+                    throw new InvalidOperationException($"Artwork was not found for {code}");
+
+                var tex = CardLabRuntimeBridge.RenderCardFace(code, art);
+                if (tex == null)
+                    throw new InvalidOperationException($"MDPro3 CardRenderer failed for {code}");
+
+                var size = Settings.Data.SavedCardSize;
+                if (size != null && size.Length > 1 && size[0] > 0 && size[1] > 0 && (size[0] != tex.width || size[1] != tex.height))
+                    tex = TextureManager.ResizeTexture2D(tex, size[0], size[1]);
+
+                var path = Path.Combine(outputDir, code + ".png");
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                outputs.Add(new Dictionary<string, object>
+                {
+                    ["card_id"] = code,
+                    ["path"] = path,
+                    ["width"] = tex.width,
+                    ["height"] = tex.height,
+                    ["found_art"] = true,
+                    ["render_succeed"] = true
+                });
+            }
+
+            WriteManifest(true, string.Empty, outputs);
+            EditorApplication.Exit(0);
         }
         catch (Exception ex)
         {
-            WriteManifest(false, ex.ToString(), new List<Dictionary<string, object>>());
+            WriteManifest(false, ex.ToString(), outputs);
             EditorApplication.Exit(1);
         }
     }
@@ -67,71 +103,22 @@ public static class CardLabCardFaceExporter
         }
     }
 
-    private static void Update()
+    private static Texture2D LoadArt(int code)
     {
-        if (exiting)
-            return;
-
-        if (EditorApplication.timeSinceStartup > deadline)
+        foreach (var folder in new[] { Program.altArtPath, Program.artPath, "Expansions/art/" })
         {
-            Finish(1, "Timed out waiting for MDPro3 renderer", new List<Dictionary<string, object>>());
-            return;
-        }
-
-        if (!EditorApplication.isPlaying || started)
-            return;
-
-        if (Program.instance == null || Program.instance.cardRenderer == null || TextureManager.container == null)
-            return;
-
-        started = true;
-        _ = ExportAsync();
-    }
-
-    private static async Task ExportAsync()
-    {
-        var outputs = new List<Dictionary<string, object>>();
-        try
-        {
-            await Task.Delay(500);
-            foreach (var code in Codes.Distinct())
+            foreach (var extension in new[] { Program.pngExpansion, Program.jpgExpansion, ".jpeg" })
             {
-                var tex = await TextureManager.LoadCardAsync(code, false);
-                if (tex == null)
-                    throw new InvalidOperationException($"MDPro3 renderer returned null texture for {code}");
+                var path = Path.Combine(folder, code + extension);
+                if (!File.Exists(path))
+                    continue;
 
-                var size = Settings.Data.SavedCardSize;
-                if (size != null && size.Length > 1 && size[0] > 0 && size[1] > 0 && (size[0] != tex.width || size[1] != tex.height))
-                    tex = TextureManager.ResizeTexture2D(tex, size[0], size[1]);
-
-                var path = Path.Combine(outputDir, code + ".png");
-                File.WriteAllBytes(path, tex.EncodeToPNG());
-                outputs.Add(new Dictionary<string, object>
-                {
-                    ["card_id"] = code,
-                    ["path"] = path,
-                    ["width"] = tex.width,
-                    ["height"] = tex.height,
-                    ["found_art"] = TextureManager.lastCardFoundArt,
-                    ["render_succeed"] = TextureManager.lastCardRenderSucceed
-                });
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (tex.LoadImage(File.ReadAllBytes(path)))
+                    return tex;
             }
-            Finish(0, string.Empty, outputs);
         }
-        catch (Exception ex)
-        {
-            Finish(1, ex.ToString(), outputs);
-        }
-    }
-
-    private static void Finish(int exitCode, string error, List<Dictionary<string, object>> outputs)
-    {
-        if (exiting)
-            return;
-        exiting = true;
-        EditorApplication.update -= Update;
-        WriteManifest(exitCode == 0, error, outputs);
-        EditorApplication.Exit(exitCode);
+        return null;
     }
 
     private static void WriteManifest(bool ok, string error, List<Dictionary<string, object>> outputs)
