@@ -14,21 +14,23 @@ namespace MDPro3
 {
     public sealed class QuestDuelNativeUi : MonoBehaviour
     {
+        public static event Action UiVisibilityChanged;
+
         private const int FallbackQuestOverlayLayer = 24;
         private const float PanelScale = 0.014f;
         private const float SmallPanelScale = 0.016f;
-        private const float AnchoredOptionPanelScale = 0.018f;
+        private const float AnchoredOptionPanelScale = 0.016f;
         private const float DefaultOptionPanelWidth = 980f;
         private const float DefaultOptionPanelHeight = 620f;
-        private const float AnchoredOptionPanelWidth = 760f;
-        private const float AnchoredOptionPanelBaseHeight = 210f;
-        private const float AnchoredOptionPanelButtonHeight = 76f;
-        private const float AnchoredOptionPanelButtonGap = 14f;
+        private const float AnchoredOptionPanelWidth = 640f;
+        private const float AnchoredOptionPanelBaseHeight = 188f;
+        private const float AnchoredOptionPanelButtonHeight = 66f;
+        private const float AnchoredOptionPanelButtonGap = 10f;
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
         private const float CardInfoScale = 0.028f;
-        private const float HoverCardInfoScale = 0.0145f;
+        private const float HoverCardInfoScale = 0.0135f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -229,6 +231,8 @@ namespace MDPro3
 
             phaseMenuTitleText.text = LocalizeQuestLabel(phaseMenuTitleText.text);
             phaseMenuCanvas.gameObject.SetActive(true);
+            HideCardInfoPanel();
+            NotifyUiVisibilityChanged();
             AudioManager.PlaySE("SE_PHASE_WINDOW_OPEN");
             UpdatePanelPoses();
             return true;
@@ -273,6 +277,8 @@ namespace MDPro3
             }
 
             optionCanvas.gameObject.SetActive(true);
+            HideCardInfoPanel();
+            NotifyUiVisibilityChanged();
             UpdatePanelPoses();
             return true;
         }
@@ -301,6 +307,8 @@ namespace MDPro3
             }, new Color(0.38f, 0.16f, 0.18f, 0.98f));
 
             optionCanvas.gameObject.SetActive(true);
+            HideCardInfoPanel();
+            NotifyUiVisibilityChanged();
             AudioManager.PlaySE("SE_SYS_VERIFY");
             UpdatePanelPoses();
             return true;
@@ -335,6 +343,8 @@ namespace MDPro3
             }
 
             optionCanvas.gameObject.SetActive(true);
+            HideCardInfoPanel();
+            NotifyUiVisibilityChanged();
             AudioManager.PlaySE("SE_SYS_VERIFY");
             UpdatePanelPoses();
             return true;
@@ -367,6 +377,7 @@ namespace MDPro3
             RebuildCardGrid();
             ShowCardDetail(cards.Count > 0 ? cards[0] : null);
             cardPanelCanvas.gameObject.SetActive(true);
+            NotifyUiVisibilityChanged();
             UpdateCardButtons();
             UpdatePanelPoses();
             return true;
@@ -398,6 +409,7 @@ namespace MDPro3
             RebuildCardGrid();
             ShowCardDetail(cards.Count > 0 ? cards[0] : null);
             cardPanelCanvas.gameObject.SetActive(true);
+            NotifyUiVisibilityChanged();
             UpdateCardButtons();
             UpdatePanelPoses();
             return true;
@@ -1947,7 +1959,10 @@ namespace MDPro3
         private void HideCardPanel()
         {
             if (cardPanelCanvas != null && cardPanelCanvas.gameObject.activeSelf)
+            {
                 cardPanelCanvas.gameObject.SetActive(false);
+                NotifyUiVisibilityChanged();
+            }
         }
 
         private void HideCardInfoPanel()
@@ -1960,7 +1975,10 @@ namespace MDPro3
         private void HideOptionPanel()
         {
             if (optionCanvas != null && optionCanvas.gameObject.activeSelf)
+            {
                 optionCanvas.gameObject.SetActive(false);
+                NotifyUiVisibilityChanged();
+            }
             optionAnchorCard = null;
             optionAnchoredCompact = false;
         }
@@ -1968,7 +1986,15 @@ namespace MDPro3
         private void HidePhaseMenu()
         {
             if (phaseMenuCanvas != null && phaseMenuCanvas.gameObject.activeSelf)
+            {
                 phaseMenuCanvas.gameObject.SetActive(false);
+                NotifyUiVisibilityChanged();
+            }
+        }
+
+        private static void NotifyUiVisibilityChanged()
+        {
+            UiVisibilityChanged?.Invoke();
         }
 
         private void UpdatePanelPoses()
@@ -2112,12 +2138,12 @@ namespace MDPro3
             var parentScale = duelWorldAnchor == null
                 ? 1f
                 : Mathf.Max(duelWorldAnchor.lossyScale.x, 0.0001f);
-            var panelWidthWorld = cardInfoRect.sizeDelta.x * HoverCardInfoScale * parentScale;
             var panelHeightWorld = cardInfoRect.sizeDelta.y * HoverCardInfoScale * parentScale;
             var radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
-            var offset = radius + panelWidthWorld * 0.5f + Mathf.Max(0.65f, parentScale * 0.65f);
-            cardInfoWorldPosition = new Vector3(center.x, bounds.max.y + panelHeightWorld * 0.5f + parentScale * 0.28f, center.z)
-                + toViewer * offset;
+            var viewerOffset = Mathf.Clamp(radius * 0.12f, parentScale * 0.16f, parentScale * 0.78f);
+            var verticalLift = panelHeightWorld * 0.42f + Mathf.Clamp(parentScale * 0.34f, 0.22f, 1.1f);
+            cardInfoWorldPosition = new Vector3(center.x, bounds.max.y + verticalLift, center.z)
+                + toViewer * viewerOffset;
             cardInfoWorldRotation = ResolveFacingViewerRotation(cardInfoWorldPosition);
         }
 

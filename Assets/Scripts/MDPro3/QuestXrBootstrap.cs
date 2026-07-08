@@ -67,18 +67,20 @@ namespace MDPro3
         private const float ControllerRayStartWidth = 0.012f * DuelWorldUnitsPerMeter;
         private const float ControllerRayEndWidth = 0.004f * DuelWorldUnitsPerMeter;
         private const float ControllerCursorScale = 0.055f * DuelWorldUnitsPerMeter;
-        private const float QuestDuelActionMenuScale = 0.040f;
-        private const float QuestDuelActionMenuWidth = 880f;
-        private const float QuestDuelActionMenuPadding = 18f;
-        private const float QuestDuelActionItemHeight = 138f;
-        private const float QuestDuelActionItemGap = 18f;
-        private const float QuestDuelActionCardYOffset = 0.48f;
-        private const float QuestDuelActionCardForwardOffset = 0.38f;
-        private const float QuestDuelActionStemWidth = 7.5f;
-        private const float QuestDuelActionStemMaxLength = 230f;
-        private const float QuestDuelActionFloatAmplitude = 7.0f;
+        private const float QuestDuelActionMenuScale = 0.034f;
+        private const float QuestDuelActionMenuWidth = 680f;
+        private const float QuestDuelActionMenuSingleColumnWidth = 360f;
+        private const float QuestDuelActionMenuTwoColumnWidth = 560f;
+        private const float QuestDuelActionMenuPadding = 14f;
+        private const float QuestDuelActionItemHeight = 108f;
+        private const float QuestDuelActionItemGap = 12f;
+        private const float QuestDuelActionCardYOffset = 0.34f;
+        private const float QuestDuelActionCardForwardOffset = 0.26f;
+        private const float QuestDuelActionStemWidth = 5.5f;
+        private const float QuestDuelActionStemMaxLength = 160f;
+        private const float QuestDuelActionFloatAmplitude = 5.0f;
         private const float QuestDuelActionHoverScaleBoost = 0.12f;
-        private const float QuestCardInfoHoverDelay = 0.28f;
+        private const float QuestCardInfoHoverDelay = 0.10f;
         private const int FallbackGridLineCount = 33;
         private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
@@ -389,6 +391,7 @@ namespace MDPro3
             public uint Location;
             public uint Controller;
             public uint Sequence;
+            public int DisplayIndex;
             public MDPro3.UI.DuelButton LegacyButton;
 
             public int FirstResponse
@@ -810,6 +813,7 @@ namespace MDPro3
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
             activeInstance = this;
+            QuestDuelNativeUi.UiVisibilityChanged += HandleQuestNativeUiVisibilityChanged;
             createdAt = Time.unscaledTime;
             QuestRuntimeDebugSettings.Initialize();
             ConfigureFloorTrackingOrigin();
@@ -898,6 +902,7 @@ namespace MDPro3
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (activeInstance == this)
                 activeInstance = null;
+            QuestDuelNativeUi.UiVisibilityChanged -= HandleQuestNativeUiVisibilityChanged;
             UnregisterQuestInputCallbacks();
             pointerPositionAction?.Dispose();
             pointerRotationAction?.Dispose();
@@ -6550,6 +6555,7 @@ namespace MDPro3
                         questDuelActions.Add(action);
             }
             questDuelActions.Sort(CompareQuestDuelActions);
+            ApplyQuestDuelActionDisplayIndexes(questDuelActions);
 
             if (questDuelActions.Count == 0)
             {
@@ -6578,6 +6584,40 @@ namespace MDPro3
         {
             questDuelActions.Clear();
             HideQuestDuelActionMenu();
+        }
+
+        private static void ApplyQuestDuelActionDisplayIndexes(List<QuestDuelAction> actions)
+        {
+            if (actions == null || actions.Count <= 1)
+                return;
+
+            foreach (var action in actions)
+                if (action != null)
+                    action.DisplayIndex = 0;
+
+            var activateCountByCard = new Dictionary<GameCard, int>();
+            foreach (var action in actions)
+            {
+                if (action == null || action.Type != MDPro3.UI.ButtonType.Activate || action.Card == null)
+                    continue;
+                if (!activateCountByCard.ContainsKey(action.Card))
+                    activateCountByCard[action.Card] = 0;
+                activateCountByCard[action.Card] += 1;
+            }
+
+            var activateIndexByCard = new Dictionary<GameCard, int>();
+            foreach (var action in actions)
+            {
+                if (action == null || action.Type != MDPro3.UI.ButtonType.Activate || action.Card == null)
+                    continue;
+                if (!activateCountByCard.TryGetValue(action.Card, out var count) || count <= 1)
+                    continue;
+
+                if (!activateIndexByCard.ContainsKey(action.Card))
+                    activateIndexByCard[action.Card] = 0;
+                activateIndexByCard[action.Card] += 1;
+                action.DisplayIndex = activateIndexByCard[action.Card];
+            }
         }
 
         private void HideQuestDuelActionMenu()
@@ -6622,7 +6662,7 @@ namespace MDPro3
             questDuelActionMenuRect.anchorMin = new Vector2(0.5f, 0.5f);
             questDuelActionMenuRect.anchorMax = new Vector2(0.5f, 0.5f);
             questDuelActionMenuRect.pivot = new Vector2(0.5f, 0.5f);
-            questDuelActionMenuRect.sizeDelta = new Vector2(QuestDuelActionMenuWidth, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);
+            questDuelActionMenuRect.sizeDelta = new Vector2(QuestDuelActionMenuSingleColumnWidth, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);
 
             questDuelActionMenuBackground = menuObject.AddComponent<Image>();
             questDuelActionMenuBackground.color = new Color(0.02f, 0.025f, 0.032f, 0f);
@@ -6666,10 +6706,11 @@ namespace MDPro3
             var count = questDuelActions.Count;
             var columns = ResolveQuestDuelActionColumns(count);
             var rows = Mathf.CeilToInt(count / (float)columns);
+            var menuWidth = ResolveQuestDuelActionMenuWidth(columns);
             var height = QuestDuelActionMenuPadding * 2f
                 + QuestDuelActionItemHeight * rows
                 + QuestDuelActionItemGap * Mathf.Max(0, rows - 1);
-            questDuelActionMenuRect.sizeDelta = new Vector2(QuestDuelActionMenuWidth, height);
+            questDuelActionMenuRect.sizeDelta = new Vector2(menuWidth, height);
 
             for (var index = 0; index < count; index += 1)
             {
@@ -6688,6 +6729,15 @@ namespace MDPro3
             return 2;
         }
 
+        private static float ResolveQuestDuelActionMenuWidth(int columns)
+        {
+            if (columns <= 1)
+                return QuestDuelActionMenuSingleColumnWidth;
+            if (columns == 2)
+                return QuestDuelActionMenuTwoColumnWidth;
+            return QuestDuelActionMenuWidth;
+        }
+
         private GameObject CreateQuestDuelActionRow(QuestDuelAction action, int index, int columns)
         {
             var rowObject = new GameObject("QuestDuelAction_" + index, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
@@ -6697,8 +6747,11 @@ namespace MDPro3
             columns = Mathf.Max(1, columns);
             var column = index % columns;
             var row = index / columns;
-            var width = (QuestDuelActionMenuWidth - QuestDuelActionMenuPadding * 2f - QuestDuelActionItemGap * (columns - 1)) / columns;
-            var x = -QuestDuelActionMenuWidth * 0.5f
+            var menuWidth = questDuelActionMenuRect == null
+                ? ResolveQuestDuelActionMenuWidth(columns)
+                : questDuelActionMenuRect.sizeDelta.x;
+            var width = (menuWidth - QuestDuelActionMenuPadding * 2f - QuestDuelActionItemGap * (columns - 1)) / columns;
+            var x = -menuWidth * 0.5f
                 + QuestDuelActionMenuPadding
                 + width * 0.5f
                 + column * (width + QuestDuelActionItemGap);
@@ -6748,10 +6801,10 @@ namespace MDPro3
             label.text = GetQuestDuelActionLabel(action);
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
-            label.fontSize = columns == 1 ? 42f : 36f;
+            label.fontSize = columns == 1 ? 38f : 32f;
             label.enableAutoSizing = true;
-            label.fontSizeMin = 24f;
-            label.fontSizeMax = columns == 1 ? 42f : 36f;
+            label.fontSizeMin = 22f;
+            label.fontSizeMax = columns == 1 ? 38f : 32f;
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.raycastTarget = false;
             var font = Program.instance?.ui_?.tmpFont;
@@ -7040,7 +7093,7 @@ namespace MDPro3
             var menuHeight = questDuelActionMenuRect.sizeDelta.y;
             var start = new Vector2(0f, -menuHeight * 0.5f + 10f);
             var target = new Vector2(
-                Mathf.Clamp(localSource.x, -QuestDuelActionMenuWidth * 0.42f, QuestDuelActionMenuWidth * 0.42f),
+                Mathf.Clamp(localSource.x, -questDuelActionMenuRect.sizeDelta.x * 0.42f, questDuelActionMenuRect.sizeDelta.x * 0.42f),
                 localSource.y);
             var delta = target - start;
             var length = Mathf.Clamp(delta.magnitude, 34f, QuestDuelActionStemMaxLength);
@@ -7227,8 +7280,6 @@ namespace MDPro3
                 return "\u653e\u7f6e";
             if (action.Type == MDPro3.UI.ButtonType.SetPendulum)
                 return "\u7075\u6446\u653e\u7f6e";
-            if (!string.IsNullOrWhiteSpace(action.Hint))
-                return action.Hint;
 
             switch (action.Type)
             {
@@ -7239,7 +7290,7 @@ namespace MDPro3
                 case MDPro3.UI.ButtonType.Cancel:
                     return "\u53d6\u6d88";
                 case MDPro3.UI.ButtonType.Activate:
-                    return "\u53d1\u52a8";
+                    return action.DisplayIndex > 0 ? "\u53d1\u52a8 " + action.DisplayIndex : "\u53d1\u52a8\u6548\u679c";
                 case MDPro3.UI.ButtonType.Battle:
                     return "\u653b\u51fb";
                 case MDPro3.UI.ButtonType.ToAttackPosition:
@@ -7253,8 +7304,19 @@ namespace MDPro3
                 case MDPro3.UI.ButtonType.PenSummon:
                     return "\u7075\u6446\u53ec\u5524";
                 default:
+                    if (!string.IsNullOrWhiteSpace(action.Hint))
+                        return GetCompactQuestDuelActionHint(action.Hint);
                     return action.Type.ToString();
             }
+        }
+
+        private static string GetCompactQuestDuelActionHint(string hint)
+        {
+            if (string.IsNullOrWhiteSpace(hint))
+                return "\u64cd\u4f5c";
+
+            hint = hint.Trim();
+            return hint.Length <= 8 ? hint : hint.Substring(0, 8) + "\u2026";
         }
 
         private static string GetQuestSummonActionLabel(GameCard card)
@@ -7383,14 +7445,17 @@ namespace MDPro3
             var questCardDistance = float.PositiveInfinity;
             var useMdproFieldSelection = IsQuestNativeDuelFieldSelectionActive();
             var useQuestDirectFieldCardSelection = IsQuestDirectFieldCardSelectionActive();
-            var hasCardHit = !hasUiHit
+            var nativeBlockingPanelOpen = questDuelNativeUi != null && questDuelNativeUi.HasBlockingPanel;
+            var hasCardHit = !nativeBlockingPanelOpen
+                && !hasUiHit
                 && !useMdproFieldSelection
                 && TryGetQuestCardHit(ray, out questCard, out questCardHitObject, out questCardDistance);
             UpdateQuestCardPointer(questCard, questCardHitObject, questCardDistance, isPressed && !useMdproFieldSelection);
 
             QuestPileProxyHit questPileHit = null;
             var questPileDistance = float.PositiveInfinity;
-            var hasPileHit = !hasUiHit
+            var hasPileHit = !nativeBlockingPanelOpen
+                && !hasUiHit
                 && !useMdproFieldSelection
                 && !useQuestDirectFieldCardSelection
                 && !hasCardHit
@@ -7435,7 +7500,7 @@ namespace MDPro3
         private void UpdateQuestCardPointer(GameCard card, GameObject hitObject, float distance, bool pressed)
         {
             questDuelWorldPresenter?.SetHoveredCard(card);
-            UpdateQuestCardInfoHover(card, pressed);
+            UpdateQuestCardInfoHover(card);
 
             if (card != null)
                 LogQuestCardHit(card, hitObject, distance, pressed);
@@ -7476,16 +7541,13 @@ namespace MDPro3
             }
         }
 
-        private void UpdateQuestCardInfoHover(GameCard card, bool pressed)
+        private void UpdateQuestCardInfoHover(GameCard card)
         {
-            if (pressed || card == null)
+            if (card == null)
             {
-                if (card == null)
-                {
-                    questInfoHoverCard = null;
-                    questInfoHoverShown = false;
-                    questDuelNativeUi?.HideCardInfo();
-                }
+                questInfoHoverCard = null;
+                questInfoHoverShown = false;
+                questDuelNativeUi?.HideCardInfo();
                 return;
             }
 
@@ -7522,12 +7584,6 @@ namespace MDPro3
 
             AudioManager.PlaySE("SE_DUEL_SELECT");
             EnsureQuestDuelNativeUi();
-            if (questDuelNativeUi != null)
-            {
-                questDuelNativeUi.ShowCardInfo(card, GetQuestCardInfoBounds(card));
-                questInfoHoverCard = card;
-                questInfoHoverShown = true;
-            }
 
             if (Program.instance.ocgcore.currentPopup != null)
             {
@@ -7543,6 +7599,11 @@ namespace MDPro3
 
         private Bounds? GetQuestCardInfoBounds(GameCard card)
         {
+            if (card != null
+                && questDuelWorldPresenter != null
+                && questDuelWorldPresenter.TryGetCardInfoBounds(card, out var infoBounds))
+                return infoBounds;
+
             if (card != null
                 && questDuelWorldPresenter != null
                 && questDuelWorldPresenter.TryGetCardWorldBounds(card, out var bounds))
@@ -8844,6 +8905,11 @@ namespace MDPro3
         {
             cachedGraphicRaycasters.Clear();
             nextGraphicRaycasterCacheRefreshTime = 0f;
+        }
+
+        private void HandleQuestNativeUiVisibilityChanged()
+        {
+            InvalidateGraphicRaycasterCache();
         }
 
         private void RefreshGraphicRaycasterCache(float now)

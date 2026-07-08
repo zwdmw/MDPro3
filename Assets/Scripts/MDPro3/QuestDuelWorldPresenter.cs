@@ -463,6 +463,8 @@ namespace MDPro3
         private const float PortraitMaxWidth = 18f;
         private const float PowerLabelY = CardThickness + 2.18f;
         private const float PowerLabelCameraSideOffset = CardHeight * 0.5f + 0.92f;
+        private const float PowerLabelPortraitAvoidanceFactor = 0.12f;
+        private const float PowerLabelPortraitAvoidancePadding = 0.48f;
         private const float PowerLabelScale = 0.60f;
         private const float PowerLabelBackplateWidth = 8.6f;
         private const float PowerLabelBackplateHeight = 2.55f;
@@ -573,6 +575,12 @@ namespace MDPro3
             ClearSelectionGuides();
         }
 
+        private void OnDestroy()
+        {
+            DestroyAllProxies();
+            DestroyPresenterMaterials();
+        }
+
         public void Sync(Transform legacyDuelContainer)
         {
             EnsureRoot();
@@ -648,6 +656,28 @@ namespace MDPro3
                 return false;
 
             return TryCollectWorldBounds(proxy.Root, out bounds);
+        }
+
+        public bool TryGetCardInfoBounds(GameCard card, out Bounds bounds)
+        {
+            bounds = default;
+            if (card == null)
+                return false;
+
+            if (!cardProxies.TryGetValue(card, out var proxy) || proxy == null || proxy.Root == null || proxy.Transform == null)
+                return false;
+            if (!proxy.Root.activeInHierarchy)
+                return false;
+
+            var scale = proxy.Transform.lossyScale;
+            var scaleX = Mathf.Max(Mathf.Abs(scale.x), 0.001f);
+            var scaleY = Mathf.Max(Mathf.Abs(scale.y), 0.001f);
+            var scaleZ = Mathf.Max(Mathf.Abs(scale.z), 0.001f);
+            var thickness = Mathf.Max(CardThickness * scaleY * 2.2f, 0.35f);
+            var size = new Vector3(CardWidth * scaleX, thickness, CardHeight * scaleZ);
+            var center = proxy.Transform.position + Vector3.up * (thickness * 0.35f);
+            bounds = new Bounds(center, size);
+            return true;
         }
 
         public bool TryGetCardActionAnchor(GameCard card, out Vector3 anchor, out float radius)
@@ -2382,11 +2412,22 @@ namespace MDPro3
                 towardCamera = new Vector3(0f, 0f, -1f);
             towardCamera.Normalize();
 
+            var labelOffset = ResolvePowerLabelCameraSideOffset(proxy);
             proxy.PowerLabelRoot.transform.localPosition = new Vector3(
-                towardCamera.x * PowerLabelCameraSideOffset,
+                towardCamera.x * labelOffset,
                 PowerLabelY,
-                towardCamera.z * PowerLabelCameraSideOffset);
+                towardCamera.z * labelOffset);
             FaceTextToCamera(proxy.PowerLabelRoot.transform);
+        }
+
+        private static float ResolvePowerLabelCameraSideOffset(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.Portrait == null || !proxy.Portrait.activeInHierarchy)
+                return PowerLabelCameraSideOffset;
+
+            var portraitWidth = Mathf.Abs(proxy.Portrait.transform.localScale.x);
+            var avoidance = portraitWidth * PowerLabelPortraitAvoidanceFactor + PowerLabelPortraitAvoidancePadding;
+            return PowerLabelCameraSideOffset + Mathf.Clamp(avoidance, 0f, 2.8f);
         }
 
         private static bool ShouldShowPowerLabel(GameCard card)
@@ -2673,6 +2714,7 @@ namespace MDPro3
             {
                 var material = new Material(GetPlaceholderFaceMaterial()) { name = "QuestCardFace_" + code };
                 ApplyTexture(material, texture);
+                ReleaseProxyFaceMaterial(proxy);
                 proxy.FrontRenderer.sharedMaterial = material;
                 proxy.LoadedFaceCode = code;
             }
@@ -2735,6 +2777,7 @@ namespace MDPro3
                 ApplyTexture(material, texture);
                 ConfigureTransparentMaterial(material);
                 material.renderQueue = (int)RenderQueue.Transparent + PortraitRenderQueueOffset;
+                ReleaseProxyPortraitMaterial(proxy);
                 proxy.PortraitRenderer.sharedMaterial = material;
                 proxy.LoadedPortraitCode = code;
 
@@ -2776,10 +2819,94 @@ namespace MDPro3
 
             foreach (var card in staleCards)
             {
-                if (cardProxies.TryGetValue(card, out var proxy) && proxy.Root != null)
-                    Destroy(proxy.Root);
+                if (cardProxies.TryGetValue(card, out var proxy))
+                    DestroyCardProxy(proxy);
                 cardProxies.Remove(card);
             }
+        }
+
+        private void DestroyAllProxies()
+        {
+            foreach (var proxy in cardProxies.Values)
+                DestroyCardProxy(proxy);
+            cardProxies.Clear();
+
+            foreach (var pile in pileProxies.Values)
+                if (pile != null && pile.Root != null)
+                    Destroy(pile.Root);
+            pileProxies.Clear();
+        }
+
+        private void DestroyCardProxy(QuestCardProxy proxy)
+        {
+            if (proxy == null)
+                return;
+
+            ReleaseProxyFaceMaterial(proxy);
+            ReleaseProxyPortraitMaterial(proxy);
+            ReleaseProxyTextMaterial(proxy.PowerLabelTextMaterial);
+            ReleaseProxyTextMaterial(proxy.InteractionLabelTextMaterial);
+            proxy.LoadingFaceCode = 0;
+            proxy.LoadingPortraitCode = 0;
+
+            if (proxy.Root != null)
+                Destroy(proxy.Root);
+        }
+
+        private void ReleaseProxyFaceMaterial(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.FrontRenderer == null)
+                return;
+
+            if (proxy.LoadedFaceCode > 0)
+                DestroyProxyInstanceMaterial(proxy.FrontRenderer.sharedMaterial);
+            proxy.LoadedFaceCode = 0;
+        }
+
+        private void ReleaseProxyPortraitMaterial(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.PortraitRenderer == null)
+                return;
+
+            if (proxy.LoadedPortraitCode > 0)
+                DestroyProxyInstanceMaterial(proxy.PortraitRenderer.sharedMaterial);
+            proxy.LoadedPortraitCode = 0;
+        }
+
+        private void ReleaseProxyTextMaterial(Material material)
+        {
+            DestroyProxyInstanceMaterial(material);
+        }
+
+        private static Material GetOwnedTextMaterial(TextMeshPro text)
+        {
+            if (text == null)
+                return null;
+
+            var material = text.fontMaterial;
+            return material != null && material != text.fontSharedMaterial ? material : null;
+        }
+
+        private void DestroyProxyInstanceMaterial(Material material)
+        {
+            if (material == null || IsSharedPresenterMaterial(material))
+                return;
+
+            Destroy(material);
+        }
+
+        private bool IsSharedPresenterMaterial(Material material)
+        {
+            return material == cardBackMaterial
+                || material == cardSideMaterial
+                || material == placeholderFaceMaterial
+                || material == highlightMaterial
+                || material == actionHighlightMaterial
+                || material == targetHighlightMaterial
+                || material == handAccentMaterial
+                || material == powerLabelBackplateMaterial
+                || material == pileFaceMaterial
+                || material == portraitMaterial;
         }
 
         private void UpdatePileProxies(OcgCore core)
@@ -3007,11 +3134,25 @@ namespace MDPro3
                 }
             }
 
+            var visiblePortraits = 0;
+            var visiblePowerLabels = 0;
+            foreach (var proxy in cardProxies.Values)
+            {
+                if (proxy == null)
+                    continue;
+                if (proxy.Portrait != null && proxy.Portrait.activeInHierarchy)
+                    visiblePortraits += 1;
+                if (proxy.PowerLabelRoot != null && proxy.PowerLabelRoot.activeInHierarchy)
+                    visiblePowerLabels += 1;
+            }
+
             Debug.LogFormat(
-                "Quest native duel diagnostics. Cards={0}, Proxies={1}, Piles={2}, LegacyVisibleRenderers={3}, Message={4}, Popup={5}",
+                "Quest native duel diagnostics. Cards={0}, Proxies={1}, Piles={2}, Portraits={3}, PowerLabels={4}, LegacyVisibleRenderers={5}, Message={6}, Popup={7}",
                 core == null || core.cards == null ? 0 : core.cards.Count,
                 cardProxies.Count,
                 pileProxies.Count,
+                visiblePortraits,
+                visiblePowerLabels,
                 legacyVisible,
                 core == null ? "<none>" : core.currentMessage.ToString(),
                 core != null && core.currentPopup != null);
@@ -3183,6 +3324,27 @@ namespace MDPro3
             powerLabelBackplateMaterial = CreateMaterial("QuestPowerLabelBackplateMaterial", new Color(0.015f, 0.025f, 0.035f, 0.78f), true);
             powerLabelBackplateMaterial.renderQueue = (int)RenderQueue.Transparent + PowerLabelBackplateRenderQueueOffset;
             return powerLabelBackplateMaterial;
+        }
+
+        private void DestroyPresenterMaterials()
+        {
+            DestroyMaterial(ref cardBackMaterial);
+            DestroyMaterial(ref cardSideMaterial);
+            DestroyMaterial(ref placeholderFaceMaterial);
+            DestroyMaterial(ref highlightMaterial);
+            DestroyMaterial(ref actionHighlightMaterial);
+            DestroyMaterial(ref targetHighlightMaterial);
+            DestroyMaterial(ref handAccentMaterial);
+            DestroyMaterial(ref powerLabelBackplateMaterial);
+            DestroyMaterial(ref pileFaceMaterial);
+            DestroyMaterial(ref portraitMaterial);
+        }
+
+        private void DestroyMaterial(ref Material material)
+        {
+            if (material != null)
+                Destroy(material);
+            material = null;
         }
 
         private static Material CreateMaterial(string name, Color color, bool transparent)
@@ -3422,6 +3584,8 @@ namespace MDPro3
             public MeshRenderer PortraitRenderer;
             public TextMeshPro PowerLabelText;
             public TextMeshPro InteractionLabelText;
+            public Material PowerLabelTextMaterial;
+            public Material InteractionLabelTextMaterial;
             public QuestCardProxyHit Hit;
             public GameCard Card;
             public int LoadedFaceCode;
@@ -3465,6 +3629,8 @@ namespace MDPro3
                 var portrait = CreatePortraitQuad("QuestCardProxyPortrait", root.transform, faceMaterial);
                 var powerLabel = CreatePowerLabel(root.transform, powerLabelBackplateMaterial);
                 var interactionLabel = CreateInteractionLabel(root.transform);
+                var powerLabelText = powerLabel.GetComponentInChildren<TextMeshPro>(true);
+                var interactionLabelText = interactionLabel.GetComponentInChildren<TextMeshPro>(true);
                 var highlight = CreateHighlightCube("QuestCardProxySelectionHighlight", root.transform, CardThickness + 0.018f, highlightMaterial);
                 var actionHighlight = CreateHighlightCube("QuestCardProxyPlayableHighlight", root.transform, CardThickness + 0.020f, actionHighlightMaterial);
                 var targetHighlight = CreateHighlightCube("QuestCardProxyTargetHighlight", root.transform, CardThickness + 0.024f, targetHighlightMaterial);
@@ -3485,8 +3651,10 @@ namespace MDPro3
                     InteractionLabelRoot = interactionLabel,
                     FrontRenderer = front.GetComponent<MeshRenderer>(),
                     PortraitRenderer = portrait.GetComponent<MeshRenderer>(),
-                    PowerLabelText = powerLabel.GetComponentInChildren<TextMeshPro>(true),
-                    InteractionLabelText = interactionLabel.GetComponentInChildren<TextMeshPro>(true),
+                    PowerLabelText = powerLabelText,
+                    InteractionLabelText = interactionLabelText,
+                    PowerLabelTextMaterial = GetOwnedTextMaterial(powerLabelText),
+                    InteractionLabelTextMaterial = GetOwnedTextMaterial(interactionLabelText),
                     Hit = hit,
                     Card = card
                 };
