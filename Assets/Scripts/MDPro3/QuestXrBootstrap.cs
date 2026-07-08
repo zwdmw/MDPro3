@@ -369,6 +369,8 @@ namespace MDPro3
         private Vector2 smoothedQuestRightWorldAxis;
         private Vector2 smoothedQuestLeftWorldAxis;
         private bool questRuntimePerformanceTuningLogged;
+        private bool questCardInfoPinButtonLastFrame;
+        private bool questCardInfoTriggerLastFrame;
 
         private InputAction pointerPositionAction;
         private InputAction pointerRotationAction;
@@ -379,6 +381,7 @@ namespace MDPro3
         private InputAction leftThumbstickAction;
         private InputAction leftPrimaryButtonAction;
         private InputAction rightThumbstickAction;
+        private InputAction rightThumbstickClickAction;
         private InputAction rightPrimaryButtonAction;
         private InputAction rightSecondaryButtonAction;
         private InputActionAsset uiActionAsset;
@@ -920,6 +923,7 @@ namespace MDPro3
             leftThumbstickAction?.Dispose();
             leftPrimaryButtonAction?.Dispose();
             rightThumbstickAction?.Dispose();
+            rightThumbstickClickAction?.Dispose();
             rightPrimaryButtonAction?.Dispose();
             rightSecondaryButtonAction?.Dispose();
             if (uiActionAsset != null)
@@ -1160,6 +1164,7 @@ namespace MDPro3
             ReenableQuestInputAction(leftThumbstickAction);
             ReenableQuestInputAction(leftPrimaryButtonAction);
             ReenableQuestInputAction(rightThumbstickAction);
+            ReenableQuestInputAction(rightThumbstickClickAction);
             ReenableQuestInputAction(rightPrimaryButtonAction);
             ReenableQuestInputAction(rightSecondaryButtonAction);
 
@@ -1274,6 +1279,8 @@ namespace MDPro3
             lastQuestPilePointerPressed = false;
             questPointerEligibleForClick = false;
             suppressPointerUntilReleased = true;
+            questCardInfoPinButtonLastFrame = false;
+            questCardInfoTriggerLastFrame = false;
             hasLastQuestDirectPointerPosition = false;
             lastLoggedQuestPressedUi = null;
             lastLoggedQuestClickedUi = null;
@@ -1904,6 +1911,11 @@ namespace MDPro3
             rightThumbstickAction.AddBinding("<XRController>{RightHand}/primary2DAxis");
             rightThumbstickAction.AddBinding("<XRController>{RightHand}/thumbstick");
             AddQuestControllerBinding(rightThumbstickAction, "thumbstick", leftHand: false, rightHand: true);
+            rightThumbstickClickAction = new InputAction("Quest Right Thumbstick Click", InputActionType.Button);
+            rightThumbstickClickAction.AddBinding("<XRController>{RightHand}/primary2DAxisClick");
+            rightThumbstickClickAction.AddBinding("<XRController>{RightHand}/thumbstickClicked");
+            AddQuestControllerBinding(rightThumbstickClickAction, "primary2DAxisClick", leftHand: false, rightHand: true);
+            AddQuestControllerBinding(rightThumbstickClickAction, "thumbstickClicked", leftHand: false, rightHand: true);
             rightPrimaryButtonAction = new InputAction("Quest Right A Button", InputActionType.Button);
             rightPrimaryButtonAction.AddBinding("<XRController>{RightHand}/primaryButton");
             AddQuestControllerBinding(rightPrimaryButtonAction, "primaryButton", leftHand: false, rightHand: true);
@@ -1917,6 +1929,7 @@ namespace MDPro3
             leftThumbstickAction.Enable();
             leftPrimaryButtonAction.Enable();
             rightThumbstickAction.Enable();
+            rightThumbstickClickAction.Enable();
             rightPrimaryButtonAction.Enable();
             rightSecondaryButtonAction.Enable();
             try
@@ -6320,6 +6333,20 @@ namespace MDPro3
             return TryReadQuestButtonFromDevices(node, secondaryButton);
         }
 
+        private static bool ReadQuestPrimaryAxisClick(InputAction action, XRNode node)
+        {
+            try
+            {
+                if (action != null && action.ReadValue<float>() > 0.5f)
+                    return true;
+            }
+            catch
+            {
+            }
+
+            return TryReadQuestPrimaryAxisClickFromDevices(node);
+        }
+
         private static bool TryReadQuestPrimaryAxisFromDevices(XRNode node, out Vector2 axis)
         {
             var device = InputDevices.GetDeviceAtXRNode(node);
@@ -6378,6 +6405,30 @@ namespace MDPro3
             return false;
         }
 
+        private static bool TryReadQuestPrimaryAxisClickFromDevices(XRNode node)
+        {
+            var device = InputDevices.GetDeviceAtXRNode(node);
+            if (TryReadQuestPrimaryAxisClick(device))
+                return true;
+
+            var hand = GetHandCharacteristic(node);
+            ControllerDevices.Clear();
+            InputDevices.GetDevicesWithCharacteristics(
+                InputDeviceCharacteristics.HeldInHand | InputDeviceCharacteristics.Controller | hand,
+                ControllerDevices);
+            foreach (var candidate in ControllerDevices)
+                if (TryReadQuestPrimaryAxisClick(candidate))
+                    return true;
+
+            ControllerDevices.Clear();
+            InputDevices.GetDevicesWithCharacteristics(hand, ControllerDevices);
+            foreach (var candidate in ControllerDevices)
+                if (TryReadQuestPrimaryAxisClick(candidate))
+                    return true;
+
+            return false;
+        }
+
         private static bool TryReadQuestButton(UnityEngine.XR.InputDevice device, bool secondaryButton)
         {
             if (!device.isValid)
@@ -6387,6 +6438,13 @@ namespace MDPro3
                 ? UnityEngine.XR.CommonUsages.secondaryButton
                 : UnityEngine.XR.CommonUsages.primaryButton;
             return device.TryGetFeatureValue(usage, out var pressed) && pressed;
+        }
+
+        private static bool TryReadQuestPrimaryAxisClick(UnityEngine.XR.InputDevice device)
+        {
+            return device.isValid
+                && device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxisClick, out var pressed)
+                && pressed;
         }
 
         private static InputDeviceCharacteristics GetHandCharacteristic(XRNode node)
@@ -6629,6 +6687,7 @@ namespace MDPro3
 
         private void HideQuestDuelActionMenu()
         {
+            questDuelNativeUi?.HideActionHint();
             foreach (var row in questDuelActionRows)
             {
                 if (row != null)
@@ -6695,6 +6754,7 @@ namespace MDPro3
         private void RebuildQuestDuelActionMenu()
         {
             EnsureQuestDuelActionMenu();
+            questDuelNativeUi?.HideActionHint();
             foreach (var row in questDuelActionRows)
             {
                 if (row != null)
@@ -6817,7 +6877,13 @@ namespace MDPro3
             uiButton.onClick.AddListener(() => ExecuteQuestDuelAction(action));
             questDuelActionByRow[rowObject] = action;
             var floater = rowObject.AddComponent<QuestDuelActionButtonFloat>();
-            floater.Configure(rowRect.anchoredPosition, index * 0.63f, QuestDuelActionFloatAmplitude, QuestDuelActionHoverScaleBoost);
+            floater.Configure(
+                rowRect.anchoredPosition,
+                index * 0.63f,
+                QuestDuelActionFloatAmplitude,
+                QuestDuelActionHoverScaleBoost,
+                () => ShowQuestDuelActionHint(action),
+                () => HideQuestDuelActionHint(action));
 
             var labelObject = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
             SetQuestOverlayLayer(labelObject);
@@ -6910,6 +6976,115 @@ namespace MDPro3
             image.color = color;
             image.raycastTarget = false;
             return rect;
+        }
+
+        private void ShowQuestDuelActionHint(QuestDuelAction action)
+        {
+            if (action == null)
+                return;
+
+            EnsureQuestDuelNativeUi();
+            questDuelNativeUi?.ShowActionHint(
+                action.Card,
+                GetQuestDuelActionLabel(action),
+                BuildQuestDuelActionHint(action));
+        }
+
+        private void HideQuestDuelActionHint(QuestDuelAction action)
+        {
+            questDuelNativeUi?.HideActionHint();
+        }
+
+        private static string BuildQuestDuelActionHint(QuestDuelAction action)
+        {
+            if (action == null)
+                return string.Empty;
+
+            var effectText = ResolveQuestDuelActionEffectText(action);
+            if (!string.IsNullOrWhiteSpace(effectText))
+                return effectText;
+
+            var hint = NormalizeQuestDuelActionText(action.Hint);
+            if (!string.IsNullOrWhiteSpace(hint))
+                return hint;
+
+            switch (action.Type)
+            {
+                case MDPro3.UI.ButtonType.Activate:
+                    return "\u53d1\u52a8\u8fd9\u5f20\u5361\u6216\u8fd9\u4e2a\u6548\u679c\u3002";
+                case MDPro3.UI.ButtonType.Battle:
+                    return "\u9009\u62e9\u653b\u51fb\u5bf9\u8c61\u6216\u8fdb\u884c\u76f4\u63a5\u653b\u51fb\u3002";
+                case MDPro3.UI.ButtonType.SpSummon:
+                    return "\u5c06\u8fd9\u5f20\u5361\u7279\u6b8a\u53ec\u5524\u5230\u573a\u4e0a\u3002";
+                case MDPro3.UI.ButtonType.Summon:
+                    return "\u901a\u5e38\u53ec\u5524\u8fd9\u53ea\u602a\u517d\u3002";
+                case MDPro3.UI.ButtonType.PenSummon:
+                    return "\u8fdb\u884c\u7075\u6446\u53ec\u5524\u3002";
+                case MDPro3.UI.ButtonType.SetMonster:
+                    return "\u91cc\u4fa7\u5b88\u5907\u8868\u793a\u653e\u7f6e\u8fd9\u53ea\u602a\u517d\u3002";
+                case MDPro3.UI.ButtonType.SetSpell:
+                    return "\u5c06\u8fd9\u5f20\u9b54\u6cd5/\u9677\u9631\u5361\u76d6\u653e\u5230\u573a\u4e0a\u3002";
+                case MDPro3.UI.ButtonType.SetPendulum:
+                    return "\u5c06\u8fd9\u5f20\u5361\u653e\u7f6e\u5230\u7075\u6446\u533a\u3002";
+                case MDPro3.UI.ButtonType.ToAttackPosition:
+                    return "\u5c06\u8fd9\u53ea\u602a\u517d\u6539\u4e3a\u653b\u51fb\u8868\u793a\u3002";
+                case MDPro3.UI.ButtonType.ToDefensePosition:
+                    return "\u5c06\u8fd9\u53ea\u602a\u517d\u6539\u4e3a\u5b88\u5907\u8868\u793a\u3002";
+                default:
+                    return "\u6267\u884c\u9009\u4e2d\u7684\u51b3\u6597\u64cd\u4f5c\u3002";
+            }
+        }
+
+        private static string ResolveQuestDuelActionEffectText(QuestDuelAction action)
+        {
+            if (action == null || action.Card == null || action.Card.effects == null || action.Card.effects.Count == 0)
+                return string.Empty;
+
+            if (action.Response != null && action.Response.Count > 0)
+            {
+                var text = string.Empty;
+                var matchedCount = 0;
+                foreach (var response in action.Response)
+                {
+                    foreach (var effect in action.Card.effects)
+                    {
+                        if (effect == null || effect.ptr != response)
+                            continue;
+
+                        var desc = NormalizeQuestDuelActionText(effect.desc);
+                        if (string.IsNullOrWhiteSpace(desc))
+                            continue;
+
+                        matchedCount += 1;
+                        if (matchedCount > 1)
+                            text += "\n";
+                        text += matchedCount + ". " + desc;
+                        break;
+                    }
+
+                    if (matchedCount >= 3)
+                        break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    if (action.Response.Count > matchedCount)
+                        text += "\n...";
+                    return text;
+                }
+            }
+
+            if (action.Type == MDPro3.UI.ButtonType.Activate
+                && action.DisplayIndex > 0
+                && action.DisplayIndex <= action.Card.effects.Count)
+                return NormalizeQuestDuelActionText(action.Card.effects[action.DisplayIndex - 1].desc);
+
+            return string.Empty;
+        }
+
+        private static string NormalizeQuestDuelActionText(string text)
+        {
+            return string.IsNullOrEmpty(text) ? string.Empty : text.Replace("\r", string.Empty).Trim();
         }
 
         private void ExecuteQuestDuelAction(QuestDuelAction action)
@@ -7480,6 +7655,8 @@ namespace MDPro3
                 QueueVirtualMouse(lastQueuedMousePos, false);
                 if (lastQuestPointerPressed || questHoveredUi != null)
                     UpdateDirectUiPointer(null, default, lastQueuedMousePos, false);
+                questCardInfoPinButtonLastFrame = false;
+                questCardInfoTriggerLastFrame = false;
                 UpdateControllerRayVisual(ray, false, false, float.PositiveInfinity);
                 LogQuestPointerStatus(false, false, false, null, lastQueuedMousePos, float.PositiveInfinity);
                 return;
@@ -7545,6 +7722,15 @@ namespace MDPro3
                 && TryGetQuestPileHit(ray, out questPileHit, out questPileDistance);
             UpdateQuestPilePointer(questPileHit, questPileDistance, isPressed && !useMdproFieldSelection && !hasCardHit);
 
+            UpdateQuestCardInfoPinInput(
+                questCard,
+                hasCardHit,
+                hasPileHit,
+                hasUiHit || hasUiPanelHit,
+                nativeBlockingPanelOpen,
+                useMdproFieldSelection,
+                isPressed);
+
             var nativeDuelObjectPressed = (hasCardHit || hasPileHit) && !useMdproFieldSelection;
             UserInput.SetWorldPointerOverride(ray, screenPosition, isPressed && !nativeDuelObjectPressed);
             var useDirectUiPointer = hasUiHit || hasUiPanelHit || ShouldUseDirectUiPointerFallback();
@@ -7578,6 +7764,56 @@ namespace MDPro3
                     return true;
 
             return false;
+        }
+
+        private void UpdateQuestCardInfoPinInput(
+            GameCard card,
+            bool hasCardHit,
+            bool hasPileHit,
+            bool hasUiHit,
+            bool nativeBlockingPanelOpen,
+            bool useMdproFieldSelection,
+            bool triggerPressed)
+        {
+            var pinHeld = ReadQuestPrimaryAxisClick(rightThumbstickClickAction, XRNode.RightHand);
+            var pinPressed = pinHeld && !questCardInfoPinButtonLastFrame;
+            questCardInfoPinButtonLastFrame = pinHeld;
+
+            var overEmptyWorld = !hasCardHit
+                && !hasPileHit
+                && !hasUiHit
+                && !nativeBlockingPanelOpen
+                && !useMdproFieldSelection;
+
+            if (pinPressed)
+            {
+                EnsureQuestDuelNativeUi();
+                if (hasCardHit && card != null)
+                {
+                    var pinned = questDuelNativeUi != null && questDuelNativeUi.TogglePinnedCardInfo(card);
+                    Debug.LogFormat(
+                        "Quest card detail pin toggled: pinned={0}, id={1}, location={2}, controller={3}, sequence={4}",
+                        pinned,
+                        card.GetData() == null ? 0 : card.GetData().Id,
+                        card.p == null ? 0 : card.p.location,
+                        card.p == null ? 0 : card.p.controller,
+                        card.p == null ? 0 : card.p.sequence);
+                }
+                else if (overEmptyWorld)
+                {
+                    questDuelNativeUi?.ClearPinnedCardInfo();
+                    Debug.Log("Quest card detail pin cleared by thumbstick click in empty world.");
+                }
+            }
+
+            var triggerPressedThisFrame = triggerPressed && !questCardInfoTriggerLastFrame;
+            questCardInfoTriggerLastFrame = triggerPressed;
+            if (triggerPressedThisFrame && overEmptyWorld)
+            {
+                EnsureQuestDuelNativeUi();
+                questDuelNativeUi?.ClearPinnedCardInfo();
+                Debug.Log("Quest card detail pin cleared by empty-world trigger click.");
+            }
         }
 
         private void UpdateQuestCardPointer(GameCard card, GameObject hitObject, float distance, bool pressed)
@@ -9377,24 +9613,36 @@ namespace MDPro3
             private float hoverScaleBoost;
             private float hoverBlend;
             private bool hovered;
+            private Action hoverEnterAction;
+            private Action hoverExitAction;
 
-            public void Configure(Vector2 anchoredPosition, float phaseOffset, float bobAmplitude, float scaleBoost)
+            public void Configure(
+                Vector2 anchoredPosition,
+                float phaseOffset,
+                float bobAmplitude,
+                float scaleBoost,
+                Action onHoverEnter = null,
+                Action onHoverExit = null)
             {
                 rect = transform as RectTransform;
                 basePosition = anchoredPosition;
                 phase = phaseOffset;
                 amplitude = Mathf.Max(0f, bobAmplitude);
                 hoverScaleBoost = Mathf.Max(0f, scaleBoost);
+                hoverEnterAction = onHoverEnter;
+                hoverExitAction = onHoverExit;
             }
 
             public void OnPointerEnter(PointerEventData eventData)
             {
                 hovered = true;
+                hoverEnterAction?.Invoke();
             }
 
             public void OnPointerExit(PointerEventData eventData)
             {
                 hovered = false;
+                hoverExitAction?.Invoke();
             }
 
             private void Update()

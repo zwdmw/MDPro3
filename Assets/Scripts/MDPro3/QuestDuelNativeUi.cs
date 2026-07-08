@@ -31,6 +31,7 @@ namespace MDPro3
         private const float ControlHudScale = 0.033f;
         private const float CardInfoScale = 0.028f;
         private const float HoverCardInfoScale = 0.0155f;
+        private const float SideCardDetailScale = 0.037f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -104,6 +105,21 @@ namespace MDPro3
         private bool cardInfoUseWorldPose;
         private Vector3 cardInfoWorldPosition;
         private Quaternion cardInfoWorldRotation;
+        private Canvas cardDetailCanvas;
+        private RectTransform cardDetailRect;
+        private RawImage cardDetailImage;
+        private TextMeshProUGUI cardDetailNameText;
+        private TextMeshProUGUI cardDetailMetaText;
+        private TextMeshProUGUI cardDetailStateText;
+        private TextMeshProUGUI cardDetailDescriptionText;
+        private TextMeshProUGUI cardDetailActionTitleText;
+        private TextMeshProUGUI cardDetailActionText;
+        private GameCard cardDetailHoverCard;
+        private GameCard cardDetailPinnedCard;
+        private GameCard cardDetailActionRestoreCard;
+        private bool cardDetailShowingActionHint;
+        private int cardInfoTextureRequestCode;
+        private int cardDetailTextureRequestCode;
 
         private Canvas optionCanvas;
         private RectTransform optionRect;
@@ -185,6 +201,7 @@ namespace MDPro3
 
             ReparentCanvas(cardPanelCanvas);
             ReparentCanvas(cardInfoCanvas);
+            ReparentCanvas(cardDetailCanvas);
             ReparentCanvas(optionCanvas);
             ReparentCanvas(phaseMenuCanvas);
             ReparentCanvas(phaseHudCanvas);
@@ -426,10 +443,12 @@ namespace MDPro3
                 return false;
 
             EnsureCardInfoPanel();
+            EnsureCardDetailPanel();
             if (cardInfoCanvas == null)
                 return false;
 
             UpdateCardInfoWorldPose(worldBounds);
+            cardDetailHoverCard = card;
 
             var data = card.GetData();
             if (data == null)
@@ -440,6 +459,8 @@ namespace MDPro3
                 cardInfoActionText.text = BuildCardActionSummary(card);
                 cardInfoDescriptionText.text = string.Empty;
                 cardInfoImage.texture = TextureManager.container == null ? null : TextureManager.container.unknownCard.texture;
+                cardInfoTextureRequestCode = 0;
+                PopulateCardDetailForPreview(card, null);
             }
             else
             {
@@ -447,13 +468,69 @@ namespace MDPro3
                 cardInfoMetaText.text = BuildCardInfoMeta(data);
                 cardInfoStateText.text = BuildCardRuntimeState(card);
                 cardInfoActionText.text = BuildCardActionSummary(card);
-                cardInfoDescriptionText.text = BuildCardDescriptionText(data);
-                StartCoroutine(LoadCardTexture(cardInfoImage, data.Id));
+                cardInfoDescriptionText.text = string.Empty;
+                StartCoroutine(LoadCardInfoTexture(data.Id));
+                PopulateCardDetailForPreview(card, data);
             }
 
             cardInfoCanvas.gameObject.SetActive(true);
+            if (cardDetailCanvas != null)
+                cardDetailCanvas.gameObject.SetActive(true);
             UpdatePanelPoses();
             return true;
+        }
+
+        public void ShowActionHint(GameCard card, string actionTitle, string actionDescription)
+        {
+            if (!CanShowDuelUi())
+                return;
+
+            EnsureCardDetailPanel();
+            if (cardDetailCanvas == null)
+                return;
+
+            cardDetailShowingActionHint = true;
+            cardDetailActionRestoreCard = cardDetailPinnedCard ?? cardDetailHoverCard ?? card;
+            var data = card == null ? null : card.GetData();
+            PopulateCardDetail(card, data, actionTitle, actionDescription);
+            cardDetailCanvas.gameObject.SetActive(true);
+            UpdatePanelPoses();
+        }
+
+        public void HideActionHint()
+        {
+            cardDetailShowingActionHint = false;
+            RestoreCardDetailAfterActionHint();
+        }
+
+        public bool TogglePinnedCardInfo(GameCard card)
+        {
+            if (!CanShowDuelUi() || card == null)
+                return false;
+
+            if (cardDetailPinnedCard == card)
+            {
+                ClearPinnedCardInfo();
+                return false;
+            }
+
+            EnsureCardDetailPanel();
+            if (cardDetailCanvas == null)
+                return false;
+
+            cardDetailPinnedCard = card;
+            if (!cardDetailShowingActionHint)
+                PopulatePinnedCardDetail();
+            cardDetailCanvas.gameObject.SetActive(true);
+            UpdatePanelPoses();
+            return true;
+        }
+
+        public void ClearPinnedCardInfo()
+        {
+            cardDetailPinnedCard = null;
+            if (!cardDetailShowingActionHint)
+                RestoreCardDetailAfterActionHint();
         }
 
         public void UpdateCardInfoAnchor(Bounds? worldBounds)
@@ -492,6 +569,11 @@ namespace MDPro3
         {
             HideCardPanel();
             HideCardInfoPanel();
+            HideCardDetailPanel();
+            cardDetailHoverCard = null;
+            cardDetailPinnedCard = null;
+            cardDetailActionRestoreCard = null;
+            cardDetailShowingActionHint = false;
             HideOptionPanel();
             HidePhaseMenu();
             if (phaseHudCanvas != null && phaseHudCanvas.gameObject.activeSelf)
@@ -572,29 +654,28 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestCardInfoPanel", out cardInfoCanvas, out cardInfoRect);
-            cardInfoRect.sizeDelta = new Vector2(1560f, 980f);
+            cardInfoRect.sizeDelta = new Vector2(940f, 540f);
             AddPanelBackground(canvasObject, HudPanelBackground);
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
             AddHudPanelChrome(cardInfoRect, HudAccentCyan);
-            AddHudSection(cardInfoRect, "CardImageSection", new Vector2(36f, -42f), new Vector2(492f, 744f), HudAccentCyan);
-            AddHudSection(cardInfoRect, "CardMetaSection", new Vector2(560f, -42f), new Vector2(452f, 332f), HudAccentGold);
-            AddHudSection(cardInfoRect, "CardStateSection", new Vector2(1040f, -42f), new Vector2(472f, 332f), HudAccentCyan);
-            AddHudSection(cardInfoRect, "CardActionSection", new Vector2(560f, -416f), new Vector2(452f, 242f), HudAccentGold);
-            AddHudSection(cardInfoRect, "CardTextSection", new Vector2(1040f, -416f), new Vector2(472f, 472f), HudAccentCyan);
-            CreateHudCaption("CardMetaCaption", cardInfoRect, new Vector2(586f, -58f), new Vector2(300f, 34f), "\u5361\u7247\u4fe1\u606f");
-            CreateHudCaption("CardStateCaption", cardInfoRect, new Vector2(1066f, -58f), new Vector2(300f, 34f), "\u5f53\u524d\u72b6\u6001");
-            CreateHudCaption("CardActionCaption", cardInfoRect, new Vector2(586f, -432f), new Vector2(300f, 34f), "\u53ef\u7528\u64cd\u4f5c");
-            CreateHudCaption("CardTextCaption", cardInfoRect, new Vector2(1066f, -432f), new Vector2(300f, 34f), "\u6548\u679c\u6587\u672c");
+            AddHudSection(cardInfoRect, "CardImageSection", new Vector2(28f, -36f), new Vector2(276f, 392f), HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardMetaSection", new Vector2(326f, -36f), new Vector2(278f, 234f), HudAccentGold);
+            AddHudSection(cardInfoRect, "CardStateSection", new Vector2(628f, -36f), new Vector2(284f, 234f), HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardActionSection", new Vector2(326f, -300f), new Vector2(586f, 176f), HudAccentGold);
+            CreateHudCaption("CardMetaCaption", cardInfoRect, new Vector2(350f, -54f), new Vector2(230f, 32f), "\u5361\u7247\u6458\u8981");
+            CreateHudCaption("CardStateCaption", cardInfoRect, new Vector2(652f, -54f), new Vector2(230f, 32f), "\u5f53\u524d\u72b6\u6001");
+            CreateHudCaption("CardActionCaption", cardInfoRect, new Vector2(350f, -318f), new Vector2(230f, 32f), "\u53ef\u7528\u64cd\u4f5c");
 
-            cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(72f, -78f), new Vector2(420f, 588f));
-            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(64f, -706f), new Vector2(452f, 86f), 49f, TextAlignmentOptions.TopLeft);
-            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(590f, -100f), new Vector2(380f, 242f), 42f, TextAlignmentOptions.TopLeft);
-            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(1070f, -100f), new Vector2(394f, 242f), 42f, TextAlignmentOptions.TopLeft);
-            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(590f, -476f), new Vector2(380f, 158f), 40f, TextAlignmentOptions.TopLeft);
-            cardInfoDescriptionText = CreateText("Description", cardInfoRect, new Vector2(1070f, -476f), new Vector2(394f, 382f), 38f, TextAlignmentOptions.TopLeft);
+            cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(50f, -62f), new Vector2(232f, 325f));
+            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(44f, -414f), new Vector2(248f, 78f), 35f, TextAlignmentOptions.TopLeft);
+            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(352f, -94f), new Vector2(224f, 140f), 31f, TextAlignmentOptions.TopLeft);
+            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(654f, -94f), new Vector2(228f, 140f), 31f, TextAlignmentOptions.TopLeft);
+            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(352f, -358f), new Vector2(516f, 92f), 32f, TextAlignmentOptions.TopLeft);
+            cardInfoDescriptionText = CreateText("Description", cardInfoRect, Vector2.zero, Vector2.zero, 1f, TextAlignmentOptions.TopLeft);
+            cardInfoDescriptionText.gameObject.SetActive(false);
             cardInfoNameText.overflowMode = TextOverflowModes.Ellipsis;
             cardInfoMetaText.enableWordWrapping = true;
             cardInfoStateText.enableWordWrapping = true;
@@ -604,10 +685,54 @@ namespace MDPro3
             cardInfoStateText.overflowMode = TextOverflowModes.Truncate;
             cardInfoActionText.overflowMode = TextOverflowModes.Truncate;
             cardInfoDescriptionText.overflowMode = TextOverflowModes.Truncate;
-            cardInfoMetaText.fontSizeMin = 33f;
-            cardInfoStateText.fontSizeMin = 33f;
-            cardInfoActionText.fontSizeMin = 31f;
-            cardInfoDescriptionText.fontSizeMin = 29f;
+            cardInfoMetaText.fontSizeMin = 24f;
+            cardInfoStateText.fontSizeMin = 24f;
+            cardInfoActionText.fontSizeMin = 25f;
+            cardInfoDescriptionText.fontSizeMin = 1f;
+            canvasObject.SetActive(false);
+        }
+
+        private void EnsureCardDetailPanel()
+        {
+            if (cardDetailCanvas != null)
+                return;
+
+            var canvasObject = CreateCanvasObject("QuestCardDetailScreen", out cardDetailCanvas, out cardDetailRect);
+            cardDetailRect.sizeDelta = new Vector2(1200f, 1160f);
+            AddPanelBackground(canvasObject, new Color(0.006f, 0.010f, 0.016f, 0.88f));
+            var background = canvasObject.GetComponent<Image>();
+            if (background != null)
+                background.raycastTarget = false;
+
+            AddHudPanelChrome(cardDetailRect, HudAccentCyan);
+            AddHudSection(cardDetailRect, "DetailFaceSection", new Vector2(34f, -44f), new Vector2(350f, 520f), HudAccentCyan);
+            AddHudSection(cardDetailRect, "DetailMetaSection", new Vector2(414f, -44f), new Vector2(748f, 246f), HudAccentGold);
+            AddHudSection(cardDetailRect, "DetailTextSection", new Vector2(34f, -596f), new Vector2(744f, 500f), HudAccentCyan);
+            AddHudSection(cardDetailRect, "DetailActionSection", new Vector2(810f, -596f), new Vector2(352f, 500f), HudAccentGold);
+            CreateHudCaption("DetailMetaCaption", cardDetailRect, new Vector2(440f, -62f), new Vector2(260f, 34f), "\u5361\u7247\u8be6\u60c5");
+            CreateHudCaption("DetailTextCaption", cardDetailRect, new Vector2(60f, -614f), new Vector2(260f, 34f), "\u6548\u679c\u6587\u672c");
+            CreateHudCaption("DetailActionCaption", cardDetailRect, new Vector2(836f, -614f), new Vector2(260f, 34f), "\u64cd\u4f5c\u8bf4\u660e");
+
+            cardDetailImage = CreateRawImage("CardFace", cardDetailRect, new Vector2(72f, -84f), new Vector2(276f, 386f));
+            cardDetailNameText = CreateText("Name", cardDetailRect, new Vector2(414f, -316f), new Vector2(748f, 154f), 52f, TextAlignmentOptions.TopLeft);
+            cardDetailMetaText = CreateText("Meta", cardDetailRect, new Vector2(446f, -100f), new Vector2(328f, 164f), 37f, TextAlignmentOptions.TopLeft);
+            cardDetailStateText = CreateText("State", cardDetailRect, new Vector2(806f, -100f), new Vector2(320f, 164f), 35f, TextAlignmentOptions.TopLeft);
+            cardDetailDescriptionText = CreateText("Description", cardDetailRect, new Vector2(64f, -656f), new Vector2(666f, 398f), 34f, TextAlignmentOptions.TopLeft);
+            cardDetailActionTitleText = CreateText("ActionTitle", cardDetailRect, new Vector2(840f, -658f), new Vector2(276f, 70f), 38f, TextAlignmentOptions.TopLeft);
+            cardDetailActionText = CreateText("ActionText", cardDetailRect, new Vector2(840f, -742f), new Vector2(276f, 300f), 32f, TextAlignmentOptions.TopLeft);
+
+            cardDetailNameText.overflowMode = TextOverflowModes.Ellipsis;
+            cardDetailMetaText.enableWordWrapping = true;
+            cardDetailStateText.enableWordWrapping = true;
+            cardDetailDescriptionText.enableWordWrapping = true;
+            cardDetailActionTitleText.enableWordWrapping = true;
+            cardDetailActionText.enableWordWrapping = true;
+            cardDetailMetaText.overflowMode = TextOverflowModes.Truncate;
+            cardDetailStateText.overflowMode = TextOverflowModes.Truncate;
+            cardDetailDescriptionText.overflowMode = TextOverflowModes.Truncate;
+            cardDetailActionText.overflowMode = TextOverflowModes.Truncate;
+            cardDetailDescriptionText.fontSizeMin = 26f;
+            cardDetailActionText.fontSizeMin = 24f;
             canvasObject.SetActive(false);
         }
 
@@ -1939,6 +2064,135 @@ namespace MDPro3
             return false;
         }
 
+        private void PopulateCardDetailForPreview(GameCard card, Card data)
+        {
+            if (cardDetailShowingActionHint || cardDetailPinnedCard != null)
+                return;
+
+            PopulateCardDetail(card, data, null, null);
+        }
+
+        private void PopulatePinnedCardDetail()
+        {
+            if (cardDetailPinnedCard == null)
+                return;
+
+            PopulateCardDetail(
+                cardDetailPinnedCard,
+                cardDetailPinnedCard.GetData(),
+                "\u5df2\u56fa\u5b9a",
+                BuildPinnedCardActionText(cardDetailPinnedCard));
+        }
+
+        private void RestoreCardDetailAfterActionHint()
+        {
+            if (cardDetailShowingActionHint)
+                return;
+
+            if (cardDetailActionRestoreCard != null && cardDetailPinnedCard == null)
+            {
+                cardDetailHoverCard = cardDetailActionRestoreCard;
+                cardDetailActionRestoreCard = null;
+            }
+
+            if (cardDetailPinnedCard != null)
+            {
+                cardDetailActionRestoreCard = null;
+                PopulatePinnedCardDetail();
+                if (cardDetailCanvas != null)
+                    cardDetailCanvas.gameObject.SetActive(true);
+                UpdatePanelPoses();
+                return;
+            }
+
+            if (cardDetailHoverCard != null)
+            {
+                PopulateCardDetail(cardDetailHoverCard, cardDetailHoverCard.GetData(), null, null);
+                if (cardDetailCanvas != null)
+                    cardDetailCanvas.gameObject.SetActive(true);
+                UpdatePanelPoses();
+                return;
+            }
+
+            cardDetailActionRestoreCard = null;
+            HideCardDetailPanel();
+        }
+
+        private static string BuildPinnedCardActionText(GameCard card)
+        {
+            var text = BuildCardActionSummary(card);
+            if (!string.IsNullOrWhiteSpace(text))
+                text += "\n";
+            text += "\u53f3\u624b\u6447\u6746\u518d\u6309\u4e00\u6b21\u53d6\u6d88\u56fa\u5b9a\u3002\n\u70b9\u51fb\u7a7a\u767d\u533a\u57df\u4e5f\u4f1a\u5173\u95ed\u3002";
+            return text;
+        }
+
+        private void PopulateCardDetail(GameCard card, Card data, string actionTitle, string actionDescription)
+        {
+            if (cardDetailNameText == null)
+                return;
+
+            if (data == null)
+            {
+                cardDetailNameText.text = "\u672a\u77e5\u5361\u7247";
+                cardDetailMetaText.text = string.Empty;
+                cardDetailStateText.text = BuildCardRuntimeState(card);
+                cardDetailDescriptionText.text = "\u65e0\u6548\u679c\u6587\u672c";
+                cardDetailTextureRequestCode = 0;
+                if (cardDetailImage != null)
+                    cardDetailImage.texture = TextureManager.container == null ? null : TextureManager.container.unknownCard.texture;
+            }
+            else
+            {
+                cardDetailNameText.text = SanitizeText(data.Name);
+                cardDetailMetaText.text = BuildCardInfoMeta(data);
+                cardDetailStateText.text = BuildCardRuntimeState(card);
+                cardDetailDescriptionText.text = BuildCardDescriptionText(data);
+                StartCoroutine(LoadCardDetailTexture(data.Id));
+            }
+
+            var title = string.IsNullOrWhiteSpace(actionTitle) ? "\u5f53\u524d\u64cd\u4f5c" : SanitizeText(actionTitle);
+            var body = string.IsNullOrWhiteSpace(actionDescription) ? BuildCardActionSummary(card) : SanitizeText(actionDescription);
+            cardDetailActionTitleText.text = LocalizeQuestLabel(title);
+            cardDetailActionText.text = LocalizeQuestLabel(body);
+        }
+
+        private IEnumerator LoadCardInfoTexture(int code)
+        {
+            cardInfoTextureRequestCode = code;
+            if (cardInfoImage == null)
+                yield break;
+
+            cardInfoImage.texture = TextureManager.container == null ? null : TextureManager.container.unknownCard.texture;
+            if (code <= 0)
+                yield break;
+
+            var task = TextureManager.LoadQuestFieldCardTextureAsync(code, true);
+            while (!task.IsCompleted)
+                yield return null;
+
+            if (cardInfoImage != null && cardInfoTextureRequestCode == code && task.Result != null)
+                cardInfoImage.texture = task.Result;
+        }
+
+        private IEnumerator LoadCardDetailTexture(int code)
+        {
+            cardDetailTextureRequestCode = code;
+            if (cardDetailImage == null)
+                yield break;
+
+            cardDetailImage.texture = TextureManager.container == null ? null : TextureManager.container.unknownCard.texture;
+            if (code <= 0)
+                yield break;
+
+            var task = TextureManager.LoadQuestFieldCardTextureAsync(code, true);
+            while (!task.IsCompleted)
+                yield return null;
+
+            if (cardDetailImage != null && cardDetailTextureRequestCode == code && task.Result != null)
+                cardDetailImage.texture = task.Result;
+        }
+
         private IEnumerator LoadCardTexture(RawImage target, int code)
         {
             if (target == null)
@@ -1970,6 +2224,15 @@ namespace MDPro3
             if (cardInfoCanvas != null && cardInfoCanvas.gameObject.activeSelf)
                 cardInfoCanvas.gameObject.SetActive(false);
             cardInfoUseWorldPose = false;
+            cardDetailHoverCard = null;
+            if (!cardDetailShowingActionHint)
+                RestoreCardDetailAfterActionHint();
+        }
+
+        private void HideCardDetailPanel()
+        {
+            if (cardDetailCanvas != null && cardDetailCanvas.gameObject.activeSelf)
+                cardDetailCanvas.gameObject.SetActive(false);
         }
 
         private void HideOptionPanel()
@@ -2015,6 +2278,12 @@ namespace MDPro3
                         LeftSideWallRotation,
                         CardInfoScale);
             }
+            if (cardDetailRect != null && cardDetailCanvas.gameObject.activeSelf)
+                PlacePanel(
+                    cardDetailRect,
+                    DuelWorldCenterOnGround + new Vector3(-60.8f, 34.0f, -18f),
+                    LeftSideWallRotation,
+                    SideCardDetailScale);
             if (optionRect != null && optionCanvas.gameObject.activeSelf)
             {
                 var optionPosition = ResolveOptionPanelPosition();
