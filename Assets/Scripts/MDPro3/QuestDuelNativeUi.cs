@@ -1466,7 +1466,7 @@ namespace MDPro3
             if (selectable > 0)
                 text += "\n<color=#69FFE0>\u53ef\u9009\u76ee\u6807 " + selectable + "</color>\n\u7528\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
             else if (actionable > 0)
-                text += "\n<color=#FFD36B>\u53ef\u64cd\u4f5c\u5361 " + actionable + "</color>\n\u70b9\u51fb\u5361\u7247\u67e5\u770b\u64cd\u4f5c";
+                text += "\n<color=#FFD36B>\u70b9\u9ad8\u4eae\u5361\u67e5\u770b\u64cd\u4f5c</color>";
             else
                 text += "\n\u7b49\u5f85\u51b3\u6597\u5f15\u64ce\u5904\u7406";
 
@@ -1513,14 +1513,6 @@ namespace MDPro3
                 title = chainCount > 0 ? "\u8fde\u9501\u5904\u7406\u4e2d  " + chainCount : "\u8fde\u9501\u5904\u7406\u4e2d";
                 body = messageText + "  \u00b7  \u8bf7\u89c2\u770b\u6548\u679c\u89e3\u6790";
                 color = new Color(0.45f, 0.92f, 1f, 1f);
-                return;
-            }
-
-            if (actionable > 0)
-            {
-                title = "\u53ef\u64cd\u4f5c";
-                body = actionable + " \u5f20\u5361\u53ef\u7528  \u00b7  \u70b9\u5361\u7247\u9009\u62e9\u53ec\u5524 / \u53d1\u52a8 / \u653b\u51fb";
-                color = new Color(1f, 0.72f, 0.22f, 1f);
                 return;
             }
 
