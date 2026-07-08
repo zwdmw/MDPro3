@@ -67,13 +67,15 @@ namespace MDPro3
         private const float ControllerRayStartWidth = 0.012f * DuelWorldUnitsPerMeter;
         private const float ControllerRayEndWidth = 0.004f * DuelWorldUnitsPerMeter;
         private const float ControllerCursorScale = 0.055f * DuelWorldUnitsPerMeter;
-        private const float QuestDuelActionMenuScale = 0.037f;
-        private const float QuestDuelActionMenuWidth = 820f;
+        private const float QuestDuelActionMenuScale = 0.040f;
+        private const float QuestDuelActionMenuWidth = 880f;
         private const float QuestDuelActionMenuPadding = 18f;
-        private const float QuestDuelActionItemHeight = 132f;
+        private const float QuestDuelActionItemHeight = 138f;
         private const float QuestDuelActionItemGap = 18f;
-        private const float QuestDuelActionCardYOffset = 0.82f;
-        private const float QuestDuelActionCardForwardOffset = 0.56f;
+        private const float QuestDuelActionCardYOffset = 0.48f;
+        private const float QuestDuelActionCardForwardOffset = 0.38f;
+        private const float QuestDuelActionStemWidth = 7.5f;
+        private const float QuestDuelActionStemMaxLength = 230f;
         private const float QuestDuelActionFloatAmplitude = 7.0f;
         private const float QuestDuelActionHoverScaleBoost = 0.12f;
         private const float QuestCardInfoHoverDelay = 0.28f;
@@ -318,6 +320,8 @@ namespace MDPro3
         private Canvas questDuelActionMenuCanvas;
         private RectTransform questDuelActionMenuRect;
         private Image questDuelActionMenuBackground;
+        private RectTransform questDuelActionMenuStemRect;
+        private Image questDuelActionMenuStemImage;
         private QuestDuelWorldPresenter questDuelWorldPresenter;
         private QuestDuelNativeUi questDuelNativeUi;
         private QuestNativeMainMenu questNativeMainMenu;
@@ -6479,6 +6483,7 @@ namespace MDPro3
             RebuildQuestDuelActionMenu();
             if (questDuelActionMenuCanvas != null && !questDuelActionMenuCanvas.gameObject.activeSelf)
                 questDuelActionMenuCanvas.gameObject.SetActive(true);
+            InvalidateGraphicRaycasterCache();
             UpdateQuestDuelActionMenuPose();
 
             var now = Time.unscaledTime;
@@ -6556,6 +6561,7 @@ namespace MDPro3
             RebuildQuestDuelActionMenu();
             if (questDuelActionMenuCanvas != null)
                 questDuelActionMenuCanvas.gameObject.SetActive(true);
+            InvalidateGraphicRaycasterCache();
             UpdateQuestDuelActionMenuPose();
 
             var first = questDuelActions[0];
@@ -6621,6 +6627,19 @@ namespace MDPro3
             questDuelActionMenuBackground = menuObject.AddComponent<Image>();
             questDuelActionMenuBackground.color = new Color(0.02f, 0.025f, 0.032f, 0f);
             questDuelActionMenuBackground.raycastTarget = false;
+
+            var stemObject = new GameObject("QuestDuelActionSourceStem", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            SetQuestOverlayLayer(stemObject);
+            stemObject.transform.SetParent(questDuelActionMenuRect, false);
+            questDuelActionMenuStemRect = stemObject.GetComponent<RectTransform>();
+            questDuelActionMenuStemRect.anchorMin = new Vector2(0.5f, 0.5f);
+            questDuelActionMenuStemRect.anchorMax = new Vector2(0.5f, 0.5f);
+            questDuelActionMenuStemRect.pivot = new Vector2(0.5f, 0.5f);
+            questDuelActionMenuStemRect.sizeDelta = new Vector2(QuestDuelActionStemWidth, 80f);
+            questDuelActionMenuStemImage = stemObject.GetComponent<Image>();
+            questDuelActionMenuStemImage.color = new Color(0.40f, 0.92f, 1f, 0.62f);
+            questDuelActionMenuStemImage.raycastTarget = false;
+            stemObject.SetActive(false);
 
             menuObject.SetActive(false);
         }
@@ -6946,7 +6965,8 @@ namespace MDPro3
             if (duelWorldAnchor != null && questDuelActionMenuRect.parent != duelWorldAnchor)
                 questDuelActionMenuRect.SetParent(duelWorldAnchor, false);
 
-            var position = ResolveQuestDuelActionMenuPosition(questDuelActions[0]);
+            var action = questDuelActions[0];
+            var position = ResolveQuestDuelActionMenuPosition(action);
             if (duelWorldAnchor != null && questDuelActionMenuRect.parent == duelWorldAnchor)
             {
                 questDuelActionMenuRect.localPosition = duelWorldAnchor.InverseTransformPoint(position);
@@ -6958,6 +6978,7 @@ namespace MDPro3
                 questDuelActionMenuRect.rotation = ResolveQuestDuelActionMenuRotation(position);
             }
             questDuelActionMenuRect.localScale = Vector3.one * QuestDuelActionMenuScale;
+            UpdateQuestDuelActionMenuStem(action);
         }
 
         private Vector3 ResolveQuestDuelActionMenuPosition(QuestDuelAction action)
@@ -7002,6 +7023,56 @@ namespace MDPro3
                 zonePosition = ScaleDuelBoardPoint(zonePosition);
 
             return zonePosition + new Vector3(0f, QuestDuelActionCardYOffset, 0f);
+        }
+
+        private void UpdateQuestDuelActionMenuStem(QuestDuelAction action)
+        {
+            if (questDuelActionMenuStemRect == null || questDuelActionMenuStemImage == null || questDuelActionMenuRect == null)
+                return;
+
+            if (!TryResolveQuestDuelActionSourceAnchor(action, out var sourceAnchor))
+            {
+                questDuelActionMenuStemRect.gameObject.SetActive(false);
+                return;
+            }
+
+            var localSource = questDuelActionMenuRect.InverseTransformPoint(sourceAnchor);
+            var menuHeight = questDuelActionMenuRect.sizeDelta.y;
+            var start = new Vector2(0f, -menuHeight * 0.5f + 10f);
+            var target = new Vector2(
+                Mathf.Clamp(localSource.x, -QuestDuelActionMenuWidth * 0.42f, QuestDuelActionMenuWidth * 0.42f),
+                localSource.y);
+            var delta = target - start;
+            var length = Mathf.Clamp(delta.magnitude, 34f, QuestDuelActionStemMaxLength);
+            if (delta.sqrMagnitude < 0.0001f)
+                delta = Vector2.down;
+            delta.Normalize();
+
+            questDuelActionMenuStemRect.gameObject.SetActive(true);
+            questDuelActionMenuStemRect.SetAsFirstSibling();
+            questDuelActionMenuStemRect.anchoredPosition = start + delta * (length * 0.5f);
+            questDuelActionMenuStemRect.sizeDelta = new Vector2(QuestDuelActionStemWidth, length);
+            questDuelActionMenuStemRect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg - 90f);
+            var accent = ResolveQuestDuelActionAccent(action);
+            questDuelActionMenuStemImage.color = new Color(accent.r, accent.g, accent.b, 0.58f);
+        }
+
+        private bool TryResolveQuestDuelActionSourceAnchor(QuestDuelAction action, out Vector3 anchor)
+        {
+            anchor = default;
+            if (action == null || action.Card == null || questDuelWorldPresenter == null)
+                return false;
+
+            if (questDuelWorldPresenter.TryGetCardActionAnchor(action.Card, out anchor, out _))
+                return true;
+
+            if (questDuelWorldPresenter.TryGetCardWorldBounds(action.Card, out var bounds))
+            {
+                anchor = bounds.center;
+                return true;
+            }
+
+            return false;
         }
 
         private Vector3 ResolveQuestDuelActionMenuPositionNearAnchor(Vector3 anchor, float radius)
@@ -8767,6 +8838,12 @@ namespace MDPro3
             if (cachedGraphicRaycasters.Count == 0 || now >= nextGraphicRaycasterCacheRefreshTime)
                 RefreshGraphicRaycasterCache(now);
             return cachedGraphicRaycasters;
+        }
+
+        private void InvalidateGraphicRaycasterCache()
+        {
+            cachedGraphicRaycasters.Clear();
+            nextGraphicRaycasterCacheRefreshTime = 0f;
         }
 
         private void RefreshGraphicRaycasterCache(float now)
