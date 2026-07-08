@@ -468,8 +468,11 @@ namespace MDPro3
         private const float PowerLabelPortraitAvoidanceFactor = 0.18f;
         private const float PowerLabelPortraitAvoidancePadding = 0.76f;
         private const float PowerLabelScale = 0.66f;
-        private const float PowerLabelBackplateWidth = 9.8f;
-        private const float PowerLabelBackplateHeight = 2.95f;
+        private const float PowerLabelPortraitScale = 0.78f;
+        private const float PowerLabelPortraitTopGap = 1.25f;
+        private const float PowerLabelPortraitForwardOffset = 0.86f;
+        private const float PowerLabelBackplateWidth = 11.2f;
+        private const float PowerLabelBackplateHeight = 3.35f;
         private const float PortraitBaseY = PowerLabelY + PowerLabelBackplateHeight * PowerLabelScale * 0.5f + 1.08f;
         private const int PortraitRenderQueueOffset = -28;
         private const int PowerLabelBackplateRenderQueueOffset = 70;
@@ -477,6 +480,8 @@ namespace MDPro3
         private const float InteractionLabelY = CardThickness + 1.95f;
         private const float InteractionLabelZ = 4.92f;
         private const float InteractionLabelScale = 0.62f;
+        private const float InteractionLabelPortraitScale = 0.72f;
+        private const float InteractionLabelPortraitTopGap = 4.65f;
         private const float ActionMarkerBaseWidth = CardWidth * 0.58f;
         private const float ActionMarkerBaseDepth = 0.20f;
         private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
@@ -2792,13 +2797,13 @@ namespace MDPro3
             var knownFace = ShouldShowKnownFace(card);
             proxy.Front.SetActive(knownFace);
             proxy.Back.SetActive(!knownFace);
-            UpdateInteractionHintProxy(proxy, card, interactionState);
-            UpdateHandAccentProxy(proxy, card, interactionState);
 
             if (knownFace)
                 EnsureProxyFaceTexture(proxy, card.GetData().Id);
 
             UpdatePortraitProxy(proxy, card);
+            UpdateInteractionHintProxy(proxy, card, interactionState);
+            UpdateHandAccentProxy(proxy, card, interactionState);
             UpdatePowerLabel(proxy, card);
         }
 
@@ -2830,7 +2835,7 @@ namespace MDPro3
             proxy.InteractionLabelText.color = selectable
                 ? new Color(0.35f, 1f, 0.82f, 1f)
                 : source ? new Color(0.56f, 0.90f, 1f, 1f) : new Color(1f, 0.82f, 0.28f, 1f);
-            FaceTextToCamera(proxy.InteractionLabelRoot.transform);
+            UpdateInteractionLabelPose(proxy);
         }
 
         private static string GetQuestActionHintLabel(GameCard card)
@@ -3054,22 +3059,96 @@ namespace MDPro3
 
             if (xrCamera == null)
             {
+                proxy.PowerLabelRoot.transform.localPosition = new Vector3(0f, PowerLabelY, -PowerLabelCameraSideOffset);
+                proxy.PowerLabelRoot.transform.localScale = Vector3.one * PowerLabelScale;
                 FaceTextToCamera(proxy.PowerLabelRoot.transform);
                 return;
             }
+
+            var towardCamera = ResolvePlanarCameraDirectionLocal(proxy);
+            if (HasVisiblePortrait(proxy))
+            {
+                var labelOffset = ResolvePortraitOverlayForwardOffset(proxy);
+                proxy.PowerLabelRoot.transform.localPosition = new Vector3(
+                    towardCamera.x * labelOffset,
+                    ResolvePortraitTopLocalY(proxy) + PowerLabelPortraitTopGap,
+                    towardCamera.z * labelOffset);
+                proxy.PowerLabelRoot.transform.localScale = Vector3.one * PowerLabelPortraitScale;
+            }
+            else
+            {
+                var labelOffset = ResolvePowerLabelCameraSideOffset(proxy);
+                proxy.PowerLabelRoot.transform.localPosition = new Vector3(
+                    towardCamera.x * labelOffset,
+                    PowerLabelY,
+                    towardCamera.z * labelOffset);
+                proxy.PowerLabelRoot.transform.localScale = Vector3.one * PowerLabelScale;
+            }
+
+            FaceTextToCamera(proxy.PowerLabelRoot.transform);
+        }
+
+        private void UpdateInteractionLabelPose(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.Transform == null || proxy.InteractionLabelRoot == null)
+                return;
+
+            if (HasVisiblePortrait(proxy))
+            {
+                var towardCamera = ResolvePlanarCameraDirectionLocal(proxy);
+                var labelOffset = ResolvePortraitOverlayForwardOffset(proxy) + 0.22f;
+                proxy.InteractionLabelRoot.transform.localPosition = new Vector3(
+                    towardCamera.x * labelOffset,
+                    ResolvePortraitTopLocalY(proxy) + InteractionLabelPortraitTopGap,
+                    towardCamera.z * labelOffset);
+                proxy.InteractionLabelRoot.transform.localScale = Vector3.one * InteractionLabelPortraitScale;
+            }
+            else
+            {
+                proxy.InteractionLabelRoot.transform.localPosition = new Vector3(0f, InteractionLabelY, InteractionLabelZ);
+                proxy.InteractionLabelRoot.transform.localScale = Vector3.one * InteractionLabelScale;
+            }
+
+            FaceTextToCamera(proxy.InteractionLabelRoot.transform);
+        }
+
+        private Vector3 ResolvePlanarCameraDirectionLocal(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.Transform == null || xrCamera == null)
+                return new Vector3(0f, 0f, -1f);
 
             var cameraLocal = proxy.Transform.InverseTransformPoint(xrCamera.transform.position);
             var towardCamera = new Vector3(cameraLocal.x, 0f, cameraLocal.z);
             if (towardCamera.sqrMagnitude < 0.0001f)
                 towardCamera = new Vector3(0f, 0f, -1f);
-            towardCamera.Normalize();
+            return towardCamera.normalized;
+        }
 
-            var labelOffset = ResolvePowerLabelCameraSideOffset(proxy);
-            proxy.PowerLabelRoot.transform.localPosition = new Vector3(
-                towardCamera.x * labelOffset,
-                PowerLabelY,
-                towardCamera.z * labelOffset);
-            FaceTextToCamera(proxy.PowerLabelRoot.transform);
+        private static bool HasVisiblePortrait(QuestCardProxy proxy)
+        {
+            return proxy != null
+                && proxy.Portrait != null
+                && proxy.Portrait.activeInHierarchy
+                && proxy.PortraitRenderer != null
+                && proxy.PortraitRenderer.enabled;
+        }
+
+        private static float ResolvePortraitTopLocalY(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.Portrait == null)
+                return PortraitBaseY + PortraitHeight;
+
+            var portrait = proxy.Portrait.transform;
+            return portrait.localPosition.y + Mathf.Abs(portrait.localScale.y) * 0.5f;
+        }
+
+        private static float ResolvePortraitOverlayForwardOffset(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.Portrait == null)
+                return PowerLabelPortraitForwardOffset;
+
+            var width = Mathf.Abs(proxy.Portrait.transform.localScale.x);
+            return Mathf.Clamp(width * 0.06f + PowerLabelPortraitForwardOffset, 0.95f, 2.4f);
         }
 
         private static float ResolvePowerLabelCameraSideOffset(QuestCardProxy proxy)
@@ -4468,14 +4547,14 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 25f;
+                text.fontSize = 27.5f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.overflowMode = TextOverflowModes.Overflow;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.38f;
+                text.outlineWidth = 0.42f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
                 text.margin = new Vector4(1.05f, 0.42f, 1.05f, 0.42f);
                 text.rectTransform.sizeDelta = new Vector2(PowerLabelBackplateWidth, PowerLabelBackplateHeight);
@@ -4503,13 +4582,13 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 15.5f;
+                text.fontSize = 17.5f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.26f;
+                text.outlineWidth = 0.30f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.95f);
                 text.margin = new Vector4(0.5f, 0.15f, 0.5f, 0.15f);
                 ConfigureTextOverlay(text, 110);
