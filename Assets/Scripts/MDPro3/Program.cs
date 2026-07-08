@@ -82,6 +82,7 @@ namespace MDPro3
         public const string jpgExpansion = ".jpg";
         public const string yrpExpansion = ".yrp";
         public const string yrp3dExpansion = ".yrp3d";
+        private const string QuestDebugAutoDeckName = "QuestDebugAuto";
         #endregion
 
         #region Initializement
@@ -330,8 +331,208 @@ namespace MDPro3
             if (currentServant != solo)
                 ShiftToServant(solo);
 
+            var previousDeckName = ApplyQuestDebugAutoSoloSetup();
             Debug.LogFormat("Quest debug auto solo launching AI index={0}.", solo.lastSoloItem.index);
             solo.OnPlay();
+            StartCoroutine(QuestDebugAutoAdvanceRoomAsync(previousDeckName));
+        }
+
+        private string ApplyQuestDebugAutoSoloSetup()
+        {
+            var previousDeckName = Config.Get("DeckInUse", string.Empty);
+            var deckReady = EnsureQuestDebugAutoDeck();
+            if (deckReady)
+                Config.Set("DeckInUse", QuestDebugAutoDeckName);
+
+            if (solo.toggleLockHand != null)
+                solo.toggleLockHand.SetToggleOn(false);
+            if (solo.toggleNoCheck != null)
+                solo.toggleNoCheck.SetToggleOn(false);
+            if (solo.toggleNoShuffle != null)
+                solo.toggleNoShuffle.SetToggleOn(false);
+            if (solo.inputLP != null)
+                solo.inputLP.text = "8000";
+            if (solo.inputHand != null)
+                solo.inputHand.text = "5";
+            if (solo.inputDraw != null)
+                solo.inputDraw.text = "1";
+
+            Debug.LogFormat(
+                "Quest debug auto solo setup: deck={0}, previousDeck={1}, deckReady={2}, lockHand={3}, noCheck={4}, noShuffle={5}, hand={6}, draw={7}.",
+                QuestDebugAutoDeckName,
+                string.IsNullOrEmpty(previousDeckName) ? "<empty>" : previousDeckName,
+                deckReady,
+                solo.toggleLockHand != null && solo.toggleLockHand.isOn,
+                solo.toggleNoCheck != null && solo.toggleNoCheck.isOn,
+                solo.toggleNoShuffle != null && solo.toggleNoShuffle.isOn,
+                solo.inputHand == null ? "<missing>" : solo.inputHand.text,
+                solo.inputDraw == null ? "<missing>" : solo.inputDraw.text);
+            return previousDeckName;
+        }
+
+        private IEnumerator QuestDebugAutoAdvanceRoomAsync(string previousDeckName)
+        {
+            var deadline = Time.realtimeSinceStartup + 60f;
+            var readySent = false;
+            var startSent = false;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (ocgcore != null && currentServant == ocgcore)
+                {
+                    RestoreQuestDebugPreviousDeck(previousDeckName, "duel-started");
+                    yield break;
+                }
+
+                if (room != null && Room.fromSolo && Room.players != null)
+                {
+                    var selfIndex = Room.selfType;
+                    var selfReady = selfIndex >= 0
+                        && selfIndex < Room.players.Length
+                        && Room.players[selfIndex] != null
+                        && Room.players[selfIndex].ready;
+
+                    if (!readySent && !selfReady && selfIndex >= 0 && selfIndex < Room.players.Length && Room.players[selfIndex] != null)
+                    {
+                        room.OnReady();
+                        readySent = true;
+                        Debug.LogFormat("Quest debug auto room ready sent. self={0}, host={1}", selfIndex, Room.isHost);
+                    }
+                    else if (selfReady)
+                    {
+                        readySent = true;
+                    }
+
+                    var opponentIndex = selfIndex == 0 ? 1 : 0;
+                    var opponentReady = opponentIndex >= 0
+                        && opponentIndex < Room.players.Length
+                        && Room.players[opponentIndex] != null
+                        && Room.players[opponentIndex].ready;
+                    if (Room.isHost && readySent && opponentReady && !startSent)
+                    {
+                        room.OnStart();
+                        startSent = true;
+                        Debug.LogFormat("Quest debug auto room start sent. self={0}, opponent={1}", selfIndex, opponentIndex);
+                    }
+                }
+
+                yield return new WaitForSecondsRealtime(0.25f);
+            }
+
+            RestoreQuestDebugPreviousDeck(previousDeckName, "timeout");
+            Debug.LogWarning("Quest debug auto room advance timed out before duel start.");
+        }
+
+        private static void RestoreQuestDebugPreviousDeck(string previousDeckName, string reason)
+        {
+            Config.Set("DeckInUse", previousDeckName ?? string.Empty);
+            Debug.LogFormat(
+                "Quest debug auto deck restored. reason={0}, deck={1}",
+                reason,
+                string.IsNullOrEmpty(previousDeckName) ? "<empty>" : previousDeckName);
+        }
+
+        private static bool EnsureQuestDebugAutoDeck()
+        {
+            try
+            {
+                Directory.CreateDirectory(deckPath);
+                var path = deckPath + QuestDebugAutoDeckName + ydkExpansion;
+                var content = BuildQuestDebugAutoDeckYdk();
+                if (!File.Exists(path) || File.ReadAllText(path) != content)
+                    File.WriteAllText(path, content);
+
+                Debug.LogFormat("Quest debug auto deck ready: {0}", Path.GetFullPath(path));
+                return File.Exists(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("Quest debug auto deck setup failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        private static string BuildQuestDebugAutoDeckYdk()
+        {
+            return string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    "#created by MDPro3 Quest debug automation",
+                    "#main",
+                    "7084129",
+                    "43722862",
+                    "89739383",
+                    "47222536",
+                    "48680970",
+                    "46986414",
+                    "46986414",
+                    "46986414",
+                    "30603688",
+                    "30603688",
+                    "71007216",
+                    "71007216",
+                    "70117860",
+                    "70117860",
+                    "14824019",
+                    "14824019",
+                    "14824019",
+                    "23434538",
+                    "23434538",
+                    "23434538",
+                    "14558127",
+                    "14558127",
+                    "1784686",
+                    "2314238",
+                    "23314220",
+                    "23314220",
+                    "70368879",
+                    "70368879",
+                    "70368879",
+                    "41735184",
+                    "41735184",
+                    "73616671",
+                    "73616671",
+                    "67775894",
+                    "67775894",
+                    "7922915",
+                    "7922915",
+                    "40605147",
+                    "40605147",
+                    "83764718",
+                    "#extra",
+                    "41721210",
+                    "41721210",
+                    "50954680",
+                    "50954680",
+                    "58074177",
+                    "90036274",
+                    "14577226",
+                    "14577226",
+                    "16691074",
+                    "22110647",
+                    "80117527",
+                    "71384012",
+                    "71384012",
+                    "71384012",
+                    "1482001",
+                    "!side",
+                    "#pickup",
+                    "#0",
+                    "#0",
+                    "#0",
+                    "#case",
+                    "#1080001",
+                    "#protector",
+                    "#1070001",
+                    "#field",
+                    "#1090001",
+                    "#grave",
+                    "#1100001",
+                    "#stand",
+                    "#1110001",
+                    "#mate",
+                    "#1000001"
+                }) + Environment.NewLine;
         }
         public void InitializeForDataChange()
         {

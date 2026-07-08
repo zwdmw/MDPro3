@@ -368,6 +368,7 @@ namespace MDPro3
         private bool questMainUiRecenterPressedLastFrame;
         private bool questMainUiRecenterActive;
         private bool questDebugAutoFrameApplied;
+        private float lastQuestDebugForcedViewApplyTime = -999f;
         private float lastQuestNativeDuelActiveTime = -999f;
         private Vector2 smoothedQuestRightWorldAxis;
         private Vector2 smoothedQuestLeftWorldAxis;
@@ -891,6 +892,7 @@ namespace MDPro3
                 questDuelNativeUi?.HideAllQuestUi();
                 ClearQuestDuelActionMenu();
                 questDebugAutoFrameApplied = false;
+                lastQuestDebugForcedViewApplyTime = -999f;
                 if (Time.unscaledTime - lastQuestNativeDuelActiveTime >= QuestDuelInactiveResetDelay)
                     ResetQuestWorldControlsWhenNoDuel();
             }
@@ -6474,26 +6476,141 @@ namespace MDPro3
 
         private void ApplyQuestDebugAutoFrameIfNeeded()
         {
-            if (questDebugAutoFrameApplied)
-                return;
-            if (!QuestRuntimeDebugSettings.AutoFrameDuelView && !QuestRuntimeDebugSettings.AutoEnterSolo)
+            if (!QuestRuntimeDebugSettings.AutoFrameDuelView)
                 return;
             if (!trackingOriginCalibrated || xrOrigin == null || duelWorldAnchor == null)
                 return;
 
-            questDebugAutoFrameApplied = true;
-            questPlayerWorldOffset = new Vector3(0f, 0f, -7.5f);
-            questPlayerYawOffsetDegrees = 0f;
-            smoothedQuestRightWorldAxis = Vector2.zero;
-            smoothedQuestLeftWorldAxis = Vector2.zero;
-            if (questDuelWorldScaleMultiplier < 1f)
-                SetQuestDuelWorldScale(1f);
-            ReapplyXrOriginForCurrentHeadPose();
-            ApplyQuestDuelWorldUserTransform();
-            Debug.LogFormat(
-                "Quest debug auto frame applied. PlayerOffset={0}, DuelWorldScale={1:F2}",
-                questPlayerWorldOffset,
-                questDuelWorldScaleMultiplier);
+            ResolveQuestDebugViewFrame(out var eyeOffset, out var lookAt, out var yawOffset, out var worldScale, out var viewName);
+            if (!questDebugAutoFrameApplied)
+            {
+                questDebugAutoFrameApplied = true;
+                lastQuestDebugForcedViewApplyTime = -999f;
+                questPlayerWorldOffset = eyeOffset;
+                questPlayerYawOffsetDegrees = yawOffset;
+                smoothedQuestRightWorldAxis = Vector2.zero;
+                smoothedQuestLeftWorldAxis = Vector2.zero;
+                if (Mathf.Abs(questDuelWorldScaleMultiplier - worldScale) > 0.0001f)
+                    SetQuestDuelWorldScale(worldScale);
+
+                ApplyQuestDuelWorldUserTransform();
+
+                Debug.LogFormat(
+                    "Quest debug auto frame applied. View={0}, PlayerOffset={1}, LookAt={2}, Yaw={3:F1}, DuelWorldScale={4:F2}, ForcedRotation={5}",
+                    viewName,
+                    questPlayerWorldOffset,
+                    lookAt,
+                    questPlayerYawOffsetDegrees,
+                    questDuelWorldScaleMultiplier,
+                    QuestRuntimeDebugSettings.AutoFrameDuelView);
+            }
+
+            const float refreshInterval = 0.5f;
+            if (Time.unscaledTime - lastQuestDebugForcedViewApplyTime < refreshInterval)
+                return;
+
+            ApplyQuestDebugForcedView(DuelEyePosition + questPlayerWorldOffset, lookAt, yawOffset);
+            lastQuestDebugForcedViewApplyTime = Time.unscaledTime;
+        }
+
+        private static void ResolveQuestDebugViewFrame(
+            out Vector3 eyeOffset,
+            out Vector3 lookAt,
+            out float yawOffset,
+            out float worldScale,
+            out string viewName)
+        {
+            var preset = (QuestRuntimeDebugSettings.DebugViewPreset ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(preset))
+                preset = "field";
+
+            viewName = preset;
+            eyeOffset = new Vector3(0f, 4f, -18f);
+            lookAt = DuelLookTarget + new Vector3(0f, 1.1f, 0f);
+            yawOffset = 0f;
+            worldScale = 1f;
+
+            switch (preset)
+            {
+                case "overview":
+                case "wide":
+                case "all":
+                    eyeOffset = new Vector3(0f, 18f, -42f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(0f, 2.5f, -2f);
+                    break;
+                case "hand":
+                case "player":
+                    eyeOffset = new Vector3(0f, -1.5f, -24f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(0f, 9.0f, -42f);
+                    break;
+                case "field":
+                case "duel":
+                case "board":
+                    eyeOffset = new Vector3(0f, 4f, -18f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(0f, 1.6f, -1.5f);
+                    break;
+                case "close":
+                case "near":
+                    eyeOffset = new Vector3(0f, -3.5f, -9f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(0f, 1.25f, -3.5f);
+                    break;
+                case "leftinfo":
+                case "left":
+                    eyeOffset = new Vector3(-54f, 8f, -14f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(-18f, 18f, -12f);
+                    yawOffset = 24f;
+                    break;
+                case "rightinfo":
+                case "right":
+                    eyeOffset = new Vector3(54f, 8f, -14f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(18f, 18f, -12f);
+                    yawOffset = -24f;
+                    break;
+                case "opponent":
+                case "enemy":
+                    eyeOffset = new Vector3(0f, 12f, 70f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(0f, 2f, -1.5f);
+                    yawOffset = 180f;
+                    break;
+                case "menu":
+                case "mainui":
+                case "ui":
+                    eyeOffset = new Vector3(0f, 4f, -8f);
+                    lookAt = DuelWorldCenterOnGround + new Vector3(0f, 28f, 52.5f);
+                    break;
+            }
+
+            if (QuestRuntimeDebugSettings.HasDebugViewOffset)
+                eyeOffset = QuestRuntimeDebugSettings.DebugViewOffset;
+            if (QuestRuntimeDebugSettings.HasDebugViewLookAt)
+                lookAt = QuestRuntimeDebugSettings.DebugViewLookAt;
+            if (QuestRuntimeDebugSettings.HasDebugViewYaw)
+                yawOffset = QuestRuntimeDebugSettings.DebugViewYawDegrees;
+            if (QuestRuntimeDebugSettings.HasDebugViewScale)
+                worldScale = Mathf.Max(QuestRuntimeDebugSettings.DebugViewScale, QuestWorldScaleMinPositive);
+        }
+
+        private void ApplyQuestDebugForcedView(Vector3 targetEyePosition, Vector3 lookAt, float yawOffsetDegrees)
+        {
+            if (xrOrigin == null)
+                return;
+
+            if (!TryReadHeadPose(out var localHeadPosition, out var localHeadRotation))
+            {
+                localHeadPosition = Vector3.zero;
+                localHeadRotation = Quaternion.identity;
+            }
+
+            var direction = lookAt - targetEyePosition;
+            if (direction.sqrMagnitude < 0.0001f)
+                direction = GetDuelBaseRotation() * Vector3.forward;
+
+            var targetViewRotation = Quaternion.Euler(0f, yawOffsetDegrees, 0f) * Quaternion.LookRotation(direction.normalized, Vector3.up);
+            var originRotation = targetViewRotation * Quaternion.Inverse(localHeadRotation);
+            var scaledHeadOffset = localHeadPosition * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.localScale = Vector3.one * DuelWorldUnitsPerMeter;
+            xrOrigin.transform.SetPositionAndRotation(targetEyePosition - originRotation * scaledHeadOffset, originRotation);
+            RefreshWorldUiAfterXrOriginMove();
         }
 
         private static Quaternion GetDuelBaseRotation()
