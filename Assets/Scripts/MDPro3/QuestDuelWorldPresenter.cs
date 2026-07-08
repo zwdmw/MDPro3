@@ -462,9 +462,13 @@ namespace MDPro3
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
         private const float PowerLabelY = CardThickness + 2.18f;
-        private const float PowerLabelZ = -5.92f;
+        private const float PowerLabelCameraSideOffset = CardHeight * 0.5f + 0.92f;
         private const float PowerLabelScale = 0.60f;
+        private const float PowerLabelBackplateWidth = 8.6f;
+        private const float PowerLabelBackplateHeight = 2.55f;
+        private const float PortraitBaseY = PowerLabelY + PowerLabelBackplateHeight * PowerLabelScale * 0.5f + 0.92f;
         private const int PortraitRenderQueueOffset = -28;
+        private const int PowerLabelBackplateRenderQueueOffset = 70;
         private const int TextOverlayRenderQueueOffset = 86;
         private const float InteractionLabelY = CardThickness + 1.95f;
         private const float InteractionLabelZ = 4.92f;
@@ -505,6 +509,7 @@ namespace MDPro3
         private Material actionHighlightMaterial;
         private Material targetHighlightMaterial;
         private Material handAccentMaterial;
+        private Material powerLabelBackplateMaterial;
         private Material pileFaceMaterial;
         private Material portraitMaterial;
         private static Texture2D fallbackCardBackTexture;
@@ -1936,7 +1941,8 @@ namespace MDPro3
                 GetHighlightMaterial(),
                 GetActionHighlightMaterial(),
                 GetTargetHighlightMaterial(),
-                GetHandAccentMaterial());
+                GetHandAccentMaterial(),
+                GetPowerLabelBackplateMaterial());
             cardProxies[card] = proxy;
             return proxy;
         }
@@ -2219,6 +2225,30 @@ namespace MDPro3
 
             proxy.PowerLabelText.text = FormatPowerLabel(card, data);
             proxy.PowerLabelText.color = Color.white;
+            UpdatePowerLabelPose(proxy);
+        }
+
+        private void UpdatePowerLabelPose(QuestCardProxy proxy)
+        {
+            if (proxy == null || proxy.Transform == null || proxy.PowerLabelRoot == null)
+                return;
+
+            if (xrCamera == null)
+            {
+                FaceTextToCamera(proxy.PowerLabelRoot.transform);
+                return;
+            }
+
+            var cameraLocal = proxy.Transform.InverseTransformPoint(xrCamera.transform.position);
+            var towardCamera = new Vector3(cameraLocal.x, 0f, cameraLocal.z);
+            if (towardCamera.sqrMagnitude < 0.0001f)
+                towardCamera = new Vector3(0f, 0f, -1f);
+            towardCamera.Normalize();
+
+            proxy.PowerLabelRoot.transform.localPosition = new Vector3(
+                towardCamera.x * PowerLabelCameraSideOffset,
+                PowerLabelY,
+                towardCamera.z * PowerLabelCameraSideOffset);
             FaceTextToCamera(proxy.PowerLabelRoot.transform);
         }
 
@@ -2574,7 +2604,7 @@ namespace MDPro3
                 var aspect = texture.height <= 0 ? 0.72f : (float)texture.width / texture.height;
                 var width = Mathf.Clamp(PortraitHeight * aspect, 2.4f, PortraitMaxWidth);
                 proxy.Portrait.transform.localScale = new Vector3(width, PortraitHeight, 1f);
-                proxy.Portrait.transform.localPosition = new Vector3(0f, PortraitHeight * 0.5f + CardThickness + 0.15f, 0f);
+                proxy.Portrait.transform.localPosition = ResolvePortraitLocalPosition();
             }
 
             proxy.LoadingPortraitCode = 0;
@@ -2591,6 +2621,11 @@ namespace MDPro3
                 return;
 
             target.rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
+        }
+
+        private static Vector3 ResolvePortraitLocalPosition()
+        {
+            return new Vector3(0f, PortraitBaseY + PortraitHeight * 0.5f, 0f);
         }
 
         private void RemoveStaleCardProxies()
@@ -3003,6 +3038,16 @@ namespace MDPro3
             return handAccentMaterial;
         }
 
+        private Material GetPowerLabelBackplateMaterial()
+        {
+            if (powerLabelBackplateMaterial != null)
+                return powerLabelBackplateMaterial;
+
+            powerLabelBackplateMaterial = CreateMaterial("QuestPowerLabelBackplateMaterial", new Color(0.015f, 0.025f, 0.035f, 0.78f), true);
+            powerLabelBackplateMaterial.renderQueue = (int)RenderQueue.Transparent + PowerLabelBackplateRenderQueueOffset;
+            return powerLabelBackplateMaterial;
+        }
+
         private static Material CreateMaterial(string name, Color color, bool transparent)
         {
             var shader = Shader.Find("Universal Render Pipeline/Unlit")
@@ -3216,7 +3261,8 @@ namespace MDPro3
                 Material highlightMaterial,
                 Material actionHighlightMaterial,
                 Material targetHighlightMaterial,
-                Material handAccentMaterial)
+                Material handAccentMaterial,
+                Material powerLabelBackplateMaterial)
             {
                 var root = new GameObject("QuestCardProxy_" + (card == null ? "null" : card.md5.ToString()));
                 SetQuestOverlayLayer(root);
@@ -3240,7 +3286,7 @@ namespace MDPro3
                 var front = CreateCardQuad("QuestCardProxyFront", root.transform, CardThickness + 0.006f, faceMaterial);
                 var back = CreateCardQuad("QuestCardProxyBack", root.transform, CardThickness + 0.012f, backMaterial);
                 var portrait = CreatePortraitQuad("QuestCardProxyPortrait", root.transform, faceMaterial);
-                var powerLabel = CreatePowerLabel(root.transform);
+                var powerLabel = CreatePowerLabel(root.transform, powerLabelBackplateMaterial);
                 var interactionLabel = CreateInteractionLabel(root.transform);
                 var highlight = CreateHighlightCube("QuestCardProxySelectionHighlight", root.transform, CardThickness + 0.018f, highlightMaterial);
                 var actionHighlight = CreateHighlightCube("QuestCardProxyPlayableHighlight", root.transform, CardThickness + 0.020f, actionHighlightMaterial);
@@ -3304,7 +3350,7 @@ namespace MDPro3
                 SetQuestOverlayLayer(quad);
                 UnityEngine.Object.Destroy(quad.GetComponent<Collider>());
                 quad.transform.SetParent(parent, false);
-                quad.transform.localPosition = new Vector3(0f, PortraitHeight * 0.5f + CardThickness + 0.15f, 0f);
+                quad.transform.localPosition = ResolvePortraitLocalPosition();
                 quad.transform.localRotation = Quaternion.identity;
                 quad.transform.localScale = new Vector3(PortraitHeight * 0.72f, PortraitHeight, 1f);
                 ConfigureRenderer(quad.GetComponent<MeshRenderer>(), material);
@@ -3312,19 +3358,32 @@ namespace MDPro3
                 return quad;
             }
 
-            private static GameObject CreatePowerLabel(Transform parent)
+            private static GameObject CreatePowerLabel(Transform parent, Material backplateMaterial)
             {
                 var labelRoot = new GameObject("QuestCardProxyPowerLabel");
                 SetQuestOverlayLayer(labelRoot);
                 labelRoot.transform.SetParent(parent, false);
-                labelRoot.transform.localPosition = new Vector3(0f, PowerLabelY, PowerLabelZ);
+                labelRoot.transform.localPosition = new Vector3(0f, PowerLabelY, -PowerLabelCameraSideOffset);
                 labelRoot.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
                 labelRoot.transform.localScale = Vector3.one * PowerLabelScale;
+
+                var backplate = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                backplate.name = "QuestCardProxyPowerBackplate";
+                SetQuestOverlayLayer(backplate);
+                UnityEngine.Object.Destroy(backplate.GetComponent<Collider>());
+                backplate.transform.SetParent(labelRoot.transform, false);
+                backplate.transform.localPosition = new Vector3(0f, -0.05f, 0.018f);
+                backplate.transform.localRotation = Quaternion.identity;
+                backplate.transform.localScale = new Vector3(PowerLabelBackplateWidth, PowerLabelBackplateHeight, 1f);
+                ConfigureRenderer(backplate.GetComponent<MeshRenderer>(), backplateMaterial);
+                var backplateRenderer = backplate.GetComponent<MeshRenderer>();
+                if (backplateRenderer != null)
+                    backplateRenderer.sortingOrder = 112;
 
                 var textObject = new GameObject("QuestCardProxyPowerText");
                 SetQuestOverlayLayer(textObject);
                 textObject.transform.SetParent(labelRoot.transform, false);
-                textObject.transform.localPosition = Vector3.zero;
+                textObject.transform.localPosition = new Vector3(0f, 0f, 0.036f);
                 textObject.transform.localRotation = Quaternion.identity;
                 textObject.transform.localScale = Vector3.one;
 
@@ -3334,11 +3393,13 @@ namespace MDPro3
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
+                text.overflowMode = TextOverflowModes.Overflow;
                 text.text = string.Empty;
                 text.color = Color.white;
                 text.outlineWidth = 0.34f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
                 text.margin = new Vector4(0.9f, 0.4f, 0.9f, 0.4f);
+                text.rectTransform.sizeDelta = new Vector2(PowerLabelBackplateWidth, PowerLabelBackplateHeight);
                 ConfigureTextOverlay(text, 120);
 
                 labelRoot.SetActive(false);
