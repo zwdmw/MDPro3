@@ -71,12 +71,10 @@ namespace MDPro3
         private const float QuestDuelActionMenuWidth = 680f;
         private const float QuestDuelActionMenuSingleColumnWidth = 360f;
         private const float QuestDuelActionMenuTwoColumnWidth = 560f;
-        private const float QuestDuelActionRadialMenuWidth = 780f;
-        private const float QuestDuelActionRadialMenuHeight = 350f;
-        private const float QuestDuelActionRadialButtonWidth = 238f;
-        private const float QuestDuelActionRadialButtonHeight = 82f;
-        private const float QuestDuelActionRadialRadiusX = 265f;
-        private const float QuestDuelActionRadialRadiusY = 108f;
+        private const float QuestDuelActionRadialMenuWidth = 760f;
+        private const float QuestDuelActionRadialMenuHeight = 390f;
+        private const float QuestDuelActionRadialButtonWidth = 200f;
+        private const float QuestDuelActionRadialButtonHeight = 76f;
         private const float QuestDuelActionMenuPadding = 14f;
         private const float QuestDuelActionItemHeight = 108f;
         private const float QuestDuelActionItemGap = 12f;
@@ -6918,7 +6916,7 @@ namespace MDPro3
 
         private static bool ShouldUseQuestDuelActionRadialLayout(List<QuestDuelAction> actions)
         {
-            if (actions == null || actions.Count == 0 || actions.Count > 3)
+            if (actions == null || actions.Count == 0 || actions.Count > 5)
                 return false;
 
             GameCard card = null;
@@ -7052,15 +7050,52 @@ namespace MDPro3
         private static Vector2 ResolveQuestDuelActionRadialPosition(int index, int count)
         {
             if (count <= 1)
-                return new Vector2(0f, 26f);
+                return new Vector2(0f, 58f);
 
-            var t = count <= 1 ? 0.5f : index / (float)(count - 1);
-            var angle = Mathf.Lerp(158f, 22f, t) * Mathf.Deg2Rad;
-            var x = Mathf.Cos(angle) * QuestDuelActionRadialRadiusX;
-            var y = Mathf.Sin(angle) * QuestDuelActionRadialRadiusY - 26f;
             if (count == 2)
-                y += 22f;
-            return new Vector2(x, y);
+                return new Vector2(index == 0 ? -128f : 128f, 66f);
+
+            if (count == 3)
+            {
+                switch (index)
+                {
+                    case 0:
+                        return new Vector2(-230f, 46f);
+                    case 1:
+                        return new Vector2(0f, 122f);
+                    default:
+                        return new Vector2(230f, 46f);
+                }
+            }
+
+            if (count == 4)
+            {
+                switch (index)
+                {
+                    case 0:
+                        return new Vector2(-230f, 84f);
+                    case 1:
+                        return new Vector2(230f, 84f);
+                    case 2:
+                        return new Vector2(-120f, -54f);
+                    default:
+                        return new Vector2(120f, -54f);
+                }
+            }
+
+            switch (index)
+            {
+                case 0:
+                    return new Vector2(-260f, 82f);
+                case 1:
+                    return new Vector2(0f, 138f);
+                case 2:
+                    return new Vector2(260f, 82f);
+                case 3:
+                    return new Vector2(-140f, -56f);
+                default:
+                    return new Vector2(140f, -56f);
+            }
         }
 
         private static void AddQuestDuelActionButtonChrome(Transform parent, Vector2 size, Color accent)
