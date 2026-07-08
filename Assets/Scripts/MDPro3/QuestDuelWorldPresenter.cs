@@ -477,8 +477,8 @@ namespace MDPro3
         private const float InteractionLabelY = CardThickness + 1.95f;
         private const float InteractionLabelZ = 4.92f;
         private const float InteractionLabelScale = 0.62f;
-        private const float ActionMarkerBaseWidth = CardWidth * 0.72f;
-        private const float ActionMarkerBaseDepth = 0.34f;
+        private const float ActionMarkerBaseWidth = CardWidth * 0.58f;
+        private const float ActionMarkerBaseDepth = 0.20f;
         private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
         private const float ActionableCardLift = 0.64f;
         private const float SelectionTargetCardLift = 1.62f;
@@ -2974,9 +2974,9 @@ namespace MDPro3
             var pulse = (Mathf.Sin(Time.unscaledTime * 5.5f) + 1f) * 0.5f;
             target.transform.localPosition = new Vector3(0f, CardThickness + 0.022f, ActionMarkerZ);
             target.transform.localScale = new Vector3(
-                ActionMarkerBaseWidth + pulse * 0.34f,
-                0.014f,
-                ActionMarkerBaseDepth + pulse * 0.055f);
+                ActionMarkerBaseWidth + pulse * 0.18f,
+                0.010f,
+                ActionMarkerBaseDepth + pulse * 0.025f);
         }
 
         private static void SetTargetMarkerObject(GameObject target, bool active)
@@ -3962,7 +3962,7 @@ namespace MDPro3
             if (actionHighlightMaterial != null)
                 return actionHighlightMaterial;
 
-            actionHighlightMaterial = CreateMaterial("QuestCardPlayableHighlightMaterial", new Color(1f, 0.72f, 0.12f, 0.70f), true);
+            actionHighlightMaterial = CreateMaterial("QuestCardPlayableHighlightMaterial", new Color(1f, 0.72f, 0.12f, 0.46f), true);
             return actionHighlightMaterial;
         }
 
