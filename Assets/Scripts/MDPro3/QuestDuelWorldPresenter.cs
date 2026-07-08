@@ -502,6 +502,13 @@ namespace MDPro3
         private const float SelectionGuideRingBaseWidth = 0.18f;
         private const float SelectionGuideRingPulseWidth = 0.085f;
         private const float SelectionGuideRingPulseRadius = 0.20f;
+        private const int ChainGuideArcSegments = 18;
+        private const int ChainGuideMaxCards = 5;
+        private const float ChainGuideTargetSpacing = 6.1f;
+        private const float ChainGuideBadgeScale = 0.46f;
+        private const float ChainGuideBadgeWidth = 6.4f;
+        private const float ChainGuideBadgeHeight = 2.15f;
+        private const float ChainGuideBadgeYOffset = 2.45f;
         private const float AttackPortraitLungeDistance = 5.8f;
         private const float DirectAttackPortraitLungeDistance = 7.2f;
         private const float AttackProjectileHeight = 1.35f;
@@ -509,6 +516,7 @@ namespace MDPro3
         private const int AttackReticleSegments = 48;
         private const float AttackProjectileTrailTime = 0.28f;
         private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
+        private static readonly Vector3 ChainGuidePanelLocalCenter = new Vector3(0f, 22.5f, -42f);
 
         private Camera xrCamera;
         private Transform worldAnchor;
@@ -539,9 +547,14 @@ namespace MDPro3
         private readonly List<SelectionGuideRing> selectionGuideRings = new List<SelectionGuideRing>();
         private readonly List<SelectionGuideBadge> selectionGuideBadges = new List<SelectionGuideBadge>();
         private readonly List<SelectionGuideArc> selectionGuideArcs = new List<SelectionGuideArc>();
+        private readonly List<GameObject> chainGuideObjects = new List<GameObject>();
+        private readonly List<Material> chainGuideMaterials = new List<Material>();
+        private readonly List<ChainGuideArc> chainGuideArcs = new List<ChainGuideArc>();
+        private readonly List<ChainGuideBadge> chainGuideBadges = new List<ChainGuideBadge>();
         private GameCard hoveredCard;
         private GameCard selectionSourceCard;
         private string selectionGuideSignature;
+        private string chainGuideSignature;
         private float selectionSourceValidUntil;
         private float lastDiagnosticsTime;
         private float lastDebugCaptureTime;
@@ -582,10 +595,12 @@ namespace MDPro3
             KillPendingPresentationTweens();
             ClearPresentationTransients();
             ClearSelectionGuides();
+            ClearChainGuides();
         }
 
         private void OnDestroy()
         {
+            ClearChainGuides();
             DestroyAllProxies();
             DestroyPresenterMaterials();
         }
@@ -602,6 +617,7 @@ namespace MDPro3
             {
                 HideAllProxies();
                 ClearSelectionGuides();
+                ClearChainGuides();
                 return;
             }
 
@@ -621,6 +637,7 @@ namespace MDPro3
             RemoveStaleCardProxies();
             UpdatePileProxies(core);
             UpdateFieldSelectionGuides(core);
+            UpdateChainGuides(core);
             LogDiagnostics(core, legacyDuelContainer);
             CaptureDebugFrameIfUseful();
         }
@@ -1021,8 +1038,7 @@ namespace MDPro3
                 textRenderer.shadowCastingMode = ShadowCastingMode.Off;
                 textRenderer.receiveShadows = false;
             }
-            if (text.fontMaterial != null)
-                text.fontMaterial.renderQueue = (int)RenderQueue.Transparent + TextOverlayRenderQueueOffset;
+            TrackOwnedTextMaterial(text, selectionGuideMaterials, (int)RenderQueue.Transparent + TextOverlayRenderQueueOffset);
 
             var pointer = CreateSelectionTargetPointer(center, badgeObject.transform.position, targetIndex);
             selectionGuideObjects.Add(badgeObject);
@@ -1226,6 +1242,358 @@ namespace MDPro3
             }
 
             Destroy(guide);
+        }
+
+        private void UpdateChainGuides(OcgCore core)
+        {
+            if (core?.cardsInChain == null || core.cardsInChain.Count == 0 || presentationRoot == null || worldAnchor == null)
+            {
+                ClearChainGuides();
+                return;
+            }
+
+            var count = core.cardsInChain.Count;
+            var signature = BuildChainGuideSignature(core, count);
+            if (signature == chainGuideSignature && chainGuideObjects.Count > 0)
+            {
+                UpdateChainGuideBillboards();
+                return;
+            }
+
+            ClearChainGuides();
+            chainGuideSignature = signature;
+            BuildChainGuides(core, count);
+            UpdateChainGuideBillboards();
+        }
+
+        private static string BuildChainGuideSignature(OcgCore core, int count)
+        {
+            if (core == null || count <= 0)
+                return string.Empty;
+
+            var signature = "count:" + count;
+            var visibleCount = Mathf.Min(ChainGuideMaxCards, count);
+            var start = Mathf.Max(0, count - visibleCount);
+            for (var index = start; index < count; index += 1)
+            {
+                var card = GetChainCard(core, index);
+                var code = GetChainCode(core, index, card);
+                var controller = GetChainController(core, index, card);
+                var gps = card == null ? null : card.p;
+                signature += "|"
+                    + index
+                    + ":"
+                    + code
+                    + ":"
+                    + controller
+                    + ":"
+                    + (card == null ? 0 : card.md5)
+                    + ":"
+                    + (gps == null ? 0 : gps.location)
+                    + ":"
+                    + (gps == null ? 0 : gps.sequence)
+                    + ":"
+                    + (gps == null ? 0 : gps.position);
+            }
+
+            return signature;
+        }
+
+        private void BuildChainGuides(OcgCore core, int count)
+        {
+            var visibleCount = Mathf.Min(ChainGuideMaxCards, count);
+            var start = Mathf.Max(0, count - visibleCount);
+            for (var visibleIndex = 0; visibleIndex < visibleCount; visibleIndex += 1)
+            {
+                var chainIndex = start + visibleIndex;
+                var card = GetChainCard(core, chainIndex);
+                if (card == null || !TryGetChainSourcePoint(card, out var source, out var sourceRadius))
+                    continue;
+
+                var controller = GetChainController(core, chainIndex, card);
+                var target = ResolveChainGuideTargetWorldPoint(visibleIndex, visibleCount);
+                CreateChainGuideArc(card, controller, chainIndex, visibleIndex, visibleCount, source, target);
+                CreateChainGuideBadge(card, controller, chainIndex + 1, visibleIndex, source, sourceRadius);
+            }
+        }
+
+        private bool TryGetChainSourcePoint(GameCard card, out Vector3 point, out float radius)
+        {
+            point = default;
+            radius = 0f;
+            if (card == null)
+                return false;
+
+            if (TryGetCardActionAnchor(card, out var anchor, out var actionRadius))
+            {
+                point = anchor + Vector3.up * 0.34f;
+                radius = Mathf.Max(actionRadius, 1.2f);
+                return true;
+            }
+
+            if (TryGetCardWorldPoint(card, out var position))
+            {
+                point = position + Vector3.up * 1.05f;
+                radius = 2.2f;
+                return true;
+            }
+
+            return false;
+        }
+
+        private Vector3 ResolveChainGuideTargetWorldPoint(int visibleIndex, int visibleCount)
+        {
+            var offsetX = (visibleIndex - (visibleCount - 1) * 0.5f) * ChainGuideTargetSpacing;
+            var local = ChainGuidePanelLocalCenter + new Vector3(offsetX, -1.45f, 0f);
+            return worldAnchor == null ? local : worldAnchor.TransformPoint(local);
+        }
+
+        private void CreateChainGuideArc(
+            GameCard card,
+            uint controller,
+            int chainIndex,
+            int visibleIndex,
+            int visibleCount,
+            Vector3 from,
+            Vector3 to)
+        {
+            if (presentationRoot == null || (to - from).sqrMagnitude < 0.01f)
+                return;
+
+            var lineObject = new GameObject("QuestChainGuideArc_" + (chainIndex + 1));
+            SetQuestOverlayLayer(lineObject);
+            lineObject.transform.SetParent(presentationRoot, false);
+            var line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.positionCount = ChainGuideArcSegments;
+            line.numCapVertices = 5;
+            line.alignment = LineAlignment.View;
+            line.startWidth = 0.13f;
+            line.endWidth = 0.05f;
+            var color = ResolveChainGuideColor(controller, chainIndex);
+            var material = CreateMaterial("QuestChainGuideArcMaterial", color, true);
+            material.renderQueue = (int)RenderQueue.Transparent + 66;
+            line.material = material;
+
+            chainGuideObjects.Add(lineObject);
+            chainGuideMaterials.Add(material);
+            chainGuideArcs.Add(new ChainGuideArc(card, line, controller, chainIndex, visibleIndex, visibleCount));
+            UpdateChainGuideArc(line, from, to, controller, chainIndex, visibleIndex, visibleCount);
+        }
+
+        private void CreateChainGuideBadge(
+            GameCard card,
+            uint controller,
+            int chainNumber,
+            int visibleIndex,
+            Vector3 source,
+            float sourceRadius)
+        {
+            if (presentationRoot == null)
+                return;
+
+            var badgeObject = new GameObject("QuestChainGuideBadge_" + chainNumber);
+            SetQuestOverlayLayer(badgeObject);
+            badgeObject.transform.SetParent(presentationRoot, false);
+            badgeObject.transform.localPosition = presentationRoot.InverseTransformPoint(source + Vector3.up * (ChainGuideBadgeYOffset + Mathf.Clamp(sourceRadius * 0.06f, 0f, 0.55f)));
+            badgeObject.transform.localScale = Vector3.one * ChainGuideBadgeScale;
+
+            var backplate = new GameObject("QuestChainGuideBadgeBackplate", typeof(MeshFilter), typeof(MeshRenderer));
+            SetQuestOverlayLayer(backplate);
+            backplate.transform.SetParent(badgeObject.transform, false);
+            backplate.transform.localPosition = new Vector3(0f, 0f, 0.012f);
+            backplate.transform.localRotation = Quaternion.identity;
+            backplate.transform.localScale = new Vector3(ChainGuideBadgeWidth, ChainGuideBadgeHeight, 1f);
+            backplate.GetComponent<MeshFilter>().sharedMesh = GetSharedQuadMesh();
+            var color = ResolveChainGuideColor(controller, chainNumber - 1);
+            var backplateMaterial = CreateMaterial("QuestChainGuideBadgeMaterial", new Color(color.r * 0.18f, color.g * 0.18f, color.b * 0.18f, 0.74f), true);
+            backplateMaterial.renderQueue = (int)RenderQueue.Transparent + 70;
+            QuestCardProxy.ConfigureRenderer(backplate.GetComponent<MeshRenderer>(), backplateMaterial);
+
+            var textObject = new GameObject("QuestChainGuideBadgeText");
+            SetQuestOverlayLayer(textObject);
+            textObject.transform.SetParent(badgeObject.transform, false);
+            textObject.transform.localPosition = new Vector3(0f, 0.03f, 0.030f);
+            textObject.transform.localRotation = Quaternion.identity;
+            textObject.transform.localScale = Vector3.one;
+            var text = textObject.AddComponent<TextMeshPro>();
+            text.text = "C" + chainNumber;
+            text.alignment = TextAlignmentOptions.Center;
+            text.fontSize = 4.45f;
+            text.fontStyle = FontStyles.Bold;
+            text.enableWordWrapping = false;
+            text.color = new Color(color.r, color.g, color.b, 1f);
+            text.outlineWidth = 0.20f;
+            text.outlineColor = new Color(0f, 0f, 0f, 0.94f);
+            var textRenderer = text.GetComponent<Renderer>();
+            if (textRenderer != null)
+            {
+                textRenderer.sortingOrder = 134;
+                textRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                textRenderer.receiveShadows = false;
+            }
+            TrackOwnedTextMaterial(text, chainGuideMaterials, (int)RenderQueue.Transparent + TextOverlayRenderQueueOffset);
+
+            chainGuideObjects.Add(badgeObject);
+            chainGuideMaterials.Add(backplateMaterial);
+            chainGuideBadges.Add(new ChainGuideBadge(card, badgeObject.transform, visibleIndex, sourceRadius));
+        }
+
+        private void UpdateChainGuideBillboards()
+        {
+            UpdateChainGuideArcs();
+
+            for (var index = chainGuideBadges.Count - 1; index >= 0; index -= 1)
+            {
+                var badge = chainGuideBadges[index];
+                if (badge == null || badge.Root == null || !TryGetChainSourcePoint(badge.Card, out var source, out var sourceRadius))
+                {
+                    DestroyChainGuideObject(badge?.Root == null ? null : badge.Root.gameObject);
+                    chainGuideBadges.RemoveAt(index);
+                    continue;
+                }
+
+                var badgeWorldPosition = source + Vector3.up * (ChainGuideBadgeYOffset + Mathf.Clamp(sourceRadius * 0.06f, 0f, 0.55f));
+                badge.Root.localPosition = presentationRoot == null
+                    ? badgeWorldPosition
+                    : presentationRoot.InverseTransformPoint(badgeWorldPosition);
+                FaceTextToCamera(badge.Root);
+                var pulse = (Mathf.Sin(Time.unscaledTime * 3.9f + badge.VisibleIndex * 0.58f) + 1f) * 0.5f;
+                badge.Root.localScale = Vector3.one * ChainGuideBadgeScale * (1f + pulse * 0.085f);
+            }
+        }
+
+        private void UpdateChainGuideArcs()
+        {
+            for (var index = chainGuideArcs.Count - 1; index >= 0; index -= 1)
+            {
+                var arc = chainGuideArcs[index];
+                if (arc == null || arc.Line == null)
+                {
+                    chainGuideArcs.RemoveAt(index);
+                    continue;
+                }
+
+                if (!TryGetChainSourcePoint(arc.Card, out var source, out _))
+                {
+                    DestroyChainGuideObject(arc.Line.gameObject);
+                    chainGuideArcs.RemoveAt(index);
+                    continue;
+                }
+
+                var target = ResolveChainGuideTargetWorldPoint(arc.VisibleIndex, arc.VisibleCount);
+                UpdateChainGuideArc(arc.Line, source, target, arc.Controller, arc.ChainIndex, arc.VisibleIndex, arc.VisibleCount);
+            }
+        }
+
+        private void UpdateChainGuideArc(
+            LineRenderer line,
+            Vector3 from,
+            Vector3 to,
+            uint controller,
+            int chainIndex,
+            int visibleIndex,
+            int visibleCount)
+        {
+            if (line == null || presentationRoot == null)
+                return;
+
+            var localFrom = presentationRoot.InverseTransformPoint(from);
+            var localTo = presentationRoot.InverseTransformPoint(to);
+            var planarDistance = Vector3.Distance(new Vector3(localFrom.x, 0f, localFrom.z), new Vector3(localTo.x, 0f, localTo.z));
+            var apex = Mathf.Clamp(planarDistance * 0.18f, 1.35f, 6.2f);
+            var pulse = (Mathf.Sin(Time.unscaledTime * 4.5f + visibleIndex * 0.67f) + 1f) * 0.5f;
+            for (var index = 0; index < line.positionCount; index += 1)
+            {
+                var t = index / (float)(line.positionCount - 1);
+                var position = Vector3.Lerp(localFrom, localTo, t);
+                position.y += Mathf.Sin(t * Mathf.PI) * (apex + pulse * 0.28f);
+                position.x += Mathf.Sin(t * Mathf.PI) * (visibleIndex - (visibleCount - 1) * 0.5f) * 0.12f;
+                line.SetPosition(index, position);
+            }
+
+            var color = ResolveChainGuideColor(controller, chainIndex);
+            color.a = 0.42f + pulse * 0.24f;
+            line.startColor = color;
+            line.endColor = new Color(color.r, color.g, color.b, color.a * 0.62f);
+            line.startWidth = 0.13f + pulse * 0.035f + Mathf.Clamp(visibleCount * 0.006f, 0f, 0.04f);
+            line.endWidth = 0.050f + pulse * 0.015f;
+        }
+
+        private static Color ResolveChainGuideColor(uint controller, int chainIndex)
+        {
+            if (controller == 0)
+                return chainIndex % 2 == 0
+                    ? new Color(0.32f, 1f, 0.96f, 0.70f)
+                    : new Color(0.55f, 0.82f, 1f, 0.70f);
+
+            return chainIndex % 2 == 0
+                ? new Color(1f, 0.73f, 0.26f, 0.70f)
+                : new Color(1f, 0.48f, 0.36f, 0.70f);
+        }
+
+        private void ClearChainGuides()
+        {
+            foreach (var material in chainGuideMaterials)
+                if (material != null)
+                    Destroy(material);
+            chainGuideMaterials.Clear();
+
+            foreach (var guide in chainGuideObjects)
+                if (guide != null)
+                    Destroy(guide);
+            chainGuideObjects.Clear();
+            chainGuideArcs.Clear();
+            chainGuideBadges.Clear();
+            chainGuideSignature = null;
+        }
+
+        private void DestroyChainGuideObject(GameObject guide)
+        {
+            if (guide == null)
+                return;
+
+            chainGuideObjects.Remove(guide);
+            var renderers = guide.GetComponentsInChildren<Renderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                var materials = renderer.sharedMaterials;
+                foreach (var material in materials)
+                {
+                    if (material == null || !chainGuideMaterials.Remove(material))
+                        continue;
+                    Destroy(material);
+                }
+            }
+
+            Destroy(guide);
+        }
+
+        private static GameCard GetChainCard(OcgCore core, int index)
+        {
+            if (core?.cardsInChain == null || index < 0 || index >= core.cardsInChain.Count)
+                return null;
+            return core.cardsInChain[index];
+        }
+
+        private static int GetChainCode(OcgCore core, int index, GameCard card)
+        {
+            if (core?.codesInChain != null && index >= 0 && index < core.codesInChain.Count && core.codesInChain[index] > 0)
+                return core.codesInChain[index];
+            var data = card == null ? null : card.GetData();
+            return data == null ? 0 : data.Id;
+        }
+
+        private static uint GetChainController(OcgCore core, int index, GameCard card)
+        {
+            if (core?.controllerInChain != null && index >= 0 && index < core.controllerInChain.Count)
+                return core.controllerInChain[index];
+            if (card?.p != null)
+                return card.p.controller;
+            return 0;
         }
 
         private void EnsureRoot()
@@ -3156,6 +3524,22 @@ namespace MDPro3
             return material != null && material != text.fontSharedMaterial ? material : null;
         }
 
+        private static void TrackOwnedTextMaterial(TextMeshPro text, List<Material> ownerMaterials, int renderQueue)
+        {
+            if (text == null)
+                return;
+
+            var material = text.fontMaterial;
+            if (material == null)
+                return;
+
+            material.renderQueue = renderQueue;
+            if (ownerMaterials == null || material == text.fontSharedMaterial || ownerMaterials.Contains(material))
+                return;
+
+            ownerMaterials.Add(material);
+        }
+
         private void DestroyProxyInstanceMaterial(Material material)
         {
             if (material == null || IsSharedPresenterMaterial(material))
@@ -3863,6 +4247,42 @@ namespace MDPro3
                 Target = target;
                 Line = line;
                 TargetIndex = targetIndex;
+            }
+        }
+
+        private sealed class ChainGuideArc
+        {
+            public readonly GameCard Card;
+            public readonly LineRenderer Line;
+            public readonly uint Controller;
+            public readonly int ChainIndex;
+            public readonly int VisibleIndex;
+            public readonly int VisibleCount;
+
+            public ChainGuideArc(GameCard card, LineRenderer line, uint controller, int chainIndex, int visibleIndex, int visibleCount)
+            {
+                Card = card;
+                Line = line;
+                Controller = controller;
+                ChainIndex = chainIndex;
+                VisibleIndex = visibleIndex;
+                VisibleCount = visibleCount;
+            }
+        }
+
+        private sealed class ChainGuideBadge
+        {
+            public readonly GameCard Card;
+            public readonly Transform Root;
+            public readonly int VisibleIndex;
+            public readonly float SourceRadius;
+
+            public ChainGuideBadge(GameCard card, Transform root, int visibleIndex, float sourceRadius)
+            {
+                Card = card;
+                Root = root;
+                VisibleIndex = visibleIndex;
+                SourceRadius = sourceRadius;
             }
         }
 
