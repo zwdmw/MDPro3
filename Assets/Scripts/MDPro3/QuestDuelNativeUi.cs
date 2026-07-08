@@ -31,6 +31,7 @@ namespace MDPro3
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
         private const float StateBannerScale = 0.030f;
+        private const float ChainPanelScale = 0.025f;
         private const float CardInfoScale = 0.028f;
         private const float HoverCardInfoScale = 0.0175f;
         private const float SideCardDetailScale = 0.037f;
@@ -156,6 +157,12 @@ namespace MDPro3
         private int cachedActionableCardCount;
         private int cachedSelectableTargetCount;
         private int cachedChainCount;
+        private Canvas chainPanelCanvas;
+        private RectTransform chainPanelRect;
+        private RectTransform chainPanelListRoot;
+        private TextMeshProUGUI chainPanelTitleText;
+        private readonly List<GameObject> chainPanelRows = new List<GameObject>();
+        private string lastChainPanelSignature;
         private Canvas controlHudCanvas;
         private RectTransform controlHudRect;
         private RectTransform phaseTrackRoot;
@@ -225,6 +232,7 @@ namespace MDPro3
             ReparentCanvas(phaseMenuCanvas);
             ReparentCanvas(phaseHudCanvas);
             ReparentCanvas(stateBannerCanvas);
+            ReparentCanvas(chainPanelCanvas);
             ReparentCanvas(controlHudCanvas);
             ReparentCanvas(duelLogCanvas);
         }
@@ -600,12 +608,15 @@ namespace MDPro3
                 phaseHudCanvas.gameObject.SetActive(false);
             if (stateBannerCanvas != null && stateBannerCanvas.gameObject.activeSelf)
                 stateBannerCanvas.gameObject.SetActive(false);
+            if (chainPanelCanvas != null && chainPanelCanvas.gameObject.activeSelf)
+                chainPanelCanvas.gameObject.SetActive(false);
             if (controlHudCanvas != null && controlHudCanvas.gameObject.activeSelf)
                 controlHudCanvas.gameObject.SetActive(false);
             if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                 duelLogCanvas.gameObject.SetActive(false);
             lastPhaseHudSignature = null;
             lastStateBannerSignature = null;
+            lastChainPanelSignature = null;
             ResetDuelLogState();
         }
 
@@ -869,6 +880,7 @@ namespace MDPro3
             }
 
             EnsureStateBanner();
+            EnsureChainPanel();
         }
 
         private void EnsureStateBanner()
@@ -898,6 +910,26 @@ namespace MDPro3
             bannerObject.SetActive(false);
         }
 
+        private void EnsureChainPanel()
+        {
+            if (chainPanelCanvas != null)
+                return;
+
+            var chainObject = CreateCanvasObject("QuestDuelChainPanel", out chainPanelCanvas, out chainPanelRect);
+            chainPanelRect.sizeDelta = new Vector2(1260f, 312f);
+            AddPanelBackground(chainObject, new Color(0.006f, 0.010f, 0.016f, 0.70f));
+            var background = chainObject.GetComponent<Image>();
+            if (background != null)
+                background.raycastTarget = false;
+
+            AddHudPanelChrome(chainPanelRect, HudAccentGold);
+            chainPanelTitleText = CreateText("Title", chainPanelRect, new Vector2(42f, -26f), new Vector2(1176f, 52f), 38f, TextAlignmentOptions.Center);
+            chainPanelTitleText.fontStyle = FontStyles.Bold;
+            chainPanelTitleText.text = "\u8fde\u9501";
+            chainPanelListRoot = CreateRect("ChainCards", chainPanelRect, new Vector2(42f, -94f), new Vector2(1176f, 182f), new Vector2(0f, 1f));
+            chainObject.SetActive(false);
+        }
+
         private void UpdatePhaseHud()
         {
             var core = Program.instance?.ocgcore;
@@ -907,12 +939,15 @@ namespace MDPro3
                     phaseHudCanvas.gameObject.SetActive(false);
                 if (stateBannerCanvas != null && stateBannerCanvas.gameObject.activeSelf)
                     stateBannerCanvas.gameObject.SetActive(false);
+                if (chainPanelCanvas != null && chainPanelCanvas.gameObject.activeSelf)
+                    chainPanelCanvas.gameObject.SetActive(false);
                 if (controlHudCanvas != null && controlHudCanvas.gameObject.activeSelf)
                     controlHudCanvas.gameObject.SetActive(false);
                 if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                     duelLogCanvas.gameObject.SetActive(false);
                 lastPhaseHudSignature = null;
                 lastStateBannerSignature = null;
+                lastChainPanelSignature = null;
                 ResetDuelLogState();
                 return;
             }
@@ -954,8 +989,34 @@ namespace MDPro3
             if (controlHudCanvas != null && !controlHudCanvas.gameObject.activeSelf)
                 controlHudCanvas.gameObject.SetActive(true);
             UpdateStateBanner(core);
+            UpdateChainPanel(core);
 
             UpdateDuelLogPanel(core);
+        }
+
+        private void UpdateChainPanel(OcgCore core)
+        {
+            if (core == null || chainPanelCanvas == null)
+                return;
+
+            var count = SafeGetChainCount(core);
+            if (count <= 0)
+            {
+                if (chainPanelCanvas.gameObject.activeSelf)
+                    chainPanelCanvas.gameObject.SetActive(false);
+                lastChainPanelSignature = null;
+                return;
+            }
+
+            var signature = BuildChainPanelSignature(core, count);
+            if (signature != lastChainPanelSignature)
+            {
+                lastChainPanelSignature = signature;
+                RebuildChainPanel(core, count);
+            }
+
+            if (!chainPanelCanvas.gameObject.activeSelf)
+                chainPanelCanvas.gameObject.SetActive(true);
         }
 
         private void UpdateStateBanner(OcgCore core)
@@ -980,6 +1041,113 @@ namespace MDPro3
 
             if (!stateBannerCanvas.gameObject.activeSelf)
                 stateBannerCanvas.gameObject.SetActive(true);
+        }
+
+        private string BuildChainPanelSignature(OcgCore core, int count)
+        {
+            if (core == null || count <= 0)
+                return string.Empty;
+
+            var signature = "count:" + count;
+            var start = Mathf.Max(0, count - 5);
+            for (var index = start; index < count; index += 1)
+            {
+                var card = GetChainCard(core, index);
+                var code = GetChainCode(core, index, card);
+                var controller = GetChainController(core, index, card);
+                signature += "|" + index + ":" + code + ":" + controller + ":" + (card == null ? 0 : card.md5);
+            }
+
+            return signature;
+        }
+
+        private void RebuildChainPanel(OcgCore core, int count)
+        {
+            if (chainPanelListRoot == null || chainPanelTitleText == null)
+                return;
+
+            ClearRows(chainPanelRows);
+            var visibleCount = Mathf.Min(5, count);
+            var start = Mathf.Max(0, count - visibleCount);
+            chainPanelTitleText.text = "\u8fde\u9501 " + count + (count > visibleCount ? "  \u6700\u8fd1 " + visibleCount : string.Empty);
+
+            var cardWidth = 190f;
+            var gap = 28f;
+            var totalWidth = visibleCount * cardWidth + Mathf.Max(0, visibleCount - 1) * gap;
+            var startX = Mathf.Max(0f, (1176f - totalWidth) * 0.5f);
+            for (var visibleIndex = 0; visibleIndex < visibleCount; visibleIndex += 1)
+            {
+                var chainIndex = start + visibleIndex;
+                var card = GetChainCard(core, chainIndex);
+                var code = GetChainCode(core, chainIndex, card);
+                var controller = GetChainController(core, chainIndex, card);
+                var x = startX + visibleIndex * (cardWidth + gap);
+                CreateChainPanelCard(chainIndex + 1, card, code, controller, new Vector2(x, 0f), new Vector2(cardWidth, 176f));
+            }
+        }
+
+        private void CreateChainPanelCard(int chainNumber, GameCard card, int code, uint controller, Vector2 anchoredPosition, Vector2 size)
+        {
+            var root = CreateRect("Chain_" + chainNumber, chainPanelListRoot, anchoredPosition, size, new Vector2(0f, 1f));
+            var accent = controller == 0 ? HudAccentCyan : HudAccentGold;
+            AddRectBackground(root, new Color(0.020f, 0.032f, 0.044f, 0.78f));
+            var rail = CreateRect("Rail", root, Vector2.zero, new Vector2(size.x, 5f), new Vector2(0f, 1f));
+            AddRectBackground(rail, new Color(accent.r, accent.g, accent.b, 0.86f));
+
+            var face = CreateRawImage("Face", root, new Vector2(16f, -18f), new Vector2(70f, 98f));
+            StartCoroutine(LoadCardTexture(face, code));
+
+            var number = CreateText("Number", root, new Vector2(96f, -16f), new Vector2(78f, 38f), 30f, TextAlignmentOptions.Center);
+            number.text = "C" + chainNumber;
+            number.fontStyle = FontStyles.Bold;
+            number.color = new Color(accent.r, accent.g, accent.b, 1f);
+
+            var owner = CreateText("Owner", root, new Vector2(96f, -56f), new Vector2(78f, 28f), 22f, TextAlignmentOptions.Center);
+            owner.text = controller == 0 ? "\u6211\u65b9" : "\u5bf9\u65b9";
+            owner.color = controller == 0 ? new Color(0.55f, 1f, 1f, 1f) : new Color(1f, 0.78f, 0.38f, 1f);
+
+            var name = CreateText("Name", root, new Vector2(14f, -124f), new Vector2(size.x - 28f, 44f), 24f, TextAlignmentOptions.Center);
+            name.text = TrimForHud(GetChainCardName(card, code), 18);
+            name.fontSizeMin = 18f;
+            name.enableWordWrapping = true;
+            name.overflowMode = TextOverflowModes.Truncate;
+
+            chainPanelRows.Add(root.gameObject);
+        }
+
+        private static GameCard GetChainCard(OcgCore core, int index)
+        {
+            if (core?.cardsInChain == null || index < 0 || index >= core.cardsInChain.Count)
+                return null;
+            return core.cardsInChain[index];
+        }
+
+        private static int GetChainCode(OcgCore core, int index, GameCard card)
+        {
+            if (core?.codesInChain != null && index >= 0 && index < core.codesInChain.Count && core.codesInChain[index] > 0)
+                return core.codesInChain[index];
+            var data = card == null ? null : card.GetData();
+            return data == null ? 0 : data.Id;
+        }
+
+        private static uint GetChainController(OcgCore core, int index, GameCard card)
+        {
+            if (core?.controllerInChain != null && index >= 0 && index < core.controllerInChain.Count)
+                return core.controllerInChain[index];
+            if (card?.p != null)
+                return card.p.controller;
+            return 0;
+        }
+
+        private static string GetChainCardName(GameCard card, int code)
+        {
+            if (card != null && card.GetData() != null)
+                return SanitizeText(card.GetData().Name);
+
+            var data = code <= 0 ? null : CardsManager.Get(code);
+            if (data != null && !string.IsNullOrWhiteSpace(data.Name))
+                return SanitizeText(data.Name);
+            return code > 0 ? "\u5361\u7247 " + code : "\u672a\u77e5\u5361\u7247";
         }
 
         private void UpdateLifeHudFlash()
@@ -2756,6 +2924,15 @@ namespace MDPro3
                     bannerPosition,
                     ResolveFacingViewerRotationInDuelSpace(bannerPosition),
                     StateBannerScale);
+            }
+            if (chainPanelRect != null && chainPanelCanvas.gameObject.activeSelf)
+            {
+                var chainPosition = DuelWorldCenterOnGround + new Vector3(0f, 22.5f, -42f);
+                PlacePanel(
+                    chainPanelRect,
+                    chainPosition,
+                    ResolveFacingViewerRotationInDuelSpace(chainPosition),
+                    ChainPanelScale);
             }
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
                 PlacePanel(
