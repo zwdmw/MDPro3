@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 using MDPro3.Net;
 using MDPro3.UI;
 using MDPro3.YGOSharp;
@@ -37,10 +38,12 @@ namespace MDPro3
         private const float SideCardDetailScale = 0.041f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
+        private const float CompactCardSelectorScale = 0.0205f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const int CardGridPageSize = 12;
+        private const int CompactCardSelectionLimit = 6;
         private const int CardGridColumns = 6;
         private const float CardGridItemWidth = 236f;
         private const float CardGridItemHeight = 346f;
@@ -83,6 +86,7 @@ namespace MDPro3
         private Button cardPreviousButton;
         private Button cardNextButton;
         private RectTransform cardGridRoot;
+        private RectTransform cardSelectionDetailRoot;
         private readonly List<GameObject> cardGridItems = new List<GameObject>();
         private readonly List<GameCard> cards = new List<GameCard>();
         private readonly HashSet<GameCard> selectedCards = new HashSet<GameCard>();
@@ -94,6 +98,7 @@ namespace MDPro3
         private int cardMax;
         private bool cardExitable;
         private bool cardReadOnly;
+        private bool cardPanelCompactMode;
         private int cardPage;
         private GameCard detailCard;
 
@@ -301,6 +306,9 @@ namespace MDPro3
             if (!CanShowDuelUi() || Program.instance?.ocgcore == null || selections == null || responses == null)
                 return false;
 
+            HideCardPanel();
+            HideCardInfoPanel();
+            HideCardDetailPanel();
             EnsureOptionPanel();
             optionAnchoredCompact = anchorCard != null && responses.Count <= 5;
             optionAnchorCard = optionAnchoredCompact ? anchorCard : null;
@@ -325,7 +333,6 @@ namespace MDPro3
             }
 
             optionCanvas.gameObject.SetActive(true);
-            HideCardInfoPanel();
             NotifyUiVisibilityChanged();
             UpdatePanelPoses();
             return true;
@@ -336,6 +343,9 @@ namespace MDPro3
             if (!CanShowDuelUi() || Program.instance?.ocgcore == null || selections == null)
                 return false;
 
+            HideCardPanel();
+            HideCardInfoPanel();
+            HideCardDetailPanel();
             EnsureOptionPanel();
             optionAnchorCard = null;
             optionAnchoredCompact = false;
@@ -355,7 +365,6 @@ namespace MDPro3
             }, new Color(0.38f, 0.16f, 0.18f, 0.98f));
 
             optionCanvas.gameObject.SetActive(true);
-            HideCardInfoPanel();
             NotifyUiVisibilityChanged();
             AudioManager.PlaySE("SE_SYS_VERIFY");
             UpdatePanelPoses();
@@ -367,6 +376,9 @@ namespace MDPro3
             if (!CanShowDuelUi() || Program.instance?.ocgcore == null)
                 return false;
 
+            HideCardPanel();
+            HideCardInfoPanel();
+            HideCardDetailPanel();
             EnsureOptionPanel();
             optionAnchorCard = null;
             optionAnchoredCompact = false;
@@ -391,7 +403,6 @@ namespace MDPro3
             }
 
             optionCanvas.gameObject.SetActive(true);
-            HideCardInfoPanel();
             NotifyUiVisibilityChanged();
             AudioManager.PlaySE("SE_SYS_VERIFY");
             UpdatePanelPoses();
@@ -404,6 +415,8 @@ namespace MDPro3
                 return false;
 
             HideCardInfoPanel();
+            HideCardDetailPanel();
+            HideOptionPanel();
             EnsureCardPanel();
             cardReadOnly = Program.instance.ocgcore.currentMessage == GameMessage.ConfirmCards;
             cardHint = string.IsNullOrWhiteSpace(hint) ? "请选择卡片" : SanitizeText(hint);
@@ -421,6 +434,8 @@ namespace MDPro3
                 if (card != null)
                     cards.Add(card);
 
+            cardPanelCompactMode = ShouldUseCompactCardSelection(cards.Count, cardMin, cardMax, cardReadOnly);
+            ConfigureCardPanelLayout(cardPanelCompactMode);
             PreselectForcedCardsForSum();
             RebuildCardGrid();
             ShowCardDetail(cards.Count > 0 ? cards[0] : null);
@@ -437,6 +452,8 @@ namespace MDPro3
                 return false;
 
             HideCardInfoPanel();
+            HideCardDetailPanel();
+            HideOptionPanel();
             EnsureCardPanel();
             cardReadOnly = true;
             cardHint = string.IsNullOrWhiteSpace(title) ? "卡片列表" : title;
@@ -454,6 +471,8 @@ namespace MDPro3
                 if (card != null)
                     cards.Add(card);
 
+            cardPanelCompactMode = false;
+            ConfigureCardPanelLayout(false);
             RebuildCardGrid();
             ShowCardDetail(cards.Count > 0 ? cards[0] : null);
             cardPanelCanvas.gameObject.SetActive(true);
@@ -586,7 +605,86 @@ namespace MDPro3
 
             var list = core.GCS_GetLocationCards((int)controller, (int)location);
             var title = GetControllerName(controller) + " " + GetLocationName(location);
+            var actionableCards = GetActionableLocationCards(core, list);
+            Debug.LogFormat(
+                "Quest location browser opened: title={0}, location={1}, controller={2}, cards={3}, actionable={4}, message={5}, actions={6}",
+                title,
+                location,
+                controller,
+                list == null ? 0 : list.Count,
+                actionableCards.Count,
+                core.currentMessage,
+                BuildActionableCardSummary(actionableCards));
+            if (actionableCards.Count > 0)
+            {
+                var hint = title + " - \u53ef\u64cd\u4f5c";
+                return ShowCardSelection(hint, actionableCards, 1, 1, true, false);
+            }
+
             return ShowCardBrowser(title, list);
+        }
+
+        private static List<GameCard> GetActionableLocationCards(OcgCore core, List<GameCard> sourceCards)
+        {
+            var result = new List<GameCard>();
+            if (core == null || sourceCards == null)
+                return result;
+            if (core.currentMessage != GameMessage.SelectIdleCmd && core.currentMessage != GameMessage.SelectBattleCmd)
+                return result;
+
+            foreach (var card in sourceCards)
+            {
+                if (card == null || card.buttons == null || card.buttons.Count == 0)
+                    continue;
+                if (card.p != null && card.p.controller != 0)
+                    continue;
+                result.Add(card);
+            }
+
+            return result;
+        }
+
+        private static string BuildActionableCardSummary(List<GameCard> sourceCards)
+        {
+            if (sourceCards == null || sourceCards.Count == 0)
+                return string.Empty;
+
+            var builder = new StringBuilder(160);
+            var count = 0;
+            foreach (var card in sourceCards)
+            {
+                if (card == null || card.p == null)
+                    continue;
+                if (count > 0)
+                    builder.Append(" | ");
+                var data = card.GetData();
+                builder.Append(data == null ? 0 : data.Id)
+                    .Append('@')
+                    .Append(card.p.location)
+                    .Append(':')
+                    .Append(card.p.sequence)
+                    .Append('[');
+                if (card.buttons != null)
+                {
+                    for (var i = 0; i < card.buttons.Count; i += 1)
+                    {
+                        if (i > 0)
+                            builder.Append(',');
+                        var button = card.buttons[i];
+                        builder.Append(button.type);
+                        if (button.response != null && button.response.Count > 0)
+                            builder.Append('=').Append(button.response[0]);
+                    }
+                }
+                builder.Append(']');
+                count += 1;
+                if (count >= 12 && sourceCards.Count > count)
+                {
+                    builder.Append(" | ...");
+                    break;
+                }
+            }
+            return builder.ToString();
         }
 
         public void HideAllPopups()
@@ -669,12 +767,12 @@ namespace MDPro3
                 }
             });
 
-            var detailRoot = CreateRect("FloatingDetail", cardPanelRect, new Vector2(1780f, -136f), new Vector2(560f, 760f), new Vector2(0f, 1f));
-            AddRectBackground(detailRoot, new Color(0.018f, 0.024f, 0.032f, 0.54f));
-            detailImage = CreateRawImage("DetailImage", detailRoot, new Vector2(24f, -24f), new Vector2(236f, 330f));
-            detailNameText = CreateText("DetailName", detailRoot, new Vector2(284f, -28f), new Vector2(252f, 112f), 31f, TextAlignmentOptions.TopLeft);
-            detailMetaText = CreateText("DetailMeta", detailRoot, new Vector2(284f, -154f), new Vector2(252f, 98f), 23f, TextAlignmentOptions.TopLeft);
-            detailDescriptionText = CreateText("DetailDescription", detailRoot, new Vector2(24f, -390f), new Vector2(512f, 292f), 23f, TextAlignmentOptions.TopLeft);
+            cardSelectionDetailRoot = CreateRect("FloatingDetail", cardPanelRect, new Vector2(1780f, -136f), new Vector2(560f, 760f), new Vector2(0f, 1f));
+            AddRectBackground(cardSelectionDetailRoot, new Color(0.018f, 0.024f, 0.032f, 0.54f));
+            detailImage = CreateRawImage("DetailImage", cardSelectionDetailRoot, new Vector2(24f, -24f), new Vector2(236f, 330f));
+            detailNameText = CreateText("DetailName", cardSelectionDetailRoot, new Vector2(284f, -28f), new Vector2(252f, 112f), 31f, TextAlignmentOptions.TopLeft);
+            detailMetaText = CreateText("DetailMeta", cardSelectionDetailRoot, new Vector2(284f, -154f), new Vector2(252f, 98f), 23f, TextAlignmentOptions.TopLeft);
+            detailDescriptionText = CreateText("DetailDescription", cardSelectionDetailRoot, new Vector2(24f, -390f), new Vector2(512f, 292f), 23f, TextAlignmentOptions.TopLeft);
             detailDescriptionText.enableWordWrapping = true;
             detailDescriptionText.overflowMode = TextOverflowModes.Truncate;
 
@@ -683,6 +781,67 @@ namespace MDPro3
             cardConfirmButton = CreateButton("Confirm", cardPanelRect, new Vector2(1578f, -892f), new Vector2(210f, 62f), "确定", ConfirmCardSelection, new Color(0.08f, 0.42f, 0.31f, 0.98f));
 
             canvasObject.SetActive(false);
+        }
+
+        private static bool ShouldUseCompactCardSelection(int cardCount, int min, int max, bool readOnly)
+        {
+            if (readOnly || cardCount <= 0)
+                return false;
+            if (cardCount > CompactCardSelectionLimit)
+                return false;
+            return max <= 1;
+        }
+
+        private void ConfigureCardPanelLayout(bool compact)
+        {
+            if (cardPanelRect == null || cardGridRoot == null)
+                return;
+
+            if (compact)
+            {
+                cardPanelRect.sizeDelta = new Vector2(1900f, 710f);
+                cardTitleText.rectTransform.anchoredPosition = new Vector2(220f, -28f);
+                cardTitleText.rectTransform.sizeDelta = new Vector2(1460f, 58f);
+                cardTitleText.fontSize = 36f;
+                cardTitleText.alignment = TextAlignmentOptions.Center;
+                cardCountText.gameObject.SetActive(false);
+                cardPageText.gameObject.SetActive(false);
+                cardSelectionDetailRoot.gameObject.SetActive(false);
+                cardGridRoot.anchoredPosition = new Vector2(150f, -122f);
+                cardGridRoot.sizeDelta = new Vector2(1600f, 410f);
+                SetButtonLayout(cardCancelButton, new Vector2(560f, -610f), new Vector2(260f, 72f));
+                SetButtonLayout(cardFinishButton, new Vector2(1080f, -610f), new Vector2(260f, 72f));
+                SetButtonLayout(cardConfirmButton, new Vector2(1080f, -610f), new Vector2(260f, 72f));
+            }
+            else
+            {
+                cardPanelRect.sizeDelta = new Vector2(2440f, 1240f);
+                cardTitleText.rectTransform.anchoredPosition = new Vector2(80f, -38f);
+                cardTitleText.rectTransform.sizeDelta = new Vector2(1360f, 56f);
+                cardTitleText.fontSize = 38f;
+                cardTitleText.alignment = TextAlignmentOptions.Left;
+                cardCountText.gameObject.SetActive(true);
+                cardPageText.gameObject.SetActive(true);
+                cardSelectionDetailRoot.gameObject.SetActive(true);
+                cardGridRoot.anchoredPosition = new Vector2(84f, -172f);
+                cardGridRoot.sizeDelta = new Vector2(1600f, 900f);
+                SetButtonLayout(cardCancelButton, new Vector2(32f, -892f), new Vector2(210f, 62f));
+                SetButtonLayout(cardFinishButton, new Vector2(1578f, -892f), new Vector2(210f, 62f));
+                SetButtonLayout(cardConfirmButton, new Vector2(1578f, -892f), new Vector2(210f, 62f));
+            }
+        }
+
+        private static void SetButtonLayout(Button button, Vector2 anchoredPosition, Vector2 size)
+        {
+            if (button == null)
+                return;
+
+            var rect = button.GetComponent<RectTransform>();
+            if (rect == null)
+                return;
+
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
         }
 
         private void EnsureCardInfoPanel()
@@ -882,7 +1041,6 @@ namespace MDPro3
                 controlObject.SetActive(false);
             }
 
-            EnsureStateBanner();
             EnsureChainPanel();
         }
 
@@ -991,7 +1149,9 @@ namespace MDPro3
                 phaseHudCanvas.gameObject.SetActive(true);
             if (controlHudCanvas != null && !controlHudCanvas.gameObject.activeSelf)
                 controlHudCanvas.gameObject.SetActive(true);
-            UpdateStateBanner(core);
+            if (stateBannerCanvas != null && stateBannerCanvas.gameObject.activeSelf)
+                stateBannerCanvas.gameObject.SetActive(false);
+            lastStateBannerSignature = null;
             UpdateChainPanel(core);
 
             UpdateDuelLogPanel(core);
@@ -2247,20 +2407,21 @@ namespace MDPro3
             cardItemFloaters.Clear();
             var start = cardPage * CardGridPageSize;
             var end = Mathf.Min(cards.Count, start + CardGridPageSize);
+            var visibleCount = Mathf.Max(0, end - start);
             for (var index = start; index < end; index += 1)
             {
                 var local = index - start;
                 var column = local % CardGridColumns;
                 var row = local / CardGridColumns;
                 var card = cards[index];
-                var item = CreateCardGridItem(card, column, row);
+                var item = CreateCardGridItem(card, column, row, local, visibleCount);
                 cardGridItems.Add(item);
             }
 
             UpdateCardButtons();
         }
 
-        private GameObject CreateCardGridItem(GameCard card, int column, int row)
+        private GameObject CreateCardGridItem(GameCard card, int column, int row, int localIndex, int visibleCount)
         {
             var item = new GameObject("CardItem", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             SetQuestOverlayLayer(item);
@@ -2271,20 +2432,25 @@ namespace MDPro3
             rect.anchorMax = new Vector2(0f, 1f);
             rect.pivot = new Vector2(0f, 1f);
             rect.sizeDelta = new Vector2(CardGridItemWidth, CardGridItemHeight);
-            var basePosition = ResolveFloatingCardGridPosition(column, row);
-            var baseRotation = ResolveFloatingCardGridRotation(column, row);
+            var basePosition = cardPanelCompactMode
+                ? ResolveCompactFloatingCardGridPosition(localIndex, visibleCount)
+                : ResolveFloatingCardGridPosition(column, row);
+            var baseRotation = cardPanelCompactMode
+                ? ResolveCompactFloatingCardGridRotation(localIndex, visibleCount)
+                : ResolveFloatingCardGridRotation(column, row);
             rect.anchoredPosition = basePosition;
             rect.localRotation = Quaternion.Euler(0f, 0f, baseRotation);
+            rect.localScale = cardPanelCompactMode ? Vector3.one * 1.22f : Vector3.one;
             var floater = item.AddComponent<QuestFloatingCardGridItem>();
             floater.Configure(
                 rect,
                 basePosition,
                 baseRotation,
                 Mathf.Abs(card == null ? column + row * CardGridColumns : card.md5 % 997) * 0.017f,
-                CardGridFloatAmplitude,
-                CardGridFloatSelectedLift,
-                CardGridFloatDetailLift,
-                CardGridFloatHoverLift);
+                cardPanelCompactMode ? CardGridFloatAmplitude * 1.25f : CardGridFloatAmplitude,
+                cardPanelCompactMode ? CardGridFloatSelectedLift * 0.75f : CardGridFloatSelectedLift,
+                cardPanelCompactMode ? CardGridFloatDetailLift * 0.75f : CardGridFloatDetailLift,
+                cardPanelCompactMode ? CardGridFloatHoverLift * 0.72f : CardGridFloatHoverLift);
             if (card != null)
                 cardItemFloaters[card] = floater;
 
@@ -2314,6 +2480,21 @@ namespace MDPro3
                 UpdateCardButtons();
             });
             return item;
+        }
+
+        private static Vector2 ResolveCompactFloatingCardGridPosition(int index, int count)
+        {
+            count = Mathf.Max(1, count);
+            var center = (count - 1) * 0.5f;
+            var offset = index - center;
+            return new Vector2(800f + offset * 292f, -82f - Mathf.Abs(offset) * 18f);
+        }
+
+        private static float ResolveCompactFloatingCardGridRotation(int index, int count)
+        {
+            count = Mathf.Max(1, count);
+            var center = (count - 1) * 0.5f;
+            return -(index - center) * 5.2f;
         }
 
         private static Vector2 ResolveFloatingCardGridPosition(int column, int row)
@@ -2404,8 +2585,12 @@ namespace MDPro3
             cardTitleText.text = cardHint;
             cardCountText.text = cardReadOnly ? cards.Count + " 张" : selectedCards.Count + "/" + Mathf.Max(cardMax, cardMin);
             cardPageText.text = (cards.Count == 0 ? 0 : cardPage + 1) + "/" + (maxPage + 1);
-            cardPreviousButton.interactable = cardPage > 0;
-            cardNextButton.interactable = cardPage < maxPage;
+            var showPaging = !cardPanelCompactMode && maxPage > 0;
+            cardPreviousButton.gameObject.SetActive(showPaging);
+            cardNextButton.gameObject.SetActive(showPaging);
+            cardPageText.gameObject.SetActive(showPaging);
+            cardPreviousButton.interactable = showPaging && cardPage > 0;
+            cardNextButton.interactable = showPaging && cardPage < maxPage;
             cardCancelButton.gameObject.SetActive(!cardReadOnly && cardExitable);
             cardFinishButton.gameObject.SetActive(cardReadOnly);
             cardConfirmButton.gameObject.SetActive(!cardReadOnly);
@@ -2912,6 +3097,7 @@ namespace MDPro3
                 cardPanelCanvas.gameObject.SetActive(false);
                 NotifyUiVisibilityChanged();
             }
+            cardPanelCompactMode = false;
         }
 
         private void HideCardInfoPanel()
@@ -2962,7 +3148,12 @@ namespace MDPro3
                 return;
 
             if (cardPanelRect != null && cardPanelCanvas.gameObject.activeSelf)
-                PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 10.8f, -18f), CardSelectorScale);
+            {
+                if (cardPanelCompactMode)
+                    PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 9.6f, -23.5f), CompactCardSelectorScale);
+                else
+                    PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 10.8f, -18f), CardSelectorScale);
+            }
             if (cardInfoRect != null && cardInfoCanvas.gameObject.activeSelf)
             {
                 if (cardInfoUseWorldPose)

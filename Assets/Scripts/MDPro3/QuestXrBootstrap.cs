@@ -6715,6 +6715,10 @@ namespace MDPro3
             var inHand = (location & (uint)CardLocation.Hand) != 0;
             var inMonsterZone = (location & (uint)CardLocation.MonsterZone) != 0;
             var inSpellZone = (location & (uint)CardLocation.SpellZone) != 0;
+            var inGrave = (location & (uint)CardLocation.Grave) != 0;
+            var inRemoved = (location & (uint)CardLocation.Removed) != 0;
+            var inDeck = (location & (uint)CardLocation.Deck) != 0;
+            var inExtra = (location & (uint)CardLocation.Extra) != 0;
             switch (actionType)
             {
                 case MDPro3.UI.ButtonType.Summon:
@@ -6722,7 +6726,7 @@ namespace MDPro3
                 case MDPro3.UI.ButtonType.SetSpell:
                     return inHand;
                 case MDPro3.UI.ButtonType.SpSummon:
-                    return inHand || inMonsterZone || inSpellZone;
+                    return inHand || inMonsterZone || inSpellZone || inGrave || inRemoved || inDeck || inExtra;
                 default:
                     return false;
             }
