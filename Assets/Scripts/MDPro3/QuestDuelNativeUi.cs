@@ -30,6 +30,7 @@ namespace MDPro3
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
+        private const float StateBannerScale = 0.030f;
         private const float CardInfoScale = 0.028f;
         private const float HoverCardInfoScale = 0.0175f;
         private const float SideCardDetailScale = 0.037f;
@@ -143,6 +144,18 @@ namespace MDPro3
         private RectTransform phaseHudRect;
         private TextMeshProUGUI phaseHudText;
         private TextMeshProUGUI lifeHudText;
+        private Canvas stateBannerCanvas;
+        private RectTransform stateBannerRect;
+        private TextMeshProUGUI stateBannerTitleText;
+        private TextMeshProUGUI stateBannerBodyText;
+        private Image stateBannerAccentImage;
+        private Image stateBannerBackgroundImage;
+        private string lastStateBannerSignature;
+        private OcgCore cachedDuelStateCore;
+        private int cachedDuelStateFrame = -1;
+        private int cachedActionableCardCount;
+        private int cachedSelectableTargetCount;
+        private int cachedChainCount;
         private Canvas controlHudCanvas;
         private RectTransform controlHudRect;
         private RectTransform phaseTrackRoot;
@@ -211,6 +224,7 @@ namespace MDPro3
             ReparentCanvas(optionCanvas);
             ReparentCanvas(phaseMenuCanvas);
             ReparentCanvas(phaseHudCanvas);
+            ReparentCanvas(stateBannerCanvas);
             ReparentCanvas(controlHudCanvas);
             ReparentCanvas(duelLogCanvas);
         }
@@ -584,11 +598,14 @@ namespace MDPro3
             HidePhaseMenu();
             if (phaseHudCanvas != null && phaseHudCanvas.gameObject.activeSelf)
                 phaseHudCanvas.gameObject.SetActive(false);
+            if (stateBannerCanvas != null && stateBannerCanvas.gameObject.activeSelf)
+                stateBannerCanvas.gameObject.SetActive(false);
             if (controlHudCanvas != null && controlHudCanvas.gameObject.activeSelf)
                 controlHudCanvas.gameObject.SetActive(false);
             if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                 duelLogCanvas.gameObject.SetActive(false);
             lastPhaseHudSignature = null;
+            lastStateBannerSignature = null;
             ResetDuelLogState();
         }
 
@@ -850,6 +867,35 @@ namespace MDPro3
                 systemHudButtonRoot = CreateRect("SystemButtons", controlHudRect, new Vector2(52f, -298f), new Vector2(756f, 116f), new Vector2(0f, 1f));
                 controlObject.SetActive(false);
             }
+
+            EnsureStateBanner();
+        }
+
+        private void EnsureStateBanner()
+        {
+            if (stateBannerCanvas != null)
+                return;
+
+            var bannerObject = CreateCanvasObject("QuestDuelStateBanner", out stateBannerCanvas, out stateBannerRect);
+            stateBannerRect.sizeDelta = new Vector2(1180f, 248f);
+            AddPanelBackground(bannerObject, new Color(0.006f, 0.010f, 0.014f, 0.78f));
+            stateBannerBackgroundImage = bannerObject.GetComponent<Image>();
+            if (stateBannerBackgroundImage != null)
+                stateBannerBackgroundImage.raycastTarget = false;
+
+            AddHudPanelChrome(stateBannerRect, HudAccentCyan);
+            var accent = CreateRect("StateAccent", stateBannerRect, Vector2.zero, new Vector2(1180f, 12f), new Vector2(0f, 1f));
+            stateBannerAccentImage = accent.gameObject.GetComponent<Image>() ?? accent.gameObject.AddComponent<Image>();
+            stateBannerAccentImage.color = HudAccentCyan;
+            stateBannerAccentImage.raycastTarget = false;
+            stateBannerTitleText = CreateText("StateTitle", stateBannerRect, new Vector2(46f, -34f), new Vector2(1088f, 82f), 58f, TextAlignmentOptions.Center);
+            stateBannerBodyText = CreateText("StateBody", stateBannerRect, new Vector2(62f, -120f), new Vector2(1056f, 92f), 34f, TextAlignmentOptions.Center);
+            stateBannerTitleText.fontStyle = FontStyles.Bold;
+            stateBannerTitleText.fontSizeMin = 42f;
+            stateBannerBodyText.fontSizeMin = 25f;
+            stateBannerBodyText.enableWordWrapping = true;
+            stateBannerBodyText.overflowMode = TextOverflowModes.Truncate;
+            bannerObject.SetActive(false);
         }
 
         private void UpdatePhaseHud()
@@ -859,11 +905,14 @@ namespace MDPro3
             {
                 if (phaseHudCanvas != null && phaseHudCanvas.gameObject.activeSelf)
                     phaseHudCanvas.gameObject.SetActive(false);
+                if (stateBannerCanvas != null && stateBannerCanvas.gameObject.activeSelf)
+                    stateBannerCanvas.gameObject.SetActive(false);
                 if (controlHudCanvas != null && controlHudCanvas.gameObject.activeSelf)
                     controlHudCanvas.gameObject.SetActive(false);
                 if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                     duelLogCanvas.gameObject.SetActive(false);
                 lastPhaseHudSignature = null;
+                lastStateBannerSignature = null;
                 ResetDuelLogState();
                 return;
             }
@@ -904,8 +953,33 @@ namespace MDPro3
                 phaseHudCanvas.gameObject.SetActive(true);
             if (controlHudCanvas != null && !controlHudCanvas.gameObject.activeSelf)
                 controlHudCanvas.gameObject.SetActive(true);
+            UpdateStateBanner(core);
 
             UpdateDuelLogPanel(core);
+        }
+
+        private void UpdateStateBanner(OcgCore core)
+        {
+            if (core == null || stateBannerCanvas == null)
+                return;
+
+            BuildStateBanner(core, out var title, out var body, out var color);
+            var signature = title + "|" + body + "|" + ColorUtility.ToHtmlStringRGBA(color);
+            if (signature != lastStateBannerSignature)
+            {
+                lastStateBannerSignature = signature;
+                if (stateBannerTitleText != null)
+                    stateBannerTitleText.text = title;
+                if (stateBannerBodyText != null)
+                    stateBannerBodyText.text = body;
+                if (stateBannerAccentImage != null)
+                    stateBannerAccentImage.color = new Color(color.r, color.g, color.b, 0.92f);
+                if (stateBannerBackgroundImage != null)
+                    stateBannerBackgroundImage.color = new Color(0.006f + color.r * 0.020f, 0.010f + color.g * 0.020f, 0.014f + color.b * 0.020f, 0.78f);
+            }
+
+            if (!stateBannerCanvas.gameObject.activeSelf)
+                stateBannerCanvas.gameObject.SetActive(true);
         }
 
         private void UpdateLifeHudFlash()
@@ -1214,13 +1288,12 @@ namespace MDPro3
                 + "\u5893 " + opGrave + "  \u9664\u5916 " + opBanished + "  \u989d\u5916 " + opExtra;
         }
 
-        private static string BuildDuelPromptText(OcgCore core, string messageText)
+        private string BuildDuelPromptText(OcgCore core, string messageText)
         {
             if (core == null)
                 return string.Empty;
 
-            var actionable = CountActionableCards(core);
-            var selectable = CountSelectableTargets(core);
+            GetDuelStateCounts(core, out var actionable, out var selectable, out _);
             var text = "<size=50><b>" + TrimForHud(messageText, 24) + "</b></size>";
             if (selectable > 0)
                 text += "\n<color=#69FFE0>\u53ef\u9009\u76ee\u6807 " + selectable + "</color>\n\u7528\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
@@ -1233,6 +1306,126 @@ namespace MDPro3
             if (!string.IsNullOrEmpty(phaseActions))
                 text += "\n" + phaseActions;
             return text;
+        }
+
+        private void BuildStateBanner(OcgCore core, out string title, out string body, out Color color)
+        {
+            title = string.Empty;
+            body = string.Empty;
+            color = Color.white;
+            if (core == null)
+                return;
+
+            var messageText = LocalizeQuestMessage(core.currentMessage);
+            var turnText = core.myTurn ? "\u6211\u65b9\u56de\u5408" : "\u5bf9\u65b9\u56de\u5408";
+            var phaseText = GetPhaseName(core.phase);
+            GetDuelStateCounts(core, out var actionable, out var selectable, out var chainCount);
+            var phaseActions = BuildPhaseActionText();
+
+            if (selectable > 0)
+            {
+                title = "\u9009\u62e9\u76ee\u6807";
+                body = selectable + " \u4e2a\u76ee\u6807\u53ef\u9009  \u00b7  \u7528\u624b\u67c4\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
+                color = new Color(0.32f, 1f, 0.82f, 1f);
+                return;
+            }
+
+            if (core.currentMessage == GameMessage.SelectChain || core.currentMessage == GameMessage.SortChain)
+            {
+                title = core.currentMessage == GameMessage.SortChain ? "\u6392\u5217\u8fde\u9501" : "\u8fde\u9501\u786e\u8ba4";
+                body = chainCount > 0
+                    ? "\u5f53\u524d\u8fde\u9501 " + chainCount + "  \u00b7  " + messageText
+                    : messageText + "  \u00b7  \u9009\u62e9\u662f\u5426\u54cd\u5e94";
+                color = new Color(1f, 0.82f, 0.28f, 1f);
+                return;
+            }
+
+            if (IsChainProcessingMessage(core.currentMessage))
+            {
+                title = chainCount > 0 ? "\u8fde\u9501\u5904\u7406\u4e2d  " + chainCount : "\u8fde\u9501\u5904\u7406\u4e2d";
+                body = messageText + "  \u00b7  \u8bf7\u89c2\u770b\u6548\u679c\u89e3\u6790";
+                color = new Color(0.45f, 0.92f, 1f, 1f);
+                return;
+            }
+
+            if (actionable > 0)
+            {
+                title = "\u53ef\u64cd\u4f5c";
+                body = actionable + " \u5f20\u5361\u53ef\u7528  \u00b7  \u70b9\u5361\u7247\u9009\u62e9\u53ec\u5524 / \u53d1\u52a8 / \u653b\u51fb";
+                color = new Color(1f, 0.72f, 0.22f, 1f);
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(phaseActions))
+            {
+                title = "\u53ef\u5207\u6362\u9636\u6bb5";
+                body = phaseActions + "  \u00b7  \u4f7f\u7528\u53f3\u4fa7\u9636\u6bb5\u6309\u94ae";
+                color = new Color(0.62f, 0.94f, 1f, 1f);
+                return;
+            }
+
+            if (core.currentMessage == GameMessage.Waiting)
+            {
+                title = "\u7b49\u5f85\u51b3\u6597\u5f15\u64ce";
+                body = core.myTurn
+                    ? "\u6b63\u5728\u5904\u7406\u6548\u679c / AI \u64cd\u4f5c"
+                    : "\u7b49\u5f85\u5bf9\u65b9 / AI \u64cd\u4f5c";
+                color = new Color(0.72f, 0.82f, 0.92f, 1f);
+                return;
+            }
+
+            title = messageText;
+            body = turnText + "  \u00b7  " + phaseText;
+            color = core.myTurn ? HudAccentCyan : HudAccentGold;
+        }
+
+        private static bool IsChainProcessingMessage(GameMessage message)
+        {
+            switch (message)
+            {
+                case GameMessage.Chaining:
+                case GameMessage.Chained:
+                case GameMessage.ChainSolving:
+                case GameMessage.ChainSolved:
+                case GameMessage.ChainEnd:
+                case GameMessage.ChainNegated:
+                case GameMessage.ChainDisabled:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static int SafeGetChainCount(OcgCore core)
+        {
+            try
+            {
+                return core?.cardsInChain == null ? 0 : Mathf.Max(0, core.cardsInChain.Count);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private void GetDuelStateCounts(OcgCore core, out int actionable, out int selectable, out int chainCount)
+        {
+            if (core != null && cachedDuelStateCore == core && cachedDuelStateFrame == Time.frameCount)
+            {
+                actionable = cachedActionableCardCount;
+                selectable = cachedSelectableTargetCount;
+                chainCount = cachedChainCount;
+                return;
+            }
+
+            cachedDuelStateCore = core;
+            cachedDuelStateFrame = Time.frameCount;
+            cachedActionableCardCount = CountActionableCards(core);
+            cachedSelectableTargetCount = CountSelectableTargets(core);
+            cachedChainCount = SafeGetChainCount(core);
+            actionable = cachedActionableCardCount;
+            selectable = cachedSelectableTargetCount;
+            chainCount = cachedChainCount;
         }
 
         private static string BuildPhaseActionText()
@@ -1259,7 +1452,7 @@ namespace MDPro3
             {
                 if (card == null || card.p == null || card.buttons == null || card.buttons.Count == 0)
                     continue;
-                if ((card.p.location & (uint)(CardLocation.Hand | CardLocation.Onfield | CardLocation.Grave | CardLocation.Removed)) == 0)
+                if ((card.p.location & (uint)(CardLocation.Hand | CardLocation.Onfield | CardLocation.Grave | CardLocation.Removed | CardLocation.Deck | CardLocation.Extra)) == 0)
                     continue;
                 count += 1;
             }
@@ -2555,6 +2748,15 @@ namespace MDPro3
                     DuelWorldCenterOnGround + new Vector3(60.8f, 41.5f, -55f),
                     RightSideWallRotation,
                     FloorHudScale);
+            if (stateBannerRect != null && stateBannerCanvas.gameObject.activeSelf)
+            {
+                var bannerPosition = DuelWorldCenterOnGround + new Vector3(0f, 32.0f, -54f);
+                PlacePanel(
+                    stateBannerRect,
+                    bannerPosition,
+                    ResolveFacingViewerRotationInDuelSpace(bannerPosition),
+                    StateBannerScale);
+            }
             if (controlHudRect != null && controlHudCanvas.gameObject.activeSelf)
                 PlacePanel(
                     controlHudRect,
