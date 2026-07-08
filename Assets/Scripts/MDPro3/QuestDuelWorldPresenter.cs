@@ -506,6 +506,8 @@ namespace MDPro3
         private const float DirectAttackPortraitLungeDistance = 7.2f;
         private const float AttackProjectileHeight = 1.35f;
         private const float AttackImpactHeight = 1.15f;
+        private const int AttackReticleSegments = 48;
+        private const float AttackProjectileTrailTime = 0.28f;
         private const string PreferredCardBackRelativePath = "texture/duel/opponent.jpg";
 
         private Camera xrCamera;
@@ -1331,6 +1333,7 @@ namespace MDPro3
                     break;
                 case DuelPresentationKind.AttackDeclared:
                     PlayAttackCharge(evt);
+                    PlayAttackTargetWarning(evt);
                     SchedulePresentation(evt.Final ? 0.24f : 0.20f, () =>
                     {
                         PlayAttackLine(evt);
@@ -1502,6 +1505,83 @@ namespace MDPro3
             PlayLine(from, to, inner, evt.Weight, evt.Final ? 0.62f : 0.38f, 1.0f);
         }
 
+        private void PlayAttackTargetWarning(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return;
+
+            var target = ResolveAttackTargetPoint(evt);
+            var color = evt.Final
+                ? new Color(1f, 0.18f, 0.08f, 0.86f)
+                : evt.Direct ? new Color(1f, 0.52f, 0.14f, 0.78f) : new Color(1f, 0.74f, 0.22f, 0.66f);
+            var radius = evt.Final ? 4.2f : evt.Direct ? 3.3f : 2.35f;
+            PlayAttackReticle(target + Vector3.up * (evt.Direct ? 0.20f : 0.12f), color, evt.Weight, radius, evt.Final ? 0.74f : 0.54f);
+            PlayPulseAt(target, new Color(color.r, color.g, color.b, color.a * 0.58f), evt.Weight, evt.Final ? 1.55f : evt.Direct ? 1.28f : 1.02f);
+            PlayFloatingText(
+                target + Vector3.up * 0.35f,
+                evt.Final ? "\u51b3\u80dc\u653b\u51fb" : evt.Direct ? "\u76f4\u63a5\u653b\u51fb" : "\u9501\u5b9a\u76ee\u6807",
+                color,
+                evt.Weight);
+        }
+
+        private void PlayAttackReticle(Vector3 center, Color color, DuelPresentationWeight weight, float radius, float duration)
+        {
+            if (presentationRoot == null)
+                return;
+
+            var ringObject = new GameObject("QuestAttackTargetReticle");
+            SetQuestOverlayLayer(ringObject);
+            ringObject.transform.SetParent(presentationRoot, true);
+            var line = ringObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.loop = true;
+            line.positionCount = AttackReticleSegments;
+            line.numCapVertices = 5;
+            line.alignment = LineAlignment.View;
+            var width = 0.11f * ResolveWeightScale(weight);
+            line.startWidth = width;
+            line.endWidth = width;
+            var material = CreateMaterial("QuestAttackTargetReticleMaterial", color, true);
+            line.material = material;
+            RegisterPresentationTransient(ringObject, material);
+
+            var startRadius = radius * 0.38f;
+            var endRadius = radius * (weight >= DuelPresentationWeight.Heavy ? 1.12f : 1.0f);
+            DOTween.Sequence()
+                .Join(DOTween.To(() => 0f, t =>
+                {
+                    if (line == null)
+                        return;
+
+                    var currentRadius = Mathf.Lerp(startRadius, endRadius, t);
+                    UpdateWorldCircleLine(line, center, currentRadius);
+                    var current = color;
+                    current.a = Mathf.Lerp(color.a, 0.05f, t);
+                    SetMaterialColor(material, current);
+                    line.startColor = current;
+                    line.endColor = current;
+                    var currentWidth = Mathf.Lerp(width * 1.35f, width * 0.65f, t);
+                    line.startWidth = currentWidth;
+                    line.endWidth = currentWidth;
+                }, 1f, duration).SetEase(Ease.OutCubic))
+                .OnComplete(() =>
+                {
+                    DestroyPresentationTransient(ringObject, material);
+                });
+        }
+
+        private static void UpdateWorldCircleLine(LineRenderer line, Vector3 center, float radius)
+        {
+            if (line == null)
+                return;
+
+            for (var index = 0; index < line.positionCount; index += 1)
+            {
+                var angle = Mathf.PI * 2f * index / line.positionCount;
+                line.SetPosition(index, center + new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius));
+            }
+        }
+
         private void PlayAttackCharge(DuelPresentationEvent evt)
         {
             if (evt == null)
@@ -1573,6 +1653,14 @@ namespace MDPro3
                 : evt.Direct ? new Color(1f, 0.58f, 0.16f, 0.84f) : new Color(1f, 0.76f, 0.24f, 0.78f);
             var material = CreateMaterial("QuestAttackProjectileMaterial", color, true);
             QuestCardProxy.ConfigureRenderer(projectile.GetComponent<MeshRenderer>(), material);
+            var trail = projectile.AddComponent<TrailRenderer>();
+            trail.material = material;
+            trail.time = evt.Final ? AttackProjectileTrailTime * 1.55f : evt.Direct ? AttackProjectileTrailTime * 1.25f : AttackProjectileTrailTime;
+            trail.startWidth = evt.Final ? 0.64f : evt.Direct ? 0.48f : 0.34f;
+            trail.endWidth = 0.035f;
+            trail.numCapVertices = 4;
+            trail.alignment = LineAlignment.View;
+            trail.autodestruct = false;
             RegisterPresentationTransient(projectile, material);
 
             var duration = evt.Direct ? 0.42f : 0.30f;
@@ -1655,6 +1743,7 @@ namespace MDPro3
             PlayPulseAt(point, color, evt.Weight, evt.Final ? 2.4f : evt.Direct ? 2.0f : 1.55f);
             PlayImpactSlash(point, color, evt.Weight, 0f, evt.Final ? 4.2f : 3.1f);
             PlayImpactSlash(point, new Color(1f, 0.95f, 0.42f, color.a), evt.Weight, 64f, evt.Final ? 3.5f : 2.5f);
+            PlayAttackReticle(point + Vector3.up * 0.10f, new Color(color.r, color.g, color.b, color.a * 0.82f), evt.Weight, evt.Final ? 4.8f : evt.Direct ? 3.8f : 2.8f, evt.Final ? 0.64f : 0.46f);
             if (evt.Direct)
                 PlayFloatingText(point + Vector3.up * 0.35f, evt.Final ? "DIRECT FINAL" : "DIRECT HIT", color, evt.Weight);
         }
