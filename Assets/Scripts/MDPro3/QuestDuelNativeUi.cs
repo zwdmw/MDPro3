@@ -19,13 +19,14 @@ namespace MDPro3
         private const int FallbackQuestOverlayLayer = 24;
         private const float PanelScale = 0.014f;
         private const float SmallPanelScale = 0.016f;
-        private const float AnchoredOptionPanelScale = 0.016f;
+        private const float AnchoredOptionPanelScale = 0.017f;
         private const float DefaultOptionPanelWidth = 980f;
         private const float DefaultOptionPanelHeight = 620f;
-        private const float AnchoredOptionPanelWidth = 640f;
-        private const float AnchoredOptionPanelBaseHeight = 188f;
-        private const float AnchoredOptionPanelButtonHeight = 66f;
-        private const float AnchoredOptionPanelButtonGap = 10f;
+        private const float AnchoredOptionPanelWidth = 520f;
+        private const float AnchoredOptionPanelBaseHeight = 122f;
+        private const float AnchoredOptionPanelButtonWidth = 420f;
+        private const float AnchoredOptionPanelButtonHeight = 76f;
+        private const float AnchoredOptionPanelButtonGap = 12f;
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
@@ -130,6 +131,7 @@ namespace MDPro3
         private readonly List<GameObject> optionRows = new List<GameObject>();
         private GameCard optionAnchorCard;
         private bool optionAnchoredCompact;
+        private int optionAnchoredCount;
 
         private Canvas phaseMenuCanvas;
         private RectTransform phaseMenuRect;
@@ -762,27 +764,30 @@ namespace MDPro3
                 return;
 
             optionCount = Mathf.Max(1, optionCount);
+            optionAnchoredCount = anchoredCompact ? optionCount : 0;
             if (anchoredCompact)
             {
                 if (optionBackgroundImage != null)
                 {
-                    optionBackgroundImage.color = new Color(0.012f, 0.017f, 0.024f, 0.78f);
+                    optionBackgroundImage.color = new Color(0.006f, 0.012f, 0.018f, 0.30f);
                     optionBackgroundImage.raycastTarget = false;
                 }
                 var height = AnchoredOptionPanelBaseHeight
                     + optionCount * AnchoredOptionPanelButtonHeight
                     + Mathf.Max(0, optionCount - 1) * AnchoredOptionPanelButtonGap;
-                optionRect.sizeDelta = new Vector2(AnchoredOptionPanelWidth, Mathf.Clamp(height, 300f, 620f));
-                optionTitleText.rectTransform.anchoredPosition = new Vector2(30f, -24f);
-                optionTitleText.rectTransform.sizeDelta = new Vector2(AnchoredOptionPanelWidth - 60f, 60f);
-                optionTitleText.fontSize = 36f;
-                optionTitleText.alignment = TextAlignmentOptions.Left;
+                optionRect.sizeDelta = new Vector2(AnchoredOptionPanelWidth, Mathf.Clamp(height, 230f, 600f));
+                optionTitleText.rectTransform.anchoredPosition = new Vector2(44f, -18f);
+                optionTitleText.rectTransform.sizeDelta = new Vector2(AnchoredOptionPanelWidth - 88f, 48f);
+                optionTitleText.fontSize = 30f;
+                optionTitleText.fontSizeMin = 22f;
+                optionTitleText.alignment = TextAlignmentOptions.Center;
                 optionBodyText.gameObject.SetActive(false);
-                optionListRoot.anchoredPosition = new Vector2(30f, -104f);
-                optionListRoot.sizeDelta = new Vector2(AnchoredOptionPanelWidth - 60f, optionRect.sizeDelta.y - 132f);
+                optionListRoot.anchoredPosition = new Vector2(24f, -78f);
+                optionListRoot.sizeDelta = new Vector2(AnchoredOptionPanelWidth - 48f, optionRect.sizeDelta.y - 96f);
             }
             else
             {
+                optionAnchoredCount = 0;
                 if (optionBackgroundImage != null)
                 {
                     optionBackgroundImage.color = new Color(0.012f, 0.017f, 0.024f, 0.92f);
@@ -1673,22 +1678,95 @@ namespace MDPro3
         private void AddOptionButton(string label, Action onClick, Color? color = null)
         {
             var index = optionRows.Count;
-            var rowWidth = optionAnchoredCompact ? AnchoredOptionPanelWidth - 60f : 912f;
+            var rowWidth = optionAnchoredCompact ? AnchoredOptionPanelButtonWidth : 912f;
             var rowHeight = optionAnchoredCompact ? AnchoredOptionPanelButtonHeight : 66f;
             var rowGap = optionAnchoredCompact ? AnchoredOptionPanelButtonHeight + AnchoredOptionPanelButtonGap : 82f;
             var rowColor = color ?? (optionAnchoredCompact
-                ? new Color(0.08f, 0.34f, 0.42f, 0.96f)
+                ? ResolveAnchoredOptionColor(label)
                 : new Color(0.10f, 0.27f, 0.38f, 0.98f));
             var row = CreateButton(
                 "Option_" + index,
                 optionListRoot,
-                new Vector2(0f, -index * rowGap),
+                optionAnchoredCompact
+                    ? ResolveAnchoredOptionButtonPosition(index, Mathf.Max(optionAnchoredCount, 1))
+                    : new Vector2(0f, -index * rowGap),
                 new Vector2(rowWidth, rowHeight),
                 label,
                 onClick,
                 rowColor,
                 new Vector2(0f, 1f));
+            if (optionAnchoredCompact)
+            {
+                var labelText = row.GetComponentInChildren<TextMeshProUGUI>();
+                if (labelText != null)
+                {
+                    labelText.fontSize = 30f;
+                    labelText.fontSizeMax = 30f;
+                    labelText.fontSizeMin = 18f;
+                    labelText.fontStyle = FontStyles.Bold;
+                    labelText.enableWordWrapping = true;
+                    labelText.overflowMode = TextOverflowModes.Truncate;
+                }
+
+                AddButtonChrome(row, ResolveAnchoredOptionAccentColor(label));
+            }
             optionRows.Add(row.gameObject);
+        }
+
+        private static Vector2 ResolveAnchoredOptionButtonPosition(int index, int optionCount)
+        {
+            optionCount = Mathf.Max(1, optionCount);
+            var rootWidth = AnchoredOptionPanelWidth - 48f;
+            var baseX = Mathf.Max(0f, (rootWidth - AnchoredOptionPanelButtonWidth) * 0.5f);
+            var center = (optionCount - 1) * 0.5f;
+            var offset = index - center;
+            var fan = Mathf.Clamp(offset * 18f, -34f, 34f);
+            var y = -index * (AnchoredOptionPanelButtonHeight + AnchoredOptionPanelButtonGap)
+                - Mathf.Abs(offset) * 3.5f;
+            return new Vector2(baseX + fan, y);
+        }
+
+        private static Color ResolveAnchoredOptionColor(string label)
+        {
+            label = LocalizeQuestLabel(label ?? string.Empty);
+            if (ContainsAny(label, "\u653b\u51fb", "Battle"))
+                return new Color(0.42f, 0.12f, 0.08f, 0.95f);
+            if (ContainsAny(label, "\u53d1\u52a8", "\u6548\u679c", "Activate"))
+                return new Color(0.07f, 0.34f, 0.44f, 0.95f);
+            if (ContainsAny(label, "\u7279\u6b8a\u53ec\u5524", "\u901a\u5e38\u53ec\u5524", "\u53ec\u5524", "\u7075\u6446", "Summon"))
+                return new Color(0.08f, 0.36f, 0.22f, 0.95f);
+            if (ContainsAny(label, "\u653e\u7f6e", "\u8bbe\u7f6e", "Set"))
+                return new Color(0.12f, 0.22f, 0.44f, 0.95f);
+            if (ContainsAny(label, "\u53d6\u6d88", "\u653e\u5f03", "Cancel"))
+                return new Color(0.36f, 0.13f, 0.16f, 0.95f);
+            return new Color(0.10f, 0.26f, 0.34f, 0.95f);
+        }
+
+        private static Color ResolveAnchoredOptionAccentColor(string label)
+        {
+            label = LocalizeQuestLabel(label ?? string.Empty);
+            if (ContainsAny(label, "\u653b\u51fb", "Battle"))
+                return new Color(1f, 0.36f, 0.18f, 0.82f);
+            if (ContainsAny(label, "\u53d1\u52a8", "\u6548\u679c", "Activate"))
+                return new Color(0.30f, 0.95f, 1f, 0.82f);
+            if (ContainsAny(label, "\u7279\u6b8a\u53ec\u5524", "\u901a\u5e38\u53ec\u5524", "\u53ec\u5524", "\u7075\u6446", "Summon"))
+                return new Color(0.44f, 1f, 0.62f, 0.82f);
+            if (ContainsAny(label, "\u653e\u7f6e", "\u8bbe\u7f6e", "Set"))
+                return new Color(0.50f, 0.72f, 1f, 0.82f);
+            if (ContainsAny(label, "\u53d6\u6d88", "\u653e\u5f03", "Cancel"))
+                return HudAccentRed;
+            return HudAccentGold;
+        }
+
+        private static bool ContainsAny(string text, params string[] patterns)
+        {
+            if (string.IsNullOrEmpty(text) || patterns == null)
+                return false;
+
+            foreach (var pattern in patterns)
+                if (!string.IsNullOrEmpty(pattern) && text.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
         }
 
         private void AddPositionOption(int response)
@@ -2419,6 +2497,7 @@ namespace MDPro3
             }
             optionAnchorCard = null;
             optionAnchoredCompact = false;
+            optionAnchoredCount = 0;
         }
 
         private void HidePhaseMenu()
@@ -2497,9 +2576,9 @@ namespace MDPro3
             var position = GameCard.GetCardPosition(optionAnchorCard.p, optionAnchorCard, optionAnchorCard.overlayParent);
             position.x *= QuestBoardScaleX;
             position.z *= QuestBoardScaleZ;
-            position.y = Mathf.Max(position.y + 6.0f, 7.2f);
+            position.y = Mathf.Max(position.y + 4.8f, 5.8f);
             var duelPosition = DuelWorldCenterOnGround + position;
-            return duelPosition + ResolvePlanarDirectionToViewerInDuelSpace(duelPosition) * 6.4f;
+            return duelPosition + ResolvePlanarDirectionToViewerInDuelSpace(duelPosition) * 4.6f;
         }
 
         private Vector3 ResolvePlanarDirectionToViewerInDuelSpace(Vector3 duelPosition)
