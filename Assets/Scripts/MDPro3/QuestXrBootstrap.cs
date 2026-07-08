@@ -87,6 +87,7 @@ namespace MDPro3
         private const float QuestDuelActionFloatAmplitude = 5.0f;
         private const float QuestDuelActionHoverScaleBoost = 0.12f;
         private const float QuestCardInfoHoverDelay = 0.10f;
+        private const float QuestNoActionNoticeCooldown = 0.55f;
         private const int FallbackGridLineCount = 33;
         private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
@@ -323,6 +324,8 @@ namespace MDPro3
         private float questInfoHoverStartTime;
         private GameCard lastLoggedQuestCardHit;
         private float lastQuestCardHitLog;
+        private GameCard lastQuestNoActionNoticeCard;
+        private float lastQuestNoActionNoticeTime;
         private GameObject questPressedDuelActionUi;
         private QuestDuelAction questPressedDuelAction;
         private Canvas questDuelActionMenuCanvas;
@@ -7907,13 +7910,73 @@ namespace MDPro3
             if (Program.instance.ocgcore.currentPopup != null)
             {
                 ClearQuestDuelActionMenu();
+                ShowQuestNoActionNotice(card);
                 return;
             }
 
             if (card.buttons != null && card.buttons.Count > 0)
                 ShowQuestDuelCardActions(card);
             else
+            {
                 ClearQuestDuelActionMenu();
+                ShowQuestNoActionNotice(card);
+            }
+        }
+
+        private void ShowQuestNoActionNotice(GameCard card)
+        {
+            var now = Time.unscaledTime;
+            if (card == lastQuestNoActionNoticeCard && now - lastQuestNoActionNoticeTime < QuestNoActionNoticeCooldown)
+                return;
+
+            lastQuestNoActionNoticeCard = card;
+            lastQuestNoActionNoticeTime = now;
+            var reason = ResolveQuestNoActionNotice(card);
+            questDuelWorldPresenter?.ShowCardNotice(card, reason);
+            Debug.LogFormat(
+                "Quest XR no card action: id={0}, reason={1}, buttons={2}, location={3}, controller={4}, message={5}, phase={6}, myTurn={7}",
+                card == null || card.GetData() == null ? 0 : card.GetData().Id,
+                reason,
+                card == null || card.buttons == null ? -1 : card.buttons.Count,
+                card == null || card.p == null ? 0 : card.p.location,
+                card == null || card.p == null ? 0 : card.p.controller,
+                Program.instance?.ocgcore == null ? GameMessage.Waiting : Program.instance.ocgcore.currentMessage,
+                Program.instance?.ocgcore == null ? DuelPhase.Draw : Program.instance.ocgcore.phase,
+                Program.instance?.ocgcore != null && Program.instance.ocgcore.myTurn);
+        }
+
+        private static string ResolveQuestNoActionNotice(GameCard card)
+        {
+            var core = Program.instance == null ? null : Program.instance.ocgcore;
+            if (core == null)
+                return "\u5f53\u524d\u4e0d\u53ef\u64cd\u4f5c";
+
+            if (core.currentPopup != null)
+                return "\u5148\u5904\u7406\u5f53\u524d\u9009\u62e9";
+
+            if (core.currentMessage == GameMessage.Waiting)
+                return "\u7b49\u5f85\u51b3\u6597\u5904\u7406";
+
+            if (core.currentMessage == GameMessage.SelectChain || core.currentMessage == GameMessage.SortChain)
+                return "\u5148\u5904\u7406\u8fde\u9501";
+
+            if (core.currentMessage == GameMessage.SelectCard
+                || core.currentMessage == GameMessage.SelectUnselect
+                || core.currentMessage == GameMessage.SelectSum
+                || core.currentMessage == GameMessage.SelectTribute
+                || core.currentMessage == GameMessage.SelectCounter)
+                return "\u8bf7\u9009\u62e9\u9ad8\u4eae\u76ee\u6807";
+
+            if (card != null && card.p != null && card.p.controller != 0)
+                return core.myTurn ? "\u5bf9\u65b9\u5361\u7247" : "\u5bf9\u65b9\u64cd\u4f5c\u4e2d";
+
+            if (!core.myTurn)
+                return "\u5bf9\u65b9\u56de\u5408";
+
+            if (core.currentMessage == GameMessage.SelectIdleCmd || core.currentMessage == GameMessage.SelectBattleCmd)
+                return "\u5f53\u524d\u65f6\u70b9\u4e0d\u53ef\u64cd\u4f5c";
+
+            return "\u5f53\u524d\u4e0d\u53ef\u64cd\u4f5c";
         }
 
         private Bounds? GetQuestCardInfoBounds(GameCard card)

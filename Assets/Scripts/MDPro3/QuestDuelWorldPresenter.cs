@@ -670,6 +670,21 @@ namespace MDPro3
             selectionGuideSignature = null;
         }
 
+        public void ShowCardNotice(GameCard card, string content)
+        {
+            if (string.IsNullOrEmpty(content) || worldAnchor == null)
+                return;
+
+            EnsureRoot();
+            if (presentationRoot == null || proxyRoot == null || !proxyRoot.gameObject.activeInHierarchy)
+                return;
+
+            var position = ResolveCardWorldPoint(card);
+            var color = new Color(1f, 0.78f, 0.26f, 1f);
+            PlayFloatingText(position + Vector3.up * 0.48f, content, color, DuelPresentationWeight.Light);
+            PlayPulseAt(position, new Color(1f, 0.62f, 0.18f, 0.44f), DuelPresentationWeight.Light, 0.72f);
+        }
+
         public bool TryGetCardWorldBounds(GameCard card, out Bounds bounds)
         {
             bounds = default;
