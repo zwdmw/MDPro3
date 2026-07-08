@@ -17,6 +17,13 @@ namespace MDPro3
         private const int FallbackQuestOverlayLayer = 24;
         private const float PanelScale = 0.014f;
         private const float SmallPanelScale = 0.016f;
+        private const float AnchoredOptionPanelScale = 0.018f;
+        private const float DefaultOptionPanelWidth = 980f;
+        private const float DefaultOptionPanelHeight = 620f;
+        private const float AnchoredOptionPanelWidth = 760f;
+        private const float AnchoredOptionPanelBaseHeight = 210f;
+        private const float AnchoredOptionPanelButtonHeight = 76f;
+        private const float AnchoredOptionPanelButtonGap = 14f;
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
@@ -98,11 +105,13 @@ namespace MDPro3
 
         private Canvas optionCanvas;
         private RectTransform optionRect;
+        private Image optionBackgroundImage;
         private TextMeshProUGUI optionTitleText;
         private TextMeshProUGUI optionBodyText;
         private RectTransform optionListRoot;
         private readonly List<GameObject> optionRows = new List<GameObject>();
         private GameCard optionAnchorCard;
+        private bool optionAnchoredCompact;
 
         private Canvas phaseMenuCanvas;
         private RectTransform phaseMenuRect;
@@ -241,7 +250,9 @@ namespace MDPro3
                 return false;
 
             EnsureOptionPanel();
-            optionAnchorCard = anchorCard;
+            optionAnchoredCompact = anchorCard != null && responses.Count <= 5;
+            optionAnchorCard = optionAnchoredCompact ? anchorCard : null;
+            ConfigureOptionPanelLayout(optionAnchoredCompact, Mathf.Max(1, responses.Count));
             ClearRows(optionRows);
             optionTitleText.text = selections.Count > 0 ? LocalizeQuestLabel(SanitizeText(selections[0])) : "\u8bf7\u9009\u62e9";
             optionBodyText.text = string.Empty;
@@ -273,6 +284,8 @@ namespace MDPro3
 
             EnsureOptionPanel();
             optionAnchorCard = null;
+            optionAnchoredCompact = false;
+            ConfigureOptionPanelLayout(false, Mathf.Max(2, selections.Count - 1));
             ClearRows(optionRows);
             optionTitleText.text = selections.Count > 0 ? LocalizeQuestLabel(SanitizeText(selections[0])) : "\u786e\u8ba4";
             optionBodyText.text = selections.Count > 1 ? LocalizeQuestLabel(SanitizeText(selections[1])) : string.Empty;
@@ -300,6 +313,8 @@ namespace MDPro3
 
             EnsureOptionPanel();
             optionAnchorCard = null;
+            optionAnchoredCompact = false;
+            ConfigureOptionPanelLayout(false, count == 3 ? 3 : 2);
             ClearRows(optionRows);
             optionTitleText.text = "选择表示形式";
             var card = CardsManager.Get(code);
@@ -590,13 +605,57 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestDuelOptionPanel", out optionCanvas, out optionRect);
-            optionRect.sizeDelta = new Vector2(980f, 620f);
+            optionRect.sizeDelta = new Vector2(DefaultOptionPanelWidth, DefaultOptionPanelHeight);
             AddPanelBackground(canvasObject, new Color(0.012f, 0.017f, 0.024f, 0.92f));
+            optionBackgroundImage = canvasObject.GetComponent<Image>();
             optionTitleText = CreateText("Title", optionRect, new Vector2(34f, -30f), new Vector2(912f, 58f), 38f, TextAlignmentOptions.Left);
             optionBodyText = CreateText("Body", optionRect, new Vector2(34f, -98f), new Vector2(912f, 104f), 27f, TextAlignmentOptions.TopLeft);
             optionBodyText.enableWordWrapping = true;
             optionListRoot = CreateRect("List", optionRect, new Vector2(34f, -214f), new Vector2(912f, 360f), new Vector2(0f, 1f));
             canvasObject.SetActive(false);
+        }
+
+        private void ConfigureOptionPanelLayout(bool anchoredCompact, int optionCount)
+        {
+            if (optionRect == null || optionTitleText == null || optionBodyText == null || optionListRoot == null)
+                return;
+
+            optionCount = Mathf.Max(1, optionCount);
+            if (anchoredCompact)
+            {
+                if (optionBackgroundImage != null)
+                {
+                    optionBackgroundImage.color = new Color(0.012f, 0.017f, 0.024f, 0.78f);
+                    optionBackgroundImage.raycastTarget = false;
+                }
+                var height = AnchoredOptionPanelBaseHeight
+                    + optionCount * AnchoredOptionPanelButtonHeight
+                    + Mathf.Max(0, optionCount - 1) * AnchoredOptionPanelButtonGap;
+                optionRect.sizeDelta = new Vector2(AnchoredOptionPanelWidth, Mathf.Clamp(height, 300f, 620f));
+                optionTitleText.rectTransform.anchoredPosition = new Vector2(30f, -24f);
+                optionTitleText.rectTransform.sizeDelta = new Vector2(AnchoredOptionPanelWidth - 60f, 60f);
+                optionTitleText.fontSize = 36f;
+                optionTitleText.alignment = TextAlignmentOptions.Left;
+                optionBodyText.gameObject.SetActive(false);
+                optionListRoot.anchoredPosition = new Vector2(30f, -104f);
+                optionListRoot.sizeDelta = new Vector2(AnchoredOptionPanelWidth - 60f, optionRect.sizeDelta.y - 132f);
+            }
+            else
+            {
+                if (optionBackgroundImage != null)
+                {
+                    optionBackgroundImage.color = new Color(0.012f, 0.017f, 0.024f, 0.92f);
+                    optionBackgroundImage.raycastTarget = true;
+                }
+                optionRect.sizeDelta = new Vector2(DefaultOptionPanelWidth, DefaultOptionPanelHeight);
+                optionTitleText.rectTransform.anchoredPosition = new Vector2(34f, -30f);
+                optionTitleText.rectTransform.sizeDelta = new Vector2(912f, 58f);
+                optionTitleText.fontSize = 38f;
+                optionTitleText.alignment = TextAlignmentOptions.Left;
+                optionBodyText.gameObject.SetActive(true);
+                optionListRoot.anchoredPosition = new Vector2(34f, -214f);
+                optionListRoot.sizeDelta = new Vector2(912f, 360f);
+            }
         }
 
         private void EnsurePhaseMenu()
@@ -1302,14 +1361,20 @@ namespace MDPro3
         private void AddOptionButton(string label, Action onClick, Color? color = null)
         {
             var index = optionRows.Count;
+            var rowWidth = optionAnchoredCompact ? AnchoredOptionPanelWidth - 60f : 912f;
+            var rowHeight = optionAnchoredCompact ? AnchoredOptionPanelButtonHeight : 66f;
+            var rowGap = optionAnchoredCompact ? AnchoredOptionPanelButtonHeight + AnchoredOptionPanelButtonGap : 82f;
+            var rowColor = color ?? (optionAnchoredCompact
+                ? new Color(0.08f, 0.34f, 0.42f, 0.96f)
+                : new Color(0.10f, 0.27f, 0.38f, 0.98f));
             var row = CreateButton(
                 "Option_" + index,
                 optionListRoot,
-                new Vector2(0f, -index * 82f),
-                new Vector2(912f, 66f),
+                new Vector2(0f, -index * rowGap),
+                new Vector2(rowWidth, rowHeight),
                 label,
                 onClick,
-                color ?? new Color(0.10f, 0.27f, 0.38f, 0.98f),
+                rowColor,
                 new Vector2(0f, 1f));
             optionRows.Add(row.gameObject);
         }
@@ -1897,6 +1962,7 @@ namespace MDPro3
             if (optionCanvas != null && optionCanvas.gameObject.activeSelf)
                 optionCanvas.gameObject.SetActive(false);
             optionAnchorCard = null;
+            optionAnchoredCompact = false;
         }
 
         private void HidePhaseMenu()
@@ -1924,7 +1990,13 @@ namespace MDPro3
                         CardInfoScale);
             }
             if (optionRect != null && optionCanvas.gameObject.activeSelf)
-                PlacePanel(optionRect, ResolveOptionPanelPosition(), SmallPanelScale);
+            {
+                var optionPosition = ResolveOptionPanelPosition();
+                if (optionAnchoredCompact)
+                    PlacePanel(optionRect, optionPosition, ResolveFacingViewerRotationInDuelSpace(optionPosition), AnchoredOptionPanelScale);
+                else
+                    PlacePanel(optionRect, optionPosition, SmallPanelScale);
+            }
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
                 PlacePanel(phaseMenuRect, DuelWorldCenterOnGround + new Vector3(0f, 8.4f, -18f), SmallPanelScale);
             if (phaseHudRect != null && phaseHudCanvas.gameObject.activeSelf)
@@ -1955,9 +2027,41 @@ namespace MDPro3
             var position = GameCard.GetCardPosition(optionAnchorCard.p, optionAnchorCard, optionAnchorCard.overlayParent);
             position.x *= QuestBoardScaleX;
             position.z *= QuestBoardScaleZ;
-            position.y = Mathf.Max(position.y + 5.4f, 5.8f);
-            position += Vector3.back * 4.8f;
-            return DuelWorldCenterOnGround + position;
+            position.y = Mathf.Max(position.y + 6.0f, 7.2f);
+            var duelPosition = DuelWorldCenterOnGround + position;
+            return duelPosition + ResolvePlanarDirectionToViewerInDuelSpace(duelPosition) * 6.4f;
+        }
+
+        private Vector3 ResolvePlanarDirectionToViewerInDuelSpace(Vector3 duelPosition)
+        {
+            Vector3 viewer;
+            if (xrCamera == null)
+            {
+                viewer = DuelWorldCenterOnGround + new Vector3(0f, 24f, -54f);
+            }
+            else if (duelWorldAnchor != null)
+            {
+                viewer = duelWorldAnchor.InverseTransformPoint(xrCamera.transform.position) + DuelWorldCenterOnGround;
+            }
+            else
+            {
+                viewer = xrCamera.transform.position;
+            }
+
+            var direction = viewer - duelPosition;
+            direction.y = 0f;
+            if (direction.sqrMagnitude < 0.0001f)
+                return Vector3.back;
+            return direction.normalized;
+        }
+
+        private Quaternion ResolveFacingViewerRotationInDuelSpace(Vector3 duelPosition)
+        {
+            var toViewer = ResolvePlanarDirectionToViewerInDuelSpace(duelPosition);
+            var forward = -toViewer;
+            if (forward.sqrMagnitude < 0.0001f)
+                forward = Vector3.forward;
+            return Quaternion.LookRotation(forward.normalized, Vector3.up);
         }
 
         private void PlacePanel(RectTransform rect, Vector3 position, float scale)
