@@ -18,9 +18,11 @@ Default auto Solo duel:
 
 - creates/refreshes `Deck\QuestDebugAuto.ydk`
 - selects `QuestDebugAuto` only for the debug auto Solo launch
-- enables lock-hand, no-check, and no-shuffle
+- enables lock-hand and no-shuffle, disables no-check
 - starts with 5 cards and draws 1 card per turn
-- fixed opening hand is arranged to cover normal summon, hand special summon, spell activation, spell/place behavior, and trap set behavior
+- fixed rock-paper-scissors makes the local player choose first turn for repeatable interaction tests
+- fixed opening hand is the first 5 main-deck entries in `QuestDebugAuto.ydk`: `魔术师之杖`, `风魔女-冰铃`, `奥义之魔导书`, `黑魔导阵`, `永远之魂`
+- opening hand coverage includes normal summon, hand special summon, spell activation, spell/place behavior, and trap set behavior
 - automatically sends local player ready/start in the Solo room
 - restores the user's previous `DeckInUse` after the duel starts or after an auto-start timeout
 

@@ -83,6 +83,14 @@ namespace MDPro3
         public const string yrpExpansion = ".yrp";
         public const string yrp3dExpansion = ".yrp3d";
         private const string QuestDebugAutoDeckName = "QuestDebugAuto";
+        private static readonly int[] QuestDebugAutoOpeningHandCodes =
+        {
+            7084129,
+            43722862,
+            89739383,
+            47222536,
+            48680970
+        };
         #endregion
 
         #region Initializement
@@ -345,11 +353,11 @@ namespace MDPro3
                 Config.Set("DeckInUse", QuestDebugAutoDeckName);
 
             if (solo.toggleLockHand != null)
-                solo.toggleLockHand.SetToggleOn(false);
+                solo.toggleLockHand.SetToggleOn(true);
             if (solo.toggleNoCheck != null)
                 solo.toggleNoCheck.SetToggleOn(false);
             if (solo.toggleNoShuffle != null)
-                solo.toggleNoShuffle.SetToggleOn(false);
+                solo.toggleNoShuffle.SetToggleOn(true);
             if (solo.inputLP != null)
                 solo.inputLP.text = "8000";
             if (solo.inputHand != null)
@@ -367,6 +375,10 @@ namespace MDPro3
                 solo.toggleNoShuffle != null && solo.toggleNoShuffle.isOn,
                 solo.inputHand == null ? "<missing>" : solo.inputHand.text,
                 solo.inputDraw == null ? "<missing>" : solo.inputDraw.text);
+            Debug.LogFormat(
+                "Quest debug auto fixed opening hand: noShuffle={0}, expected=[{1}]",
+                solo.toggleNoShuffle != null && solo.toggleNoShuffle.isOn,
+                BuildQuestDebugOpeningHandLog());
             return previousDeckName;
         }
 
@@ -449,6 +461,18 @@ namespace MDPro3
                 Debug.LogWarning("Quest debug auto deck setup failed: " + ex.Message);
                 return false;
             }
+        }
+
+        private static string BuildQuestDebugOpeningHandLog()
+        {
+            var parts = new List<string>();
+            foreach (var code in QuestDebugAutoOpeningHandCodes)
+            {
+                var card = CardsManager.Get(code, true);
+                var name = card == null || string.IsNullOrWhiteSpace(card.Name) ? code.ToString() : card.Name;
+                parts.Add(code + ":" + name);
+            }
+            return string.Join(", ", parts);
         }
 
         private static string BuildQuestDebugAutoDeckYdk()
