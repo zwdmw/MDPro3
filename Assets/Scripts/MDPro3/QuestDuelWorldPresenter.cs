@@ -491,6 +491,10 @@ namespace MDPro3
         private const int MaxAutomaticDebugCaptures = 6;
         private const float SelectionGuideSourceHoldSeconds = 8f;
         private const int SelectionGuideCircleSegments = 56;
+        private const float SelectionGuideBadgeScale = 0.44f;
+        private const float SelectionGuideBadgeWidth = 7.6f;
+        private const float SelectionGuideBadgeHeight = 2.35f;
+        private const float SelectionGuideBadgeYOffset = 2.1f;
         private const float AttackPortraitLungeDistance = 5.8f;
         private const float DirectAttackPortraitLungeDistance = 7.2f;
         private const float AttackProjectileHeight = 1.35f;
@@ -514,6 +518,7 @@ namespace MDPro3
         private Material portraitMaterial;
         private static Texture2D fallbackCardBackTexture;
         private static Texture2D preferredCardBackTexture;
+        private static Mesh sharedQuadMesh;
         private readonly Dictionary<GameCard, QuestCardProxy> cardProxies = new Dictionary<GameCard, QuestCardProxy>();
         private readonly Dictionary<string, QuestPileProxy> pileProxies = new Dictionary<string, QuestPileProxy>();
         private readonly List<PresentationTransient> presentationTransients = new List<PresentationTransient>();
@@ -522,6 +527,7 @@ namespace MDPro3
         private readonly List<GameCard> staleCards = new List<GameCard>();
         private readonly List<GameObject> selectionGuideObjects = new List<GameObject>();
         private readonly List<Material> selectionGuideMaterials = new List<Material>();
+        private readonly List<SelectionGuideBadge> selectionGuideBadges = new List<SelectionGuideBadge>();
         private GameCard hoveredCard;
         private GameCard selectionSourceCard;
         private string selectionGuideSignature;
@@ -721,11 +727,15 @@ namespace MDPro3
             var source = ResolveValidSelectionSource(targets);
             var signature = BuildSelectionGuideSignature(source, targets);
             if (signature == selectionGuideSignature && selectionGuideObjects.Count > 0)
+            {
+                UpdateSelectionGuideBillboards();
                 return;
+            }
 
             ClearSelectionGuides();
             selectionGuideSignature = signature;
             BuildSelectionGuides(source, targets);
+            UpdateSelectionGuideBillboards();
         }
 
         private GameCard ResolveValidSelectionSource(List<GameCard> targets)
@@ -735,9 +745,6 @@ namespace MDPro3
                 if (TryGetCardWorldPoint(selectionSourceCard, out _))
                     return selectionSourceCard;
             }
-
-            if (hoveredCard != null && !targets.Contains(hoveredCard) && TryGetCardWorldPoint(hoveredCard, out _))
-                return hoveredCard;
 
             return null;
         }
@@ -759,19 +766,41 @@ namespace MDPro3
 
             var sourcePoint = Vector3.zero;
             var hasSource = source != null && TryGetSelectionGuideSourcePoint(source, out sourcePoint);
-            foreach (var target in targets)
+            for (var targetIndex = 0; targetIndex < targets.Count; targetIndex += 1)
             {
-                if (target == null || !TryGetCardWorldBounds(target, out var bounds))
+                var target = targets[targetIndex];
+                if (!TryResolveSelectionTargetPose(target, out var center, out var radius))
                     continue;
 
-                var radius = Mathf.Max(bounds.extents.x, bounds.extents.z, 0.4f) + 0.34f;
-                var center = bounds.center;
-                center.y = bounds.max.y + 0.08f;
                 CreateSelectionTargetRing(center, radius);
+                CreateSelectionTargetBadge(target, center, radius, targetIndex, targets.Count);
 
                 if (hasSource)
-                    CreateSelectionGuideArc(sourcePoint, bounds.center + Vector3.up * 0.62f, targets.Count);
+                    CreateSelectionGuideArc(sourcePoint, center + Vector3.up * 0.62f, targets.Count);
             }
+        }
+
+        private bool TryResolveSelectionTargetPose(GameCard target, out Vector3 center, out float radius)
+        {
+            center = default;
+            radius = 0f;
+            if (target == null)
+                return false;
+
+            if (TryGetCardActionAnchor(target, out var actionAnchor, out var actionRadius))
+            {
+                center = actionAnchor + Vector3.up * 0.08f;
+                radius = actionRadius + 0.30f;
+                return true;
+            }
+
+            if (!TryGetCardWorldBounds(target, out var bounds))
+                return false;
+
+            center = bounds.center;
+            center.y = bounds.max.y + 0.08f;
+            radius = Mathf.Max(bounds.extents.x, bounds.extents.z, 0.4f) + 0.34f;
+            return true;
         }
 
         private bool TryGetSelectionGuideSourcePoint(GameCard source, out Vector3 point)
@@ -856,6 +885,113 @@ namespace MDPro3
             selectionGuideMaterials.Add(material);
         }
 
+        private void CreateSelectionTargetBadge(GameCard target, Vector3 center, float radius, int targetIndex, int targetCount)
+        {
+            if (presentationRoot == null)
+                return;
+
+            var badgeObject = new GameObject("QuestSelectionTargetBadge_" + targetIndex);
+            SetQuestOverlayLayer(badgeObject);
+            badgeObject.transform.SetParent(presentationRoot, false);
+            badgeObject.transform.localPosition = presentationRoot.InverseTransformPoint(center + Vector3.up * (SelectionGuideBadgeYOffset + Mathf.Clamp(radius * 0.18f, 0f, 0.8f)));
+            badgeObject.transform.localScale = Vector3.one * SelectionGuideBadgeScale;
+
+            var backplate = new GameObject("QuestSelectionTargetBadgeBackplate", typeof(MeshFilter), typeof(MeshRenderer));
+            backplate.name = "QuestSelectionTargetBadgeBackplate";
+            SetQuestOverlayLayer(backplate);
+            backplate.transform.SetParent(badgeObject.transform, false);
+            backplate.transform.localPosition = new Vector3(0f, 0f, 0.012f);
+            backplate.transform.localRotation = Quaternion.identity;
+            backplate.transform.localScale = new Vector3(SelectionGuideBadgeWidth, SelectionGuideBadgeHeight, 1f);
+            backplate.GetComponent<MeshFilter>().sharedMesh = GetSharedQuadMesh();
+            var backplateMaterial = CreateMaterial("QuestSelectionTargetBadgeMaterial", new Color(0.02f, 0.14f, 0.18f, 0.72f), true);
+            backplateMaterial.renderQueue = (int)RenderQueue.Transparent + 64;
+            QuestCardProxy.ConfigureRenderer(backplate.GetComponent<MeshRenderer>(), backplateMaterial);
+
+            var textObject = new GameObject("QuestSelectionTargetBadgeText");
+            SetQuestOverlayLayer(textObject);
+            textObject.transform.SetParent(badgeObject.transform, false);
+            textObject.transform.localPosition = new Vector3(0f, 0.03f, 0.030f);
+            textObject.transform.localRotation = Quaternion.identity;
+            textObject.transform.localScale = Vector3.one;
+            var text = textObject.AddComponent<TextMeshPro>();
+            text.text = targetCount > 1 ? "\u9009\u62e9\u76ee\u6807 " + (targetIndex + 1) : "\u9009\u62e9\u76ee\u6807";
+            text.alignment = TextAlignmentOptions.Center;
+            text.fontSize = 4.2f;
+            text.fontStyle = FontStyles.Bold;
+            text.enableWordWrapping = false;
+            text.color = new Color(0.80f, 1f, 0.94f, 1f);
+            text.outlineWidth = 0.18f;
+            text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
+            var textRenderer = text.GetComponent<Renderer>();
+            if (textRenderer != null)
+            {
+                textRenderer.sortingOrder = 132;
+                textRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                textRenderer.receiveShadows = false;
+            }
+            if (text.fontMaterial != null)
+                text.fontMaterial.renderQueue = (int)RenderQueue.Transparent + TextOverlayRenderQueueOffset;
+
+            var pointer = CreateSelectionTargetPointer(center, badgeObject.transform.position, targetIndex);
+            selectionGuideObjects.Add(badgeObject);
+            selectionGuideMaterials.Add(backplateMaterial);
+            selectionGuideBadges.Add(new SelectionGuideBadge(target, badgeObject.transform, pointer));
+        }
+
+        private LineRenderer CreateSelectionTargetPointer(Vector3 from, Vector3 to, int targetIndex)
+        {
+            if (presentationRoot == null || (to - from).sqrMagnitude < 0.01f)
+                return null;
+
+            var pointerObject = new GameObject("QuestSelectionTargetPointer_" + targetIndex);
+            SetQuestOverlayLayer(pointerObject);
+            pointerObject.transform.SetParent(presentationRoot, false);
+            var line = pointerObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = false;
+            line.positionCount = 2;
+            line.numCapVertices = 5;
+            line.alignment = LineAlignment.View;
+            line.startWidth = 0.08f;
+            line.endWidth = 0.18f;
+            var color = new Color(0.34f, 1f, 0.86f, 0.62f);
+            var material = CreateMaterial("QuestSelectionTargetPointerMaterial", color, true);
+            material.renderQueue = (int)RenderQueue.Transparent + 62;
+            line.material = material;
+            line.SetPosition(0, presentationRoot.InverseTransformPoint(to));
+            line.SetPosition(1, presentationRoot.InverseTransformPoint(from + Vector3.up * 0.24f));
+            selectionGuideObjects.Add(pointerObject);
+            selectionGuideMaterials.Add(material);
+            return line;
+        }
+
+        private void UpdateSelectionGuideBillboards()
+        {
+            for (var index = selectionGuideBadges.Count - 1; index >= 0; index -= 1)
+            {
+                var badge = selectionGuideBadges[index];
+                if (badge == null || badge.Root == null || !TryResolveSelectionTargetPose(badge.Target, out var center, out var radius))
+                {
+                    selectionGuideBadges.RemoveAt(index);
+                    continue;
+                }
+
+                var badgeWorldPosition = center + Vector3.up * (SelectionGuideBadgeYOffset + Mathf.Clamp(radius * 0.18f, 0f, 0.8f));
+                badge.Root.localPosition = presentationRoot == null
+                    ? badgeWorldPosition
+                    : presentationRoot.InverseTransformPoint(badgeWorldPosition);
+                if (badge.Pointer != null && presentationRoot != null)
+                {
+                    badge.Pointer.SetPosition(0, presentationRoot.InverseTransformPoint(badge.Root.position));
+                    badge.Pointer.SetPosition(1, presentationRoot.InverseTransformPoint(center + Vector3.up * 0.24f));
+                }
+
+                FaceTextToCamera(badge.Root);
+                var pulse = (Mathf.Sin(Time.unscaledTime * 3.1f + index * 0.73f) + 1f) * 0.5f;
+                badge.Root.localScale = Vector3.one * SelectionGuideBadgeScale * (1f + pulse * 0.075f);
+            }
+        }
+
         private float GetPresentationRootWorldScale()
         {
             if (presentationRoot == null)
@@ -876,6 +1012,7 @@ namespace MDPro3
                 if (guide != null)
                     Destroy(guide);
             selectionGuideObjects.Clear();
+            selectionGuideBadges.Clear();
             selectionGuideSignature = null;
         }
 
@@ -3104,6 +3241,32 @@ namespace MDPro3
                 material.SetColor("_Color", color);
         }
 
+        private static Mesh GetSharedQuadMesh()
+        {
+            if (sharedQuadMesh != null)
+                return sharedQuadMesh;
+
+            sharedQuadMesh = new Mesh { name = "QuestSharedQuadMesh" };
+            sharedQuadMesh.vertices = new[]
+            {
+                new Vector3(-0.5f, -0.5f, 0f),
+                new Vector3(0.5f, -0.5f, 0f),
+                new Vector3(-0.5f, 0.5f, 0f),
+                new Vector3(0.5f, 0.5f, 0f)
+            };
+            sharedQuadMesh.uv = new[]
+            {
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f)
+            };
+            sharedQuadMesh.triangles = new[] { 0, 2, 1, 2, 3, 1 };
+            sharedQuadMesh.RecalculateNormals();
+            sharedQuadMesh.RecalculateBounds();
+            return sharedQuadMesh;
+        }
+
         private static void ApplyTexture(Material material, Texture texture)
         {
             if (material == null || texture == null)
@@ -3226,6 +3389,20 @@ namespace MDPro3
             target.layer = layer;
             foreach (Transform child in target.transform)
                 SetLayerRecursively(child.gameObject, layer);
+        }
+
+        private sealed class SelectionGuideBadge
+        {
+            public readonly GameCard Target;
+            public readonly Transform Root;
+            public readonly LineRenderer Pointer;
+
+            public SelectionGuideBadge(GameCard target, Transform root, LineRenderer pointer)
+            {
+                Target = target;
+                Root = root;
+                Pointer = pointer;
+            }
         }
 
         private sealed class QuestCardProxy
