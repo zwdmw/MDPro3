@@ -6,6 +6,7 @@ Default behavior:
 
 - clears old debug flags
 - enables Quest debug, verbose diagnostics, event logs, auto screenshots, auto duel view framing, and auto Solo
+- enables debug-only auto actions during auto Solo, so unattended screenshots can cover the first safe summon/set result
 - launches `com.ygo.mdpro3.quest`
 - captures `adb logcat`
 - takes host-side Quest screenshots every 20 seconds
@@ -23,6 +24,8 @@ Default auto Solo duel:
 - fixed rock-paper-scissors makes the local player choose first turn for repeatable interaction tests
 - fixed opening hand is the first 5 main-deck entries in `QuestDebugAuto.ydk`: `魔术师之杖`, `风魔女-冰铃`, `奥义之魔导书`, `黑魔导阵`, `永远之魂`
 - opening hand coverage includes normal summon, hand special summon, spell activation, spell/place behavior, and trap set behavior
+- auto actions wait for a stable `SelectIdleCmd`, then choose a conservative card action in this order: normal summon, special summon, set monster, set spell
+- auto actions are gated to auto Solo debug runs; `autoactions` alone will not drive a normal duel
 - automatically sends local player ready/start in the Solo room
 - restores the user's previous `DeckInUse` after the duel starts or after an auto-start timeout
 
@@ -54,6 +57,12 @@ Disable auto Solo while still collecting logs and screenshots:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Run-QuestDebugSession.ps1 -NoAutoDuel
+```
+
+Disable only auto card actions while still entering auto Solo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\Run-QuestDebugSession.ps1 -NoAutoActions
 ```
 
 Use a specific unattended screenshot angle:

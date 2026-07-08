@@ -12,6 +12,7 @@ param(
     [Nullable[double]]$ViewScale = $null,
     [switch]$InstallApk,
     [switch]$NoAutoDuel,
+    [switch]$NoAutoActions,
     [switch]$NoCapture,
     [switch]$NoVerbose,
     [switch]$NoFrameView,
@@ -199,6 +200,7 @@ function Write-QuestDebugSessionReport {
         "Quest debug auto solo",
         "Quest debug auto fixed opening hand",
         "Quest debug auto frame applied",
+        "Quest debug auto action",
         "Quest duel log panel visible",
         "Quest duel state unchanged",
         "Quest duel action menu shown",
@@ -256,6 +258,7 @@ if (!$NoVerbose) { $flagTokens += "verbose" }
 if (!$NoCapture) { $flagTokens += "capture" }
 if (!$NoFrameView) { $flagTokens += "frameview" }
 if (!$NoAutoDuel) { $flagTokens += "autoduel" }
+if (!$NoAutoDuel -and !$NoAutoActions) { $flagTokens += "autoactions" }
 if (!$NoFrameView -and ![string]::IsNullOrWhiteSpace($ViewPreset)) { $flagTokens += "view=$ViewPreset" }
 if (!$NoFrameView -and ![string]::IsNullOrWhiteSpace($ViewOffset)) { $flagTokens += "offset=$ViewOffset" }
 if (!$NoFrameView -and ![string]::IsNullOrWhiteSpace($ViewLookAt)) { $flagTokens += "lookat=$ViewLookAt" }
@@ -376,6 +379,7 @@ if (Test-Path -LiteralPath $logcatPath -PathType Leaf) {
         "Warning",
         "no card action",
         "auto solo",
+        "auto action",
         "auto frame",
         "auto room",
         "DuelStart",
@@ -400,6 +404,7 @@ if (Test-Path -LiteralPath $logcatPath -PathType Leaf) {
                 "Warning",
                 "no card action",
                 "auto solo",
+                "auto action",
                 "auto frame",
                 "auto room",
                 "DuelStart",

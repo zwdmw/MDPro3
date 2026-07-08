@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 using TMPro;
 using MDPro3.YGOSharp.OCGWrapper.Enums;
 using Unity.XR.CoreUtils;
@@ -86,6 +87,16 @@ namespace MDPro3
         private const float QuestDuelActionHoverScaleBoost = 0.12f;
         private const float QuestCardInfoHoverDelay = 0.10f;
         private const float QuestNoActionNoticeCooldown = 0.55f;
+        private const float QuestDebugAutoActionStableDelay = 1.15f;
+        private const float QuestDebugAutoActionRetryDelay = 3.5f;
+        private const int QuestDebugAutoActionMaxPerDuel = 2;
+        private static readonly MDPro3.UI.ButtonType[] QuestDebugAutoIdleActionPriority =
+        {
+            MDPro3.UI.ButtonType.Summon,
+            MDPro3.UI.ButtonType.SpSummon,
+            MDPro3.UI.ButtonType.SetMonster,
+            MDPro3.UI.ButtonType.SetSpell
+        };
         private const int FallbackGridLineCount = 33;
         private const float FallbackGridSpacing = 10f;
         private const float DuelGroundY = -0.005f;
@@ -346,6 +357,11 @@ namespace MDPro3
         private bool questDuelWorldUserTransformInitialized;
         private Vector3 questDuelWorldUserAnchorPosition;
         private float questPlayerYawOffsetDegrees;
+        private string questDebugAutoActionSignature = string.Empty;
+        private float questDebugAutoActionSignatureStartTime = -999f;
+        private float questDebugAutoActionLastAttemptTime = -999f;
+        private int questDebugAutoActionsExecuted;
+        private readonly HashSet<string> questDebugAutoActionExecutedSignatures = new HashSet<string>();
         private Transform questCutinWorldRoot;
         private Transform questMatePreviewWorldRoot;
         private float lastQuestPreviewLog;
@@ -884,11 +900,13 @@ namespace MDPro3
                 EnsureQuestDuelNativeUi();
                 questDuelNativeUi?.Tick();
                 ApplyQuestDebugAutoFrameIfNeeded();
+                ApplyQuestDebugAutoDuelActionsIfNeeded();
             }
             else
             {
                 questDuelNativeUi?.HideAllQuestUi();
                 ClearQuestDuelActionMenu();
+                ResetQuestDebugAutoDuelActions();
                 questDebugAutoFrameApplied = false;
                 lastQuestDebugForcedViewApplyTime = -999f;
                 if (Time.unscaledTime - lastQuestNativeDuelActiveTime >= QuestDuelInactiveResetDelay)
@@ -6509,6 +6527,218 @@ namespace MDPro3
 
             ApplyQuestDebugForcedView(DuelEyePosition + questPlayerWorldOffset, lookAt, yawOffset);
             lastQuestDebugForcedViewApplyTime = Time.unscaledTime;
+        }
+
+        private void ResetQuestDebugAutoDuelActions()
+        {
+            questDebugAutoActionSignature = string.Empty;
+            questDebugAutoActionSignatureStartTime = -999f;
+            questDebugAutoActionLastAttemptTime = -999f;
+            questDebugAutoActionsExecuted = 0;
+            questDebugAutoActionExecutedSignatures.Clear();
+        }
+
+        private void ApplyQuestDebugAutoDuelActionsIfNeeded()
+        {
+            if (!QuestRuntimeDebugSettings.AutoDuelActions)
+                return;
+            if (!QuestRuntimeDebugSettings.AutoEnterSolo || !Room.fromSolo)
+                return;
+
+            var core = Program.instance == null ? null : Program.instance.ocgcore;
+            if (core == null)
+                return;
+            if (questDebugAutoActionsExecuted >= QuestDebugAutoActionMaxPerDuel)
+                return;
+            if (core.currentMessage != GameMessage.SelectIdleCmd)
+                return;
+            if (!core.myTurn || core.currentPopup != null)
+                return;
+
+            var now = Time.unscaledTime;
+            var signature = BuildQuestDebugAutoActionSignature(core);
+            if (string.IsNullOrEmpty(signature))
+                return;
+
+            if (!string.Equals(signature, questDebugAutoActionSignature, StringComparison.Ordinal))
+            {
+                questDebugAutoActionSignature = signature;
+                questDebugAutoActionSignatureStartTime = now;
+                Debug.LogFormat(
+                    "Quest debug auto action state observed: message={0}, phase={1}, signature={2}",
+                    core.currentMessage,
+                    core.phase,
+                    signature);
+                return;
+            }
+
+            if (questDebugAutoActionExecutedSignatures.Contains(signature))
+                return;
+            if (now - questDebugAutoActionSignatureStartTime < QuestDebugAutoActionStableDelay)
+                return;
+            if (now - questDebugAutoActionLastAttemptTime < QuestDebugAutoActionRetryDelay)
+                return;
+
+            questDebugAutoActionLastAttemptTime = now;
+            if (!TryFindQuestDebugAutoIdleAction(core, out var action))
+            {
+                Debug.LogFormat(
+                    "Quest debug auto action skipped: no safe idle action. message={0}, phase={1}, cards={2}",
+                    core.currentMessage,
+                    core.phase,
+                    core.cards == null ? 0 : core.cards.Count);
+                questDebugAutoActionExecutedSignatures.Add(signature);
+                return;
+            }
+
+            questDebugAutoActionExecutedSignatures.Add(signature);
+            questDebugAutoActionsExecuted += 1;
+            Debug.LogFormat(
+                "Quest debug auto action executed: count={0}, label={1}, type={2}, response={3}, card={4}, id={5}, location={6}, sequence={7}, message={8}, phase={9}",
+                questDebugAutoActionsExecuted,
+                GetQuestDuelActionLabel(action),
+                action.Type,
+                action.FirstResponse,
+                GetQuestDebugCardName(action.Card),
+                GetQuestDebugCardId(action.Card),
+                action.Card == null || action.Card.p == null ? 0 : action.Card.p.location,
+                action.Card == null || action.Card.p == null ? 0 : action.Card.p.sequence,
+                core.currentMessage,
+                core.phase);
+            ClearQuestDuelActionMenu();
+            ExecuteQuestDuelActionResponse(action);
+            ResetPointerState();
+        }
+
+        private static string BuildQuestDebugAutoActionSignature(OcgCore core)
+        {
+            if (core == null || core.cards == null)
+                return string.Empty;
+
+            var builder = new StringBuilder(256);
+            builder.Append(core.currentMessage)
+                .Append('|')
+                .Append(core.phase)
+                .Append('|')
+                .Append(core.myTurn ? '1' : '0');
+
+            var actionableCount = 0;
+            foreach (var card in core.cards)
+            {
+                if (card == null || card.p == null || card.buttons == null || card.buttons.Count == 0)
+                    continue;
+                if (card.p.controller != 0)
+                    continue;
+
+                actionableCount += card.buttons.Count;
+                builder.Append(';')
+                    .Append(GetQuestDebugCardId(card))
+                    .Append('@')
+                    .Append(card.p.location)
+                    .Append(':')
+                    .Append(card.p.sequence);
+
+                foreach (var button in card.buttons)
+                {
+                    builder.Append(',')
+                        .Append(button.type)
+                        .Append('=');
+                    if (button.response == null || button.response.Count == 0)
+                        builder.Append("none");
+                    else
+                        builder.Append(button.response[0]);
+                }
+            }
+
+            if (actionableCount == 0)
+                return string.Empty;
+
+            builder.Append(";count=").Append(actionableCount);
+            return builder.ToString();
+        }
+
+        private static bool TryFindQuestDebugAutoIdleAction(OcgCore core, out QuestDuelAction action)
+        {
+            action = null;
+            if (core == null || core.cards == null)
+                return false;
+
+            foreach (var actionType in QuestDebugAutoIdleActionPriority)
+            {
+                foreach (var card in core.cards)
+                {
+                    if (!TryGetQuestDebugAutoButton(card, actionType, out var button))
+                        continue;
+
+                    action = QuestDuelAction.FromCardButton(card, button);
+                    if (action != null)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetQuestDebugAutoButton(
+            GameCard card,
+            MDPro3.UI.ButtonType actionType,
+            out GameCard.DuelButtonInfo button)
+        {
+            button = default(GameCard.DuelButtonInfo);
+            if (card == null || card.p == null || card.buttons == null || card.buttons.Count == 0)
+                return false;
+            if (card.p.controller != 0)
+                return false;
+            if (!IsQuestDebugAutoActionLocationAllowed(card, actionType))
+                return false;
+
+            foreach (var candidate in card.buttons)
+            {
+                if (candidate.type != actionType)
+                    continue;
+                if (candidate.response == null || candidate.response.Count == 0)
+                    continue;
+
+                button = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsQuestDebugAutoActionLocationAllowed(GameCard card, MDPro3.UI.ButtonType actionType)
+        {
+            if (card == null || card.p == null)
+                return false;
+
+            var location = card.p.location;
+            var inHand = (location & (uint)CardLocation.Hand) != 0;
+            var inMonsterZone = (location & (uint)CardLocation.MonsterZone) != 0;
+            var inSpellZone = (location & (uint)CardLocation.SpellZone) != 0;
+            switch (actionType)
+            {
+                case MDPro3.UI.ButtonType.Summon:
+                case MDPro3.UI.ButtonType.SetMonster:
+                case MDPro3.UI.ButtonType.SetSpell:
+                    return inHand;
+                case MDPro3.UI.ButtonType.SpSummon:
+                    return inHand || inMonsterZone || inSpellZone;
+                default:
+                    return false;
+            }
+        }
+
+        private static int GetQuestDebugCardId(GameCard card)
+        {
+            return card == null || card.GetData() == null ? 0 : card.GetData().Id;
+        }
+
+        private static string GetQuestDebugCardName(GameCard card)
+        {
+            var data = card == null ? null : card.GetData();
+            if (data == null || string.IsNullOrWhiteSpace(data.Name))
+                return "<unknown>";
+            return data.Name;
         }
 
         private static void ResolveQuestDebugViewFrame(

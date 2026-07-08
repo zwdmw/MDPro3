@@ -23,6 +23,7 @@ namespace MDPro3
         public static bool EventLog { get; private set; }
         public static bool AutoCapture { get; private set; }
         public static bool AutoEnterSolo { get; private set; }
+        public static bool AutoDuelActions { get; private set; }
         public static bool AutoFrameDuelView { get; private set; }
         public static string DebugViewPreset { get; private set; }
         public static Vector3 DebugViewOffset { get; private set; }
@@ -44,7 +45,7 @@ namespace MDPro3
 
             ReadFlags();
             initialized = true;
-            if (AutoEnterSolo || AutoCapture || VerboseDiagnostics || EventLog || AutoFrameDuelView)
+            if (AutoEnterSolo || AutoDuelActions || AutoCapture || VerboseDiagnostics || EventLog || AutoFrameDuelView)
                 Enabled = true;
 
             LogSummaryIfNeeded();
@@ -71,9 +72,10 @@ namespace MDPro3
 
             summaryLogged = true;
             Debug.LogFormat(
-                "Quest debug settings: enabled={0}, autoSolo={1}, autoCapture={2}, verbose={3}, eventLog={4}, autoFrameView={5}, view={6}, offset={7}, lookAt={8}, yaw={9}, scale={10}",
+                "Quest debug settings: enabled={0}, autoSolo={1}, autoActions={2}, autoCapture={3}, verbose={4}, eventLog={5}, autoFrameView={6}, view={7}, offset={8}, lookAt={9}, yaw={10}, scale={11}",
                 Enabled,
                 AutoEnterSolo,
+                AutoDuelActions,
                 AutoCapture,
                 VerboseDiagnostics,
                 EventLog,
@@ -118,7 +120,13 @@ namespace MDPro3
                         case "--quest-auto-duel":
                             Enabled = true;
                             AutoEnterSolo = true;
+                            AutoDuelActions = true;
                             AutoCapture = true;
+                            EventLog = true;
+                            break;
+                        case "--quest-auto-actions":
+                            Enabled = true;
+                            AutoDuelActions = true;
                             EventLog = true;
                             break;
                         case "--quest-frame-duel-view":
@@ -280,6 +288,14 @@ namespace MDPro3
                     case "solo":
                         Enabled = true;
                         AutoEnterSolo = true;
+                        EventLog = true;
+                        break;
+                    case "autoactions":
+                    case "auto_actions":
+                    case "autoplay":
+                    case "auto_play":
+                        Enabled = true;
+                        AutoDuelActions = true;
                         EventLog = true;
                         break;
                     case "capture":
