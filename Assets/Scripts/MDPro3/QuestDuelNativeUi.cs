@@ -34,7 +34,7 @@ namespace MDPro3
         private const float ChainPanelScale = 0.025f;
         private const float CardInfoScale = 0.028f;
         private const float HoverCardInfoScale = 0.0175f;
-        private const float SideCardDetailScale = 0.037f;
+        private const float SideCardDetailScale = 0.041f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -190,6 +190,9 @@ namespace MDPro3
         private float lastImportantEventTime;
         private string lastDuelLogSignature;
         private bool duelLogPanelLogged;
+        private string lastDuelStateWatchSignature;
+        private float lastDuelStateWatchChangedAt;
+        private float lastDuelStateWatchLogTime;
 
         public bool HasBlockingPanel
         {
@@ -749,12 +752,12 @@ namespace MDPro3
             CreateHudCaption("DetailActionCaption", cardDetailRect, new Vector2(836f, -614f), new Vector2(260f, 34f), "\u64cd\u4f5c\u8bf4\u660e");
 
             cardDetailImage = CreateRawImage("CardFace", cardDetailRect, new Vector2(72f, -84f), new Vector2(276f, 386f));
-            cardDetailNameText = CreateText("Name", cardDetailRect, new Vector2(414f, -316f), new Vector2(748f, 154f), 52f, TextAlignmentOptions.TopLeft);
-            cardDetailMetaText = CreateText("Meta", cardDetailRect, new Vector2(446f, -100f), new Vector2(328f, 164f), 37f, TextAlignmentOptions.TopLeft);
-            cardDetailStateText = CreateText("State", cardDetailRect, new Vector2(806f, -100f), new Vector2(320f, 164f), 35f, TextAlignmentOptions.TopLeft);
-            cardDetailDescriptionText = CreateText("Description", cardDetailRect, new Vector2(64f, -656f), new Vector2(666f, 398f), 34f, TextAlignmentOptions.TopLeft);
-            cardDetailActionTitleText = CreateText("ActionTitle", cardDetailRect, new Vector2(840f, -658f), new Vector2(276f, 70f), 38f, TextAlignmentOptions.TopLeft);
-            cardDetailActionText = CreateText("ActionText", cardDetailRect, new Vector2(840f, -742f), new Vector2(276f, 300f), 32f, TextAlignmentOptions.TopLeft);
+            cardDetailNameText = CreateText("Name", cardDetailRect, new Vector2(414f, -312f), new Vector2(748f, 158f), 56f, TextAlignmentOptions.TopLeft);
+            cardDetailMetaText = CreateText("Meta", cardDetailRect, new Vector2(446f, -96f), new Vector2(328f, 168f), 40f, TextAlignmentOptions.TopLeft);
+            cardDetailStateText = CreateText("State", cardDetailRect, new Vector2(806f, -96f), new Vector2(320f, 168f), 38f, TextAlignmentOptions.TopLeft);
+            cardDetailDescriptionText = CreateText("Description", cardDetailRect, new Vector2(64f, -648f), new Vector2(666f, 410f), 39f, TextAlignmentOptions.TopLeft);
+            cardDetailActionTitleText = CreateText("ActionTitle", cardDetailRect, new Vector2(840f, -650f), new Vector2(276f, 76f), 41f, TextAlignmentOptions.TopLeft);
+            cardDetailActionText = CreateText("ActionText", cardDetailRect, new Vector2(840f, -738f), new Vector2(276f, 308f), 35f, TextAlignmentOptions.TopLeft);
 
             cardDetailNameText.overflowMode = TextOverflowModes.Ellipsis;
             cardDetailMetaText.enableWordWrapping = true;
@@ -766,8 +769,8 @@ namespace MDPro3
             cardDetailStateText.overflowMode = TextOverflowModes.Truncate;
             cardDetailDescriptionText.overflowMode = TextOverflowModes.Truncate;
             cardDetailActionText.overflowMode = TextOverflowModes.Truncate;
-            cardDetailDescriptionText.fontSizeMin = 26f;
-            cardDetailActionText.fontSizeMin = 24f;
+            cardDetailDescriptionText.fontSizeMin = 30f;
+            cardDetailActionText.fontSizeMin = 27f;
             canvasObject.SetActive(false);
         }
 
@@ -1252,9 +1255,9 @@ namespace MDPro3
             CreateHudCaption("PromptCaption", duelLogRect, new Vector2(754f, -340f), new Vector2(300f, 34f), "\u5f53\u524d\u64cd\u4f5c");
             CreateHudCaption("RecentCaption", duelLogRect, new Vector2(66f, -660f), new Vector2(300f, 34f), "\u6700\u8fd1\u4e8b\u4ef6");
             duelLogEventText = CreateText("EventBody", duelLogRect, new Vector2(72f, -174f), new Vector2(1296f, 96f), 66f, TextAlignmentOptions.Left);
-            duelLogStatusText = CreateText("StatusBody", duelLogRect, new Vector2(68f, -380f), new Vector2(584f, 206f), 38f, TextAlignmentOptions.TopLeft);
-            duelLogPromptText = CreateText("PromptBody", duelLogRect, new Vector2(756f, -380f), new Vector2(622f, 206f), 41f, TextAlignmentOptions.TopLeft);
-            duelLogBodyText = CreateText("RecentBody", duelLogRect, new Vector2(68f, -702f), new Vector2(1300f, 176f), 38f, TextAlignmentOptions.TopLeft);
+            duelLogStatusText = CreateText("StatusBody", duelLogRect, new Vector2(68f, -376f), new Vector2(584f, 214f), 42f, TextAlignmentOptions.TopLeft);
+            duelLogPromptText = CreateText("PromptBody", duelLogRect, new Vector2(756f, -376f), new Vector2(622f, 214f), 45f, TextAlignmentOptions.TopLeft);
+            duelLogBodyText = CreateText("RecentBody", duelLogRect, new Vector2(68f, -700f), new Vector2(1300f, 182f), 41f, TextAlignmentOptions.TopLeft);
             duelLogEventText.enableWordWrapping = true;
             duelLogStatusText.enableWordWrapping = true;
             duelLogPromptText.enableWordWrapping = true;
@@ -1264,9 +1267,9 @@ namespace MDPro3
             duelLogPromptText.overflowMode = TextOverflowModes.Truncate;
             duelLogBodyText.overflowMode = TextOverflowModes.Truncate;
             duelLogEventText.fontSizeMin = 50f;
-            duelLogStatusText.fontSizeMin = 31f;
-            duelLogPromptText.fontSizeMin = 37f;
-            duelLogBodyText.fontSizeMin = 31f;
+            duelLogStatusText.fontSizeMin = 34f;
+            duelLogPromptText.fontSizeMin = 39f;
+            duelLogBodyText.fontSizeMin = 33f;
             duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
             canvasObject.SetActive(false);
             Debug.Log("Quest duel log panel created.");
@@ -1288,6 +1291,7 @@ namespace MDPro3
             var eventText = BuildCurrentEventText(messageText, logText);
             var eventColor = ResolveCurrentEventColor();
             var detailText = BuildPresentationLogText(logText);
+            UpdateDuelStateWatchdog(core, messageText, logText);
 
             var signature = statusText + "|" + promptText + "|" + eventText + "|" + ColorUtility.ToHtmlStringRGBA(eventColor) + "|" + detailText;
             if (signature != lastDuelLogSignature)
@@ -1346,6 +1350,78 @@ namespace MDPro3
             lastImportantEventTime = 0f;
             lastImportantEventColor = HudAccentCyan;
             lastDuelLogSignature = null;
+            lastDuelStateWatchSignature = null;
+            lastDuelStateWatchChangedAt = 0f;
+            lastDuelStateWatchLogTime = 0f;
+        }
+
+        private void UpdateDuelStateWatchdog(OcgCore core, string messageText, string logText)
+        {
+            if (core == null || (!QuestRuntimeDebugSettings.EventLog && !QuestRuntimeDebugSettings.VerboseDiagnostics))
+                return;
+
+            GetDuelStateCounts(core, out var actionable, out var selectable, out var chainCount);
+            var signature = core.currentMessage
+                + "|" + core.phase
+                + "|" + core.myTurn
+                + "|" + actionable
+                + "|" + selectable
+                + "|" + chainCount
+                + "|" + PhaseButtonHandler.battlePhase
+                + "|" + PhaseButtonHandler.main2Phase
+                + "|" + PhaseButtonHandler.endPhase
+                + "|" + core.life0
+                + "|" + core.life1;
+            var now = Time.unscaledTime;
+
+            if (signature != lastDuelStateWatchSignature)
+            {
+                lastDuelStateWatchSignature = signature;
+                lastDuelStateWatchChangedAt = now;
+                lastDuelStateWatchLogTime = now;
+                if (QuestRuntimeDebugSettings.VerboseDiagnostics)
+                {
+                    Debug.LogFormat(
+                        "Quest duel state changed: message={0}, phase={1}, myTurn={2}, actionable={3}, selectable={4}, chain={5}, phaseButtons=[battle:{6},main2:{7},end:{8}], lp={9}/{10}, text={11}, log={12}",
+                        core.currentMessage,
+                        core.phase,
+                        core.myTurn,
+                        actionable,
+                        selectable,
+                        chainCount,
+                        PhaseButtonHandler.battlePhase,
+                        PhaseButtonHandler.main2Phase,
+                        PhaseButtonHandler.endPhase,
+                        core.life0,
+                        core.life1,
+                        TrimForHud(messageText, 48),
+                        TrimForHud(logText, 72));
+                }
+
+                return;
+            }
+
+            var unchangedSeconds = now - lastDuelStateWatchChangedAt;
+            if (unchangedSeconds < 10f || now - lastDuelStateWatchLogTime < 10f)
+                return;
+
+            lastDuelStateWatchLogTime = now;
+            Debug.LogFormat(
+                "Quest duel state unchanged: seconds={0:F1}, message={1}, phase={2}, myTurn={3}, actionable={4}, selectable={5}, chain={6}, phaseButtons=[battle:{7},main2:{8},end:{9}], lp={10}/{11}, text={12}, log={13}",
+                unchangedSeconds,
+                core.currentMessage,
+                core.phase,
+                core.myTurn,
+                actionable,
+                selectable,
+                chainCount,
+                PhaseButtonHandler.battlePhase,
+                PhaseButtonHandler.main2Phase,
+                PhaseButtonHandler.endPhase,
+                core.life0,
+                core.life1,
+                TrimForHud(messageText, 48),
+                TrimForHud(logText, 72));
         }
 
         private void TriggerLifeHudFlash(DuelPresentationEvent evt)
@@ -1461,12 +1537,16 @@ namespace MDPro3
             if (core == null)
                 return string.Empty;
 
-            GetDuelStateCounts(core, out var actionable, out var selectable, out _);
+            GetDuelStateCounts(core, out var actionable, out var selectable, out var chainCount);
             var text = "<size=50><b>" + TrimForHud(messageText, 24) + "</b></size>";
             if (selectable > 0)
-                text += "\n<color=#69FFE0>\u53ef\u9009\u76ee\u6807 " + selectable + "</color>\n\u7528\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
+                text += "\n<color=#69FFE0>\u76ee\u6807\u5df2\u9ad8\u4eae</color>\n\u76f4\u63a5\u7528\u5c04\u7ebf\u70b9\u573a\u4e0a\u76ee\u6807";
+            else if (core.currentMessage == GameMessage.SelectChain || core.currentMessage == GameMessage.SortChain)
+                text += chainCount > 0
+                    ? "\n<color=#FFD36B>\u8fde\u9501\u7b49\u5f85\u54cd\u5e94</color>\n\u786e\u8ba4\u662f\u5426\u63a5\u4e0a\u5f53\u524d\u8fde\u9501"
+                    : "\n<color=#FFD36B>\u6548\u679c\u54cd\u5e94\u7b49\u5f85\u786e\u8ba4</color>";
             else if (actionable > 0)
-                text += "\n<color=#FFD36B>\u70b9\u9ad8\u4eae\u5361\u67e5\u770b\u64cd\u4f5c</color>";
+                text += "\n<color=#FFD36B>\u53ef\u64cd\u4f5c\u5361\u5df2\u9ad8\u4eae</color>\n\u70b9\u5361\u7247\uff0c\u6309\u94ae\u4f1a\u5728\u5361\u65c1\u6d6e\u51fa";
             else
                 text += "\n\u7b49\u5f85\u51b3\u6597\u5f15\u64ce\u5904\u7406";
 
@@ -1493,7 +1573,7 @@ namespace MDPro3
             if (selectable > 0)
             {
                 title = "\u9009\u62e9\u76ee\u6807";
-                body = selectable + " \u4e2a\u76ee\u6807\u53ef\u9009  \u00b7  \u7528\u624b\u67c4\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
+                body = "\u53ef\u9009\u5361\u7247\u5df2\u5728\u573a\u4e0a\u6807\u8bb0  \u00b7  \u5c04\u7ebf\u6307\u5411\u5e76\u70b9\u51fb\u76ee\u6807";
                 color = new Color(0.32f, 1f, 0.82f, 1f);
                 return;
             }
@@ -1513,6 +1593,14 @@ namespace MDPro3
                 title = chainCount > 0 ? "\u8fde\u9501\u5904\u7406\u4e2d  " + chainCount : "\u8fde\u9501\u5904\u7406\u4e2d";
                 body = messageText + "  \u00b7  \u8bf7\u89c2\u770b\u6548\u679c\u89e3\u6790";
                 color = new Color(0.45f, 0.92f, 1f, 1f);
+                return;
+            }
+
+            if (actionable > 0)
+            {
+                title = "\u9009\u62e9\u64cd\u4f5c";
+                body = "\u53ef\u64cd\u4f5c\u5361\u7247\u5df2\u9ad8\u4eae  \u00b7  \u70b9\u51fb\u5361\u7247\u540e\u5728\u5361\u65c1\u9009\u62e9\u53ec\u5524 / \u53d1\u52a8 / \u653e\u7f6e";
+                color = new Color(1f, 0.82f, 0.28f, 1f);
                 return;
             }
 

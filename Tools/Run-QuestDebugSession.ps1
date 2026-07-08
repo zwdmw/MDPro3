@@ -103,6 +103,133 @@ function Get-QuestAppPid {
     }
 }
 
+function Count-LogPattern {
+    param(
+        [string]$Path,
+        [string]$Pattern
+    )
+
+    if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return 0
+    }
+
+    return (Select-String -Path $Path -Pattern $Pattern -CaseSensitive:$false | Measure-Object).Count
+}
+
+function Get-ImportantLogLines {
+    param(
+        [string]$Path,
+        [string[]]$Patterns,
+        [int]$MaxLines = 24
+    )
+
+    if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return @()
+    }
+
+    return @(
+        Select-String -Path $Path -Pattern $Patterns -CaseSensitive:$false |
+            Select-Object -First $MaxLines |
+            ForEach-Object { $_.Line.Trim() }
+    )
+}
+
+function Write-QuestDebugSessionReport {
+    $reportPath = Join-Path $sessionRoot "debug-report.md"
+    $importantPath = Join-Path $sessionRoot "important-log-lines.txt"
+    $importantAppPath = Join-Path $sessionRoot "important-app-log-lines.txt"
+    $logForHighlights = $importantPath
+    $importantAppAvailable = (Test-Path -LiteralPath $importantAppPath -PathType Leaf) -and ((Get-Item -LiteralPath $importantAppPath).Length -gt 0)
+
+    $hostShots = @(Get-ChildItem -LiteralPath $hostScreensRoot -Filter "*.png" -ErrorAction SilentlyContinue)
+    $appShots = @(Get-ChildItem -LiteralPath $pulledDebugRoot -Recurse -Filter "*.png" -ErrorAction SilentlyContinue)
+    $pidText = ""
+    if (![string]::IsNullOrWhiteSpace($appPid)) {
+        $pidText = $appPid
+    }
+    else {
+        $pidText = "<not detected>"
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    [void]$lines.Add("# Quest Debug Session Report")
+    [void]$lines.Add("")
+    [void]$lines.Add("- Session: ``$sessionRoot``")
+    [void]$lines.Add("- Package: ``$PackageName``")
+    [void]$lines.Add("- PID: ``$pidText``")
+    [void]$lines.Add("- Flags: ``$flagContent``")
+    [void]$lines.Add("- Host screenshots: $($hostShots.Count)")
+    [void]$lines.Add("- App screenshots: $($appShots.Count)")
+    [void]$lines.Add("- App-filtered important log: $importantAppAvailable")
+    [void]$lines.Add("")
+    [void]$lines.Add("## Health Counts")
+    [void]$lines.Add("")
+    [void]$lines.Add("- Exceptions: $(Count-LogPattern -Path $logForHighlights -Pattern 'Exception')")
+    [void]$lines.Add("- Errors: $(Count-LogPattern -Path $logForHighlights -Pattern 'Error')")
+    [void]$lines.Add("- Warnings: $(Count-LogPattern -Path $logForHighlights -Pattern 'Warning')")
+    [void]$lines.Add("- NullReferenceException: $(Count-LogPattern -Path $logForHighlights -Pattern 'NullReferenceException')")
+    [void]$lines.Add("- InvalidKeyException: $(Count-LogPattern -Path $logForHighlights -Pattern 'InvalidKeyException')")
+    [void]$lines.Add("- Unchanged duel-state watchdog lines: $(Count-LogPattern -Path $logForHighlights -Pattern 'Quest duel state unchanged')")
+    [void]$lines.Add("")
+    [void]$lines.Add("## Critical Lines")
+    [void]$lines.Add("")
+
+    $criticalLines = Get-ImportantLogLines -Path $logForHighlights -Patterns @(
+        "NullReferenceException",
+        "InvalidKeyException",
+        "Exception",
+        "Error"
+    ) -MaxLines 24
+
+    if ($criticalLines.Count -eq 0) {
+        [void]$lines.Add("- No critical error lines matched.")
+    }
+    else {
+        foreach ($line in $criticalLines) {
+            [void]$lines.Add("- ``$line``")
+        }
+    }
+
+    [void]$lines.Add("")
+    [void]$lines.Add("## Flow Lines")
+    [void]$lines.Add("")
+
+    $flowLines = Get-ImportantLogLines -Path $logForHighlights -Patterns @(
+        "Quest debug settings",
+        "Quest debug auto solo",
+        "Quest debug auto fixed opening hand",
+        "Quest debug auto frame applied",
+        "Quest duel log panel visible",
+        "Quest duel state unchanged",
+        "Quest duel action menu shown",
+        "Quest duel action clicked",
+        "Quest XR no card action",
+        "DuelStart",
+        "deck restored"
+    ) -MaxLines 40
+
+    if ($flowLines.Count -eq 0) {
+        [void]$lines.Add("- No flow lines matched. Inspect ``logcat.txt`` manually.")
+    }
+    else {
+        foreach ($line in $flowLines) {
+            [void]$lines.Add("- ``$line``")
+        }
+    }
+
+    [void]$lines.Add("")
+    [void]$lines.Add("## Files")
+    [void]$lines.Add("")
+    [void]$lines.Add("- Full logcat: ``$logcatPath``")
+    [void]$lines.Add("- Important lines: ``$importantPath``")
+    if ($importantAppAvailable) {
+        [void]$lines.Add("- Important app lines: ``$importantAppPath``")
+    }
+
+    Set-Content -LiteralPath $reportPath -Value $lines -Encoding UTF8
+    Write-SessionLine "Debug report: $reportPath"
+}
+
 Write-SessionLine "Quest debug session started."
 Write-SessionLine "Output: $sessionRoot"
 
@@ -283,6 +410,8 @@ if (Test-Path -LiteralPath $logcatPath -PathType Leaf) {
         Write-SessionLine "Important app log lines: $importantAppPath"
     }
 }
+
+Write-QuestDebugSessionReport
 
 Write-SessionLine "Quest debug session finished."
 Write-Host ""

@@ -83,6 +83,7 @@ Important files:
 - `logcat.txt`: full device log during the session
 - `important-log-lines.txt`: filtered Quest/MDPro3/errors/warnings
 - `important-app-log-lines.txt`: filtered lines for the launched app process when its PID is available
+- `debug-report.md`: machine-generated session summary with health counts, key Quest/UI/duel-state lines, and screenshot counts
 - `HostScreenshots\*.png`: screenshots captured through adb
 - `AppQuestDebug\QuestDebug\*.png`: screenshots requested inside Unity by `QuestRuntimeDebugSettings.AutoCapture`
 - `summary.txt`: session steps and output paths
