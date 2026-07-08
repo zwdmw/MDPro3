@@ -461,6 +461,8 @@ namespace MDPro3
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
+        private const float CardInfoPortraitTopPadding = 1.15f;
+        private const float CardInfoBackrowPortraitTopPadding = 1.45f;
         private const float PowerLabelY = CardThickness + 2.18f;
         private const float PowerLabelCameraSideOffset = CardHeight * 0.5f + 0.92f;
         private const float PowerLabelPortraitAvoidanceFactor = 0.12f;
@@ -677,7 +679,72 @@ namespace MDPro3
             var size = new Vector3(CardWidth * scaleX, thickness, CardHeight * scaleZ);
             var center = proxy.Transform.position + Vector3.up * (thickness * 0.35f);
             bounds = new Bounds(center, size);
+            ApplyCardInfoVerticalClearance(card, proxy, ref bounds);
             return true;
+        }
+
+        private void ApplyCardInfoVerticalClearance(GameCard card, QuestCardProxy proxy, ref Bounds bounds)
+        {
+            if (card == null || card.p == null)
+                return;
+
+            var location = card.p.location;
+            if ((location & (uint)CardLocation.Onfield) == 0)
+                return;
+
+            var top = bounds.max.y;
+            if (TryGetPortraitTop(proxy, out var ownPortraitTop))
+                top = Mathf.Max(top, ownPortraitTop + CardInfoPortraitTopPadding);
+            else if (TryGetRelevantFrontrowPortraitTop(card, bounds.center, out var fieldPortraitTop)
+                && (location & (uint)CardLocation.SpellZone) > 0)
+                top = Mathf.Max(top, fieldPortraitTop + CardInfoBackrowPortraitTopPadding);
+
+            if (top <= bounds.max.y)
+                return;
+
+            var min = bounds.min;
+            var max = bounds.max;
+            max.y = top;
+            bounds.SetMinMax(min, max);
+        }
+
+        private static bool TryGetPortraitTop(QuestCardProxy proxy, out float top)
+        {
+            top = 0f;
+            if (proxy == null || proxy.Portrait == null || proxy.PortraitRenderer == null)
+                return false;
+            if (!proxy.Portrait.activeInHierarchy || !proxy.PortraitRenderer.enabled)
+                return false;
+
+            top = proxy.PortraitRenderer.bounds.max.y;
+            return true;
+        }
+
+        private bool TryGetRelevantFrontrowPortraitTop(GameCard card, Vector3 anchor, out float top)
+        {
+            top = 0f;
+            if (card == null || card.p == null)
+                return false;
+
+            var found = false;
+            foreach (var proxy in cardProxies.Values)
+            {
+                if (proxy == null || proxy.Card == null || proxy.Card.p == null)
+                    continue;
+                if (proxy.Card.p.controller != card.p.controller)
+                    continue;
+                if ((proxy.Card.p.location & (uint)CardLocation.MonsterZone) == 0)
+                    continue;
+                if (Mathf.Abs(proxy.Transform.position.x - anchor.x) > CardWidth * 1.65f)
+                    continue;
+                if (!TryGetPortraitTop(proxy, out var candidate))
+                    continue;
+
+                top = found ? Mathf.Max(top, candidate) : candidate;
+                found = true;
+            }
+
+            return found;
         }
 
         public bool TryGetCardActionAnchor(GameCard card, out Vector3 anchor, out float radius)

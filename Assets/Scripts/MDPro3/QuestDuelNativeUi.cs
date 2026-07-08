@@ -2141,7 +2141,7 @@ namespace MDPro3
             var panelHeightWorld = cardInfoRect.sizeDelta.y * HoverCardInfoScale * parentScale;
             var radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
             var viewerOffset = Mathf.Clamp(radius * 0.12f, parentScale * 0.16f, parentScale * 0.78f);
-            var verticalLift = panelHeightWorld * 0.42f + Mathf.Clamp(parentScale * 0.34f, 0.22f, 1.1f);
+            var verticalLift = panelHeightWorld * 0.54f + Mathf.Clamp(parentScale * 0.34f, 0.22f, 1.1f);
             cardInfoWorldPosition = new Vector3(center.x, bounds.max.y + verticalLift, center.z)
                 + toViewer * viewerOffset;
             cardInfoWorldRotation = ResolveFacingViewerRotation(cardInfoWorldPosition);
