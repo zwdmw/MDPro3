@@ -71,6 +71,12 @@ namespace MDPro3
         private const float QuestDuelActionMenuWidth = 680f;
         private const float QuestDuelActionMenuSingleColumnWidth = 360f;
         private const float QuestDuelActionMenuTwoColumnWidth = 560f;
+        private const float QuestDuelActionRadialMenuWidth = 780f;
+        private const float QuestDuelActionRadialMenuHeight = 350f;
+        private const float QuestDuelActionRadialButtonWidth = 238f;
+        private const float QuestDuelActionRadialButtonHeight = 82f;
+        private const float QuestDuelActionRadialRadiusX = 265f;
+        private const float QuestDuelActionRadialRadiusY = 108f;
         private const float QuestDuelActionMenuPadding = 14f;
         private const float QuestDuelActionItemHeight = 108f;
         private const float QuestDuelActionItemGap = 12f;
@@ -331,6 +337,7 @@ namespace MDPro3
         private readonly List<GameObject> questDuelActionRows = new List<GameObject>();
         private readonly Dictionary<GameObject, QuestDuelAction> questDuelActionByRow = new Dictionary<GameObject, QuestDuelAction>();
         private float lastQuestDuelActionMenuLog;
+        private bool questDuelActionMenuRadial;
         private float lastDirectUiPointerExceptionLog;
         private float lastQuestWorldControlLog;
         private Vector3 questPlayerWorldOffset;
@@ -6629,6 +6636,7 @@ namespace MDPro3
             }
             questDuelActionRows.Clear();
             questDuelActionByRow.Clear();
+            questDuelActionMenuRadial = false;
 
             if (questDuelActionMenuCanvas != null && questDuelActionMenuCanvas.gameObject.activeSelf)
                 questDuelActionMenuCanvas.gameObject.SetActive(false);
@@ -6704,20 +6712,50 @@ namespace MDPro3
             questDuelActions.Sort(CompareQuestDuelActions);
 
             var count = questDuelActions.Count;
-            var columns = ResolveQuestDuelActionColumns(count);
-            var rows = Mathf.CeilToInt(count / (float)columns);
-            var menuWidth = ResolveQuestDuelActionMenuWidth(columns);
-            var height = QuestDuelActionMenuPadding * 2f
-                + QuestDuelActionItemHeight * rows
-                + QuestDuelActionItemGap * Mathf.Max(0, rows - 1);
-            questDuelActionMenuRect.sizeDelta = new Vector2(menuWidth, height);
+            questDuelActionMenuRadial = ShouldUseQuestDuelActionRadialLayout(questDuelActions);
+            var columns = questDuelActionMenuRadial ? 1 : ResolveQuestDuelActionColumns(count);
+            if (questDuelActionMenuRadial)
+            {
+                questDuelActionMenuRect.sizeDelta = new Vector2(QuestDuelActionRadialMenuWidth, QuestDuelActionRadialMenuHeight);
+            }
+            else
+            {
+                var rows = Mathf.CeilToInt(count / (float)columns);
+                var menuWidth = ResolveQuestDuelActionMenuWidth(columns);
+                var height = QuestDuelActionMenuPadding * 2f
+                    + QuestDuelActionItemHeight * rows
+                    + QuestDuelActionItemGap * Mathf.Max(0, rows - 1);
+                questDuelActionMenuRect.sizeDelta = new Vector2(menuWidth, height);
+            }
 
             for (var index = 0; index < count; index += 1)
             {
                 var action = questDuelActions[index];
-                var row = CreateQuestDuelActionRow(action, index, columns);
+                var row = CreateQuestDuelActionRow(action, index, columns, questDuelActionMenuRadial);
                 questDuelActionRows.Add(row);
             }
+        }
+
+        private static bool ShouldUseQuestDuelActionRadialLayout(List<QuestDuelAction> actions)
+        {
+            if (actions == null || actions.Count == 0 || actions.Count > 3)
+                return false;
+
+            GameCard card = null;
+            foreach (var action in actions)
+            {
+                if (action == null || action.Card == null)
+                    return false;
+                if (card == null)
+                {
+                    card = action.Card;
+                    continue;
+                }
+                if (card != action.Card)
+                    return false;
+            }
+
+            return true;
         }
 
         private static int ResolveQuestDuelActionColumns(int count)
@@ -6738,31 +6776,25 @@ namespace MDPro3
             return QuestDuelActionMenuWidth;
         }
 
-        private GameObject CreateQuestDuelActionRow(QuestDuelAction action, int index, int columns)
+        private GameObject CreateQuestDuelActionRow(QuestDuelAction action, int index, int columns, bool radialLayout)
         {
             var rowObject = new GameObject("QuestDuelAction_" + index, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
             SetQuestOverlayLayer(rowObject);
             rowObject.transform.SetParent(questDuelActionMenuRect, false);
 
             columns = Mathf.Max(1, columns);
-            var column = index % columns;
-            var row = index / columns;
-            var menuWidth = questDuelActionMenuRect == null
-                ? ResolveQuestDuelActionMenuWidth(columns)
-                : questDuelActionMenuRect.sizeDelta.x;
-            var width = (menuWidth - QuestDuelActionMenuPadding * 2f - QuestDuelActionItemGap * (columns - 1)) / columns;
-            var x = -menuWidth * 0.5f
-                + QuestDuelActionMenuPadding
-                + width * 0.5f
-                + column * (width + QuestDuelActionItemGap);
-            var y = -QuestDuelActionMenuPadding - row * (QuestDuelActionItemHeight + QuestDuelActionItemGap);
+            var width = QuestDuelActionRadialButtonWidth;
+            var height = QuestDuelActionRadialButtonHeight;
+            var position = radialLayout
+                ? ResolveQuestDuelActionRadialPosition(index, questDuelActions.Count)
+                : ResolveQuestDuelActionGridPosition(index, columns, out width, out height);
 
             var rowRect = rowObject.GetComponent<RectTransform>();
-            rowRect.anchorMin = new Vector2(0.5f, 1f);
-            rowRect.anchorMax = new Vector2(0.5f, 1f);
-            rowRect.pivot = new Vector2(0.5f, 1f);
-            rowRect.sizeDelta = new Vector2(width, QuestDuelActionItemHeight);
-            rowRect.anchoredPosition = new Vector2(x, y);
+            rowRect.anchorMin = radialLayout ? new Vector2(0.5f, 0.5f) : new Vector2(0.5f, 1f);
+            rowRect.anchorMax = rowRect.anchorMin;
+            rowRect.pivot = radialLayout ? new Vector2(0.5f, 0.5f) : new Vector2(0.5f, 1f);
+            rowRect.sizeDelta = new Vector2(width, height);
+            rowRect.anchoredPosition = position;
 
             var image = rowObject.GetComponent<Image>();
             image.color = GetQuestDuelActionColor(action);
@@ -6801,10 +6833,10 @@ namespace MDPro3
             label.text = GetQuestDuelActionLabel(action);
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
-            label.fontSize = columns == 1 ? 38f : 32f;
+            label.fontSize = radialLayout ? 32f : columns == 1 ? 38f : 32f;
             label.enableAutoSizing = true;
-            label.fontSizeMin = 22f;
-            label.fontSizeMax = columns == 1 ? 38f : 32f;
+            label.fontSizeMin = radialLayout ? 20f : 22f;
+            label.fontSizeMax = radialLayout ? 32f : columns == 1 ? 38f : 32f;
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.raycastTarget = false;
             var font = Program.instance?.ui_?.tmpFont;
@@ -6812,6 +6844,37 @@ namespace MDPro3
                 label.font = font;
 
             return rowObject;
+        }
+
+        private Vector2 ResolveQuestDuelActionGridPosition(int index, int columns, out float width, out float height)
+        {
+            var column = index % columns;
+            var row = index / columns;
+            var menuWidth = questDuelActionMenuRect == null
+                ? ResolveQuestDuelActionMenuWidth(columns)
+                : questDuelActionMenuRect.sizeDelta.x;
+            width = (menuWidth - QuestDuelActionMenuPadding * 2f - QuestDuelActionItemGap * (columns - 1)) / columns;
+            height = QuestDuelActionItemHeight;
+            var x = -menuWidth * 0.5f
+                + QuestDuelActionMenuPadding
+                + width * 0.5f
+                + column * (width + QuestDuelActionItemGap);
+            var y = -QuestDuelActionMenuPadding - row * (QuestDuelActionItemHeight + QuestDuelActionItemGap);
+            return new Vector2(x, y);
+        }
+
+        private static Vector2 ResolveQuestDuelActionRadialPosition(int index, int count)
+        {
+            if (count <= 1)
+                return new Vector2(0f, 26f);
+
+            var t = count <= 1 ? 0.5f : index / (float)(count - 1);
+            var angle = Mathf.Lerp(158f, 22f, t) * Mathf.Deg2Rad;
+            var x = Mathf.Cos(angle) * QuestDuelActionRadialRadiusX;
+            var y = Mathf.Sin(angle) * QuestDuelActionRadialRadiusY - 26f;
+            if (count == 2)
+                y += 22f;
+            return new Vector2(x, y);
         }
 
         private static void AddQuestDuelActionButtonChrome(Transform parent, Vector2 size, Color accent)
@@ -7083,6 +7146,12 @@ namespace MDPro3
             if (questDuelActionMenuStemRect == null || questDuelActionMenuStemImage == null || questDuelActionMenuRect == null)
                 return;
 
+            if (questDuelActionMenuRadial)
+            {
+                questDuelActionMenuStemRect.gameObject.SetActive(false);
+                return;
+            }
+
             if (!TryResolveQuestDuelActionSourceAnchor(action, out var sourceAnchor))
             {
                 questDuelActionMenuStemRect.gameObject.SetActive(false);
@@ -7130,6 +7199,13 @@ namespace MDPro3
 
         private Vector3 ResolveQuestDuelActionMenuPositionNearAnchor(Vector3 anchor, float radius)
         {
+            if (questDuelActionMenuRadial)
+            {
+                var toViewerForRadial = ResolvePlanarDirectionToViewer(anchor);
+                var radialOffset = Mathf.Clamp(radius * 0.06f + QuestDuelActionCardForwardOffset, 0.34f, 0.86f);
+                return anchor + Vector3.up * (QuestDuelActionCardYOffset + 2.35f) + toViewerForRadial * radialOffset;
+            }
+
             var height = questDuelActionMenuRect == null
                 ? QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f
                 : Mathf.Max(questDuelActionMenuRect.sizeDelta.y, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);
@@ -7142,6 +7218,13 @@ namespace MDPro3
         private Vector3 ResolveQuestDuelActionMenuPositionNearBounds(Bounds bounds)
         {
             var center = bounds.center;
+            if (questDuelActionMenuRadial)
+            {
+                var radialY = bounds.max.y + QuestDuelActionCardYOffset + 2.35f;
+                return new Vector3(center.x, radialY, center.z)
+                    + ResolvePlanarDirectionToViewer(center) * 0.58f;
+            }
+
             var height = questDuelActionMenuRect == null
                 ? QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f
                 : Mathf.Max(questDuelActionMenuRect.sizeDelta.y, QuestDuelActionItemHeight + QuestDuelActionMenuPadding * 2f);

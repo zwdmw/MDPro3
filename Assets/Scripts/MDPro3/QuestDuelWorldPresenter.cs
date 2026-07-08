@@ -481,10 +481,10 @@ namespace MDPro3
         private const float ActionMarkerBaseDepth = 0.34f;
         private const float ActionMarkerZ = CardHeight * 0.5f + 0.14f;
         private const float ActionableCardLift = 0.64f;
-        private const float SelectionTargetCardLift = 1.22f;
+        private const float SelectionTargetCardLift = 1.62f;
         private const float HoveredCardLift = 0.36f;
         private const float ActionableCardBob = 0.12f;
-        private const float SelectionTargetCardBob = 0.22f;
+        private const float SelectionTargetCardBob = 0.34f;
         private const float QuestBoardScaleX = 1.38f;
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
@@ -928,8 +928,8 @@ namespace MDPro3
             line.positionCount = SelectionGuideCircleSegments;
             line.numCapVertices = 4;
             line.alignment = LineAlignment.View;
-            line.startWidth = 0.16f;
-            line.endWidth = 0.16f;
+            line.startWidth = 0.20f;
+            line.endWidth = 0.20f;
             var color = new Color(0.24f, 1f, 0.82f, 0.90f);
             var material = CreateMaterial("QuestSelectionTargetRingMaterial", color, true);
             line.material = material;
@@ -1012,7 +1012,7 @@ namespace MDPro3
             textObject.transform.localRotation = Quaternion.identity;
             textObject.transform.localScale = Vector3.one;
             var text = textObject.AddComponent<TextMeshPro>();
-            text.text = targetCount > 1 ? "\u9009\u62e9\u76ee\u6807 " + (targetIndex + 1) : "\u9009\u62e9\u76ee\u6807";
+            text.text = targetCount > 1 ? "\u70b9\u9009\u76ee\u6807 " + (targetIndex + 1) : "\u70b9\u9009\u76ee\u6807";
             text.alignment = TextAlignmentOptions.Center;
             text.fontSize = 4.2f;
             text.fontStyle = FontStyles.Bold;
@@ -2405,11 +2405,11 @@ namespace MDPro3
                 return;
 
             var pulse = (Mathf.Sin(Time.unscaledTime * 5.9f) + 1f) * 0.5f;
-            target.transform.localPosition = new Vector3(0f, CardThickness + 0.028f, ActionMarkerZ);
+            target.transform.localPosition = new Vector3(0f, CardThickness + 0.034f, ActionMarkerZ + 0.10f);
             target.transform.localScale = new Vector3(
-                CardWidth * 0.76f + pulse * 0.42f,
-                0.016f,
-                ActionMarkerBaseDepth * 1.18f + pulse * 0.07f);
+                CardWidth * 0.62f + pulse * 0.34f,
+                0.018f,
+                ActionMarkerBaseDepth * 1.42f + pulse * 0.09f);
         }
 
         private static void SetHandAccentObject(GameObject target, bool active, bool emphasized, float normalizedEdge)

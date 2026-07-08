@@ -30,7 +30,7 @@ namespace MDPro3
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
         private const float CardInfoScale = 0.028f;
-        private const float HoverCardInfoScale = 0.0135f;
+        private const float HoverCardInfoScale = 0.0155f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -590,11 +590,11 @@ namespace MDPro3
             CreateHudCaption("CardTextCaption", cardInfoRect, new Vector2(1066f, -432f), new Vector2(300f, 34f), "\u6548\u679c\u6587\u672c");
 
             cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(72f, -78f), new Vector2(420f, 588f));
-            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(64f, -706f), new Vector2(452f, 86f), 43f, TextAlignmentOptions.TopLeft);
-            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(590f, -100f), new Vector2(380f, 242f), 36f, TextAlignmentOptions.TopLeft);
-            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(1070f, -100f), new Vector2(394f, 242f), 36f, TextAlignmentOptions.TopLeft);
-            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(590f, -476f), new Vector2(380f, 158f), 35f, TextAlignmentOptions.TopLeft);
-            cardInfoDescriptionText = CreateText("Description", cardInfoRect, new Vector2(1070f, -476f), new Vector2(394f, 382f), 33f, TextAlignmentOptions.TopLeft);
+            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(64f, -706f), new Vector2(452f, 86f), 49f, TextAlignmentOptions.TopLeft);
+            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(590f, -100f), new Vector2(380f, 242f), 42f, TextAlignmentOptions.TopLeft);
+            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(1070f, -100f), new Vector2(394f, 242f), 42f, TextAlignmentOptions.TopLeft);
+            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(590f, -476f), new Vector2(380f, 158f), 40f, TextAlignmentOptions.TopLeft);
+            cardInfoDescriptionText = CreateText("Description", cardInfoRect, new Vector2(1070f, -476f), new Vector2(394f, 382f), 38f, TextAlignmentOptions.TopLeft);
             cardInfoNameText.overflowMode = TextOverflowModes.Ellipsis;
             cardInfoMetaText.enableWordWrapping = true;
             cardInfoStateText.enableWordWrapping = true;
@@ -604,10 +604,10 @@ namespace MDPro3
             cardInfoStateText.overflowMode = TextOverflowModes.Truncate;
             cardInfoActionText.overflowMode = TextOverflowModes.Truncate;
             cardInfoDescriptionText.overflowMode = TextOverflowModes.Truncate;
-            cardInfoMetaText.fontSizeMin = 28f;
-            cardInfoStateText.fontSizeMin = 28f;
-            cardInfoActionText.fontSizeMin = 26f;
-            cardInfoDescriptionText.fontSizeMin = 24f;
+            cardInfoMetaText.fontSizeMin = 33f;
+            cardInfoStateText.fontSizeMin = 33f;
+            cardInfoActionText.fontSizeMin = 31f;
+            cardInfoDescriptionText.fontSizeMin = 29f;
             canvasObject.SetActive(false);
         }
 
