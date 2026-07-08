@@ -3291,7 +3291,7 @@ namespace MDPro3
                                 effect.transform.localEulerAngles = new Vector3(0, 90, 0);
                             Destroy(effect, 10);
                         }
-                        DuelPresentationDirector.NotifyCardSummoned(card, true, GameCard.NeedStrongSummon(card.GetData()));
+                        DuelPresentationDirector.NotifyCardSummoned(card, true, GameCard.NeedStrongSummon(card.GetData()), log.lastSpSummonReason);
                         AudioManager.PlaySE(se);
                         if (se.EndsWith("HIGH"))
                             CameraManager.ShakeCamera(true);
@@ -3325,7 +3325,7 @@ namespace MDPro3
                         var delay = card.Move(card.p);
                         card.RefreshData();
                         card.AnimationPositon(delay);
-                        DuelPresentationDirector.NotifyCardSummoned(card, false, false);
+                        DuelPresentationDirector.NotifyCardFlipSummoned(card);
                         ES_hint = InterString.Get("¡¸[?]¡¹·´×ªÕÙ»½ÐûÑÔÊ±", card.GetData().Name);
                         if (GetAutoInfo())
                             description.Show(card, card.GetMaterial());

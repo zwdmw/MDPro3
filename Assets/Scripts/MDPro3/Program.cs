@@ -128,8 +128,13 @@ namespace MDPro3
             BanlistManager.Initialize();
             InitializeAllManagers();
             InitializeAllServants();
+            QuestRuntimeDebugSettings.Initialize();
             ReadParams();
             StartCoroutine(ResourceSmokeTestAsync());
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (QuestRuntimeDebugSettings.AutoEnterSolo)
+                StartCoroutine(QuestDebugAutoSoloAsync());
+#endif
 
             //VoiceHelper.ExportAllCardsNotFound();
         }
@@ -282,6 +287,51 @@ namespace MDPro3
                 cardTexture == null ? 0 : cardTexture.width,
                 cardTexture == null ? 0 : cardTexture.height,
                 TextureManager.lastCardRenderSucceed);
+        }
+        IEnumerator QuestDebugAutoSoloAsync()
+        {
+            Debug.Log("Quest debug auto solo requested.");
+            var readyDeadline = Time.realtimeSinceStartup + 45f;
+            while (Time.realtimeSinceStartup < readyDeadline)
+            {
+                if (exitOnReturn)
+                {
+                    Debug.LogWarning("Quest debug auto solo skipped: Program.exitOnReturn is active.");
+                    yield break;
+                }
+
+                if (solo != null && menu != null && TextureManager.container != null)
+                    break;
+
+                yield return null;
+            }
+
+            if (solo == null)
+            {
+                Debug.LogWarning("Quest debug auto solo skipped: Solo servant is missing.");
+                yield break;
+            }
+
+            solo.SwitchCondition(Solo.Condition.ForSolo);
+            if (currentServant != solo)
+                ShiftToServant(solo);
+
+            var soloDeadline = Time.realtimeSinceStartup + 30f;
+            while (Time.realtimeSinceStartup < soloDeadline && solo.lastSoloItem == null)
+                yield return null;
+
+            if (solo.lastSoloItem == null)
+            {
+                Debug.LogWarning("Quest debug auto solo skipped: AI list did not select a default item.");
+                yield break;
+            }
+
+            yield return new WaitForSecondsRealtime(0.75f);
+            if (currentServant != solo)
+                ShiftToServant(solo);
+
+            Debug.LogFormat("Quest debug auto solo launching AI index={0}.", solo.lastSoloItem.index);
+            solo.OnPlay();
         }
         public void InitializeForDataChange()
         {

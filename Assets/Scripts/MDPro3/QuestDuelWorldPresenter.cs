@@ -44,6 +44,20 @@ namespace MDPro3
         Overlay
     }
 
+    public enum DuelPresentationSummonKind
+    {
+        Normal,
+        Tribute,
+        Flip,
+        Special,
+        Fusion,
+        Synchro,
+        Xyz,
+        Link,
+        Ritual,
+        Pendulum
+    }
+
     public enum DuelPresentationWeight
     {
         Light,
@@ -64,6 +78,7 @@ namespace MDPro3
         public int Controller;
         public int Value;
         public int ChainIndex;
+        public DuelPresentationSummonKind SummonKind;
         public bool Direct;
         public bool Final;
         public DuelPhase Phase;
@@ -107,12 +122,37 @@ namespace MDPro3
             RaiseForCard(DuelPresentationKind.CardSet, card, DuelPresentationWeight.Medium);
         }
 
-        public static void NotifyCardSummoned(GameCard card, bool special, bool strong)
+        public static void NotifyCardSummoned(GameCard card, bool special, bool strong, uint summonReason = 0)
         {
-            RaiseForCard(
-                DuelPresentationKind.CardSummoned,
-                card,
-                strong ? DuelPresentationWeight.Heavy : special ? DuelPresentationWeight.Medium : DuelPresentationWeight.Light);
+            if (card == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardSummoned,
+                Weight = strong ? DuelPresentationWeight.Heavy : special ? DuelPresentationWeight.Medium : DuelPresentationWeight.Light,
+                Card = card,
+                Controller = card.p == null ? 0 : (int)card.p.controller,
+                To = CloneGps(card.p),
+                SummonKind = ResolveSummonKind(card, special, strong, summonReason),
+                Reason = summonReason
+            });
+        }
+
+        public static void NotifyCardFlipSummoned(GameCard card)
+        {
+            if (card == null)
+                return;
+
+            Raise(new DuelPresentationEvent
+            {
+                Kind = DuelPresentationKind.CardSummoned,
+                Weight = DuelPresentationWeight.Light,
+                Card = card,
+                Controller = card.p == null ? 0 : (int)card.p.controller,
+                To = CloneGps(card.p),
+                SummonKind = DuelPresentationSummonKind.Flip
+            });
         }
 
         public static void NotifyCardActivated(GameCard card, int chainIndex)
@@ -331,6 +371,26 @@ namespace MDPro3
             return DuelPresentationWeight.Medium;
         }
 
+        private static DuelPresentationSummonKind ResolveSummonKind(GameCard card, bool special, bool strong, uint summonReason)
+        {
+            var data = card == null ? null : card.GetData();
+            if ((summonReason & (uint)CardReason.Link) > 0 || (data != null && data.HasType(CardType.Link)))
+                return DuelPresentationSummonKind.Link;
+            if ((summonReason & (uint)CardReason.Fusion) > 0 || (data != null && data.HasType(CardType.Fusion)))
+                return DuelPresentationSummonKind.Fusion;
+            if ((summonReason & (uint)CardReason.Synchro) > 0 || (data != null && data.HasType(CardType.Synchro)))
+                return DuelPresentationSummonKind.Synchro;
+            if ((summonReason & (uint)CardReason.Xyz) > 0 || (data != null && data.HasType(CardType.Xyz)))
+                return DuelPresentationSummonKind.Xyz;
+            if ((summonReason & (uint)CardReason.Ritual) > 0 || (data != null && data.HasType(CardType.Ritual)))
+                return DuelPresentationSummonKind.Ritual;
+            if ((summonReason & (uint)CardReason.Pendulum) > 0)
+                return DuelPresentationSummonKind.Pendulum;
+            if (!special && strong)
+                return DuelPresentationSummonKind.Tribute;
+            return special ? DuelPresentationSummonKind.Special : DuelPresentationSummonKind.Normal;
+        }
+
         private static GPS CloneGps(GPS value)
         {
             if (value == null)
@@ -401,9 +461,11 @@ namespace MDPro3
         private const float PileCardY = 0.5f;
         private const float PortraitHeight = 26f;
         private const float PortraitMaxWidth = 18f;
-        private const float PowerLabelY = CardThickness + 1.62f;
-        private const float PowerLabelZ = -5.16f;
-        private const float PowerLabelScale = 0.56f;
+        private const float PowerLabelY = CardThickness + 2.18f;
+        private const float PowerLabelZ = -5.92f;
+        private const float PowerLabelScale = 0.60f;
+        private const int PortraitRenderQueueOffset = -28;
+        private const int TextOverlayRenderQueueOffset = 86;
         private const float InteractionLabelY = CardThickness + 1.95f;
         private const float InteractionLabelZ = 4.92f;
         private const float InteractionLabelScale = 0.62f;
@@ -419,8 +481,8 @@ namespace MDPro3
         private const float QuestBoardScaleZ = 1.34f;
         private const float ProxyDiagnosticsInterval = 3f;
         private const float LegacySuppressionRescanInterval = 0.5f;
-        private const bool QuestVerboseProxyDiagnostics = false;
-        private const bool QuestAutoDebugCapture = false;
+        private static bool QuestVerboseProxyDiagnostics => QuestRuntimeDebugSettings.VerboseDiagnostics;
+        private static bool QuestAutoDebugCapture => QuestRuntimeDebugSettings.AutoCapture;
         private const int MaxPresentationTransients = 56;
         private const int MaxAutomaticDebugCaptures = 6;
         private const float SelectionGuideSourceHoldSeconds = 8f;
@@ -450,6 +512,7 @@ namespace MDPro3
         private readonly Dictionary<GameCard, QuestCardProxy> cardProxies = new Dictionary<GameCard, QuestCardProxy>();
         private readonly Dictionary<string, QuestPileProxy> pileProxies = new Dictionary<string, QuestPileProxy>();
         private readonly List<PresentationTransient> presentationTransients = new List<PresentationTransient>();
+        private readonly List<Tween> pendingPresentationTweens = new List<Tween>();
         private readonly List<GameCard> visibleCards = new List<GameCard>();
         private readonly List<GameCard> staleCards = new List<GameCard>();
         private readonly List<GameObject> selectionGuideObjects = new List<GameObject>();
@@ -461,6 +524,8 @@ namespace MDPro3
         private float lastDiagnosticsTime;
         private float lastDebugCaptureTime;
         private int automaticDebugCaptureCount;
+        private float lastPresentationEventLogTime;
+        private int suppressedPresentationEventLogCount;
         private int hiddenLegacyRendererCount;
         private int disabledLegacyColliderCount;
         private bool legacySuppressionLogged;
@@ -485,12 +550,14 @@ namespace MDPro3
 
         private void OnEnable()
         {
+            QuestRuntimeDebugSettings.Initialize();
             DuelPresentationDirector.EventRaised += HandleDuelPresentationEvent;
         }
 
         private void OnDisable()
         {
             DuelPresentationDirector.EventRaised -= HandleDuelPresentationEvent;
+            KillPendingPresentationTweens();
             ClearPresentationTransients();
             ClearSelectionGuides();
         }
@@ -869,6 +936,8 @@ namespace MDPro3
             if (presentationRoot == null || proxyRoot == null || !proxyRoot.gameObject.activeInHierarchy)
                 return;
 
+            LogPresentationEvent(evt);
+
             switch (evt.Kind)
             {
                 case DuelPresentationKind.CardMoved:
@@ -878,9 +947,11 @@ namespace MDPro3
                     PlayCardPulse(evt.Card, new Color(0.30f, 0.42f, 0.95f, 0.70f), evt.Weight, 1.18f);
                     break;
                 case DuelPresentationKind.CardSummoned:
-                    PlayCardPulse(evt.Card, ResolveSummonColor(evt.Card), evt.Weight, 1.65f);
+                    var summonColor = ResolveSummonColor(evt);
+                    PlayCardPulse(evt.Card, summonColor, evt.Weight, ResolveSummonPulseSize(evt.SummonKind));
+                    PlaySummonSignature(evt, summonColor);
                     PlaySummonPortraitRise(evt.Card, evt.Weight);
-                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), "\u53ec\u5524", ResolveSummonColor(evt.Card), evt.Weight);
+                    PlayFloatingText(ResolveCardWorldPoint(evt.Card), GetSummonPresentationName(evt.SummonKind), summonColor, evt.Weight);
                     SendPresentationHaptic(evt.Weight, evt.Controller);
                     break;
                 case DuelPresentationKind.CardActivated:
@@ -907,9 +978,13 @@ namespace MDPro3
                     SendPresentationHaptic(evt.Weight, evt.Controller);
                     break;
                 case DuelPresentationKind.AttackDeclared:
-                    PlayAttackLine(evt);
-                    PlayAttackProjectile(evt);
-                    PlayAttackPortraitLunge(evt);
+                    PlayAttackCharge(evt);
+                    SchedulePresentation(evt.Final ? 0.24f : 0.20f, () =>
+                    {
+                        PlayAttackLine(evt);
+                        PlayAttackProjectile(evt);
+                        PlayAttackPortraitLunge(evt);
+                    });
                     PlayFloatingText(
                         ResolveCardWorldPoint(evt.Card),
                         evt.Final ? "FINAL" : evt.Direct ? "DIRECT" : "\u653b\u51fb",
@@ -933,6 +1008,101 @@ namespace MDPro3
                     PlayPhaseText(evt.Controller, evt.Phase);
                     break;
             }
+        }
+
+        private void SchedulePresentation(float delay, Action action)
+        {
+            if (action == null)
+                return;
+
+            Tween tween = null;
+            tween = DOVirtual.DelayedCall(delay, () =>
+            {
+                pendingPresentationTweens.Remove(tween);
+                if (!isActiveAndEnabled || presentationRoot == null || proxyRoot == null || !proxyRoot.gameObject.activeInHierarchy)
+                    return;
+                action();
+            });
+            tween.OnKill(() => pendingPresentationTweens.Remove(tween));
+            pendingPresentationTweens.Add(tween);
+        }
+
+        private void KillPendingPresentationTweens()
+        {
+            for (var i = pendingPresentationTweens.Count - 1; i >= 0; i -= 1)
+            {
+                var tween = pendingPresentationTweens[i];
+                if (tween != null && tween.IsActive())
+                    tween.Kill(false);
+            }
+
+            pendingPresentationTweens.Clear();
+        }
+
+        private void LogPresentationEvent(DuelPresentationEvent evt)
+        {
+            if (!QuestRuntimeDebugSettings.EventLog || evt == null)
+                return;
+
+            var now = Time.unscaledTime;
+            if (now - lastPresentationEventLogTime < 0.10f)
+            {
+                suppressedPresentationEventLogCount += 1;
+                return;
+            }
+
+            lastPresentationEventLogTime = now;
+            var suppressed = suppressedPresentationEventLogCount;
+            suppressedPresentationEventLogCount = 0;
+            Debug.LogFormat(
+                "Quest presentation event. Kind={0}, Move={1}, Summon={2}, Weight={3}, Card={4}, Target={5}, From={6}, To={7}, Controller={8}, Value={9}, Chain={10}, Direct={11}, Final={12}, CurrentMessage={13}, Suppressed={14}",
+                evt.Kind,
+                evt.MoveKind,
+                evt.SummonKind,
+                evt.Weight,
+                GetDebugCardDescription(evt.Card),
+                GetDebugCardDescription(evt.TargetCard),
+                GetDebugGpsDescription(evt.From),
+                GetDebugGpsDescription(evt.To),
+                evt.Controller,
+                evt.Value,
+                evt.ChainIndex,
+                evt.Direct,
+                evt.Final,
+                Program.instance?.ocgcore == null ? "<none>" : Program.instance.ocgcore.currentMessage.ToString(),
+                suppressed);
+        }
+
+        private static string GetDebugCardDescription(GameCard card)
+        {
+            if (card == null)
+                return "<none>";
+
+            try
+            {
+                var data = card.GetData();
+                if (data == null)
+                    return "<data-null>";
+                return data.Id + ":" + data.Name;
+            }
+            catch (Exception ex)
+            {
+                return "<card-error:" + ex.GetType().Name + ">";
+            }
+        }
+
+        private static string GetDebugGpsDescription(GPS gps)
+        {
+            if (gps == null)
+                return "<none>";
+
+            return string.Format(
+                "c={0},loc=0x{1:X},seq={2},pos=0x{3:X},reason=0x{4:X}",
+                gps.controller,
+                gps.location,
+                gps.sequence,
+                gps.position,
+                gps.reason);
         }
 
         private void PlayCardMovePresentation(DuelPresentationEvent evt)
@@ -978,6 +1148,54 @@ namespace MDPro3
             var inner = evt.Final ? new Color(1f, 0.84f, 0.34f, 1f) : new Color(1f, 0.78f, 0.22f, 0.95f);
             PlayLine(from, to, outer, evt.Weight, evt.Final ? 0.72f : 0.48f, 2.8f);
             PlayLine(from, to, inner, evt.Weight, evt.Final ? 0.62f : 0.38f, 1.0f);
+        }
+
+        private void PlayAttackCharge(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return;
+
+            var point = ResolveCardWorldPoint(evt.Card);
+            var color = evt.Final
+                ? new Color(1f, 0.20f, 0.08f, 0.86f)
+                : evt.Direct ? new Color(1f, 0.54f, 0.14f, 0.72f) : new Color(1f, 0.74f, 0.22f, 0.62f);
+            PlayPulseAt(point, color, evt.Weight, evt.Final ? 1.75f : evt.Direct ? 1.36f : 1.08f);
+            PlayImpactSlash(point, new Color(1f, 0.92f, 0.32f, color.a * 0.82f), evt.Weight, 90f, evt.Final ? 2.8f : 1.9f);
+            PlayAttackChargePortrait(evt);
+        }
+
+        private void PlayAttackChargePortrait(DuelPresentationEvent evt)
+        {
+            if (evt == null || evt.Card == null)
+                return;
+            if (!cardProxies.TryGetValue(evt.Card, out var proxy) || proxy == null)
+                return;
+
+            var target = proxy.Portrait != null && proxy.Portrait.activeInHierarchy
+                ? proxy.Portrait.transform
+                : proxy.Front != null && proxy.Front.activeInHierarchy ? proxy.Front.transform : null;
+            if (target == null)
+                return;
+
+            var originalLocalScale = target.localScale;
+            var originalLocalPosition = target.localPosition;
+            var lift = evt.Final ? 0.52f : evt.Direct ? 0.36f : 0.22f;
+            var chargeScale = evt.Final ? 1.14f : evt.Direct ? 1.10f : 1.07f;
+
+            target.DOKill(false);
+            DOTween.Sequence()
+                .Append(target.DOScale(originalLocalScale * chargeScale, 0.08f).SetEase(Ease.OutQuad))
+                .Join(target.DOLocalMove(originalLocalPosition + Vector3.up * lift, 0.08f).SetEase(Ease.OutQuad))
+                .Append(target.DOScale(originalLocalScale, 0.08f).SetEase(Ease.InQuad))
+                .Join(target.DOLocalMove(originalLocalPosition, 0.08f).SetEase(Ease.InQuad))
+                .OnKill(() =>
+                {
+                    if (target != null)
+                    {
+                        target.localScale = originalLocalScale;
+                        target.localPosition = originalLocalPosition;
+                    }
+                });
         }
 
         private void PlayAttackProjectile(DuelPresentationEvent evt)
@@ -1465,8 +1683,77 @@ namespace MDPro3
             return position;
         }
 
-        private static Color ResolveSummonColor(GameCard card)
+        private void PlaySummonSignature(DuelPresentationEvent evt, Color color)
         {
+            if (evt == null)
+                return;
+
+            var point = ResolveCardWorldPoint(evt.Card);
+            switch (evt.SummonKind)
+            {
+                case DuelPresentationSummonKind.Fusion:
+                    PlayImpactSlash(point, color, evt.Weight, 30f, 2.9f);
+                    PlayImpactSlash(point, new Color(1f, 0.55f, 1f, 0.76f), evt.Weight, 150f, 2.6f);
+                    break;
+                case DuelPresentationSummonKind.Synchro:
+                    PlayImpactSlash(point, color, evt.Weight, 0f, 3.0f);
+                    PlayImpactSlash(point, new Color(0.92f, 1f, 0.96f, 0.82f), evt.Weight, 90f, 3.0f);
+                    break;
+                case DuelPresentationSummonKind.Xyz:
+                    PlayPulseAt(point + Vector3.up * 0.12f, new Color(0.16f, 0.12f, 0.28f, 0.74f), evt.Weight, 2.25f);
+                    PlayImpactSlash(point, color, evt.Weight, 42f, 2.8f);
+                    PlayImpactSlash(point, new Color(1f, 0.86f, 0.24f, 0.88f), evt.Weight, 138f, 2.8f);
+                    break;
+                case DuelPresentationSummonKind.Link:
+                    PlayImpactSlash(point, color, evt.Weight, 0f, 3.2f);
+                    PlayImpactSlash(point, color, evt.Weight, 120f, 3.2f);
+                    PlayImpactSlash(point, color, evt.Weight, 240f, 3.2f);
+                    break;
+                case DuelPresentationSummonKind.Ritual:
+                    PlayPulseAt(point, new Color(0.22f, 0.42f, 1f, 0.66f), evt.Weight, 2.15f);
+                    PlayImpactSlash(point, color, evt.Weight, 72f, 2.7f);
+                    break;
+                case DuelPresentationSummonKind.Pendulum:
+                    PlayImpactSlash(point, new Color(0.25f, 1f, 0.88f, 0.76f), evt.Weight, 18f, 3.0f);
+                    PlayImpactSlash(point, new Color(1f, 0.34f, 0.92f, 0.76f), evt.Weight, 162f, 3.0f);
+                    break;
+                case DuelPresentationSummonKind.Tribute:
+                    PlayPulseAt(point, new Color(1f, 0.58f, 0.18f, 0.72f), evt.Weight, 2.0f);
+                    break;
+                case DuelPresentationSummonKind.Flip:
+                    PlayImpactSlash(point, color, evt.Weight, 90f, 2.0f);
+                    break;
+            }
+        }
+
+        private static Color ResolveSummonColor(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return new Color(0.55f, 0.95f, 1f, 0.82f);
+
+            switch (evt.SummonKind)
+            {
+                case DuelPresentationSummonKind.Fusion:
+                    return new Color(0.82f, 0.40f, 1f, 0.88f);
+                case DuelPresentationSummonKind.Synchro:
+                    return new Color(0.88f, 1f, 0.92f, 0.90f);
+                case DuelPresentationSummonKind.Xyz:
+                    return new Color(0.95f, 0.82f, 0.22f, 0.90f);
+                case DuelPresentationSummonKind.Link:
+                    return new Color(0.24f, 0.62f, 1f, 0.90f);
+                case DuelPresentationSummonKind.Ritual:
+                    return new Color(0.28f, 0.54f, 1f, 0.88f);
+                case DuelPresentationSummonKind.Pendulum:
+                    return new Color(0.38f, 1f, 0.88f, 0.88f);
+                case DuelPresentationSummonKind.Tribute:
+                    return new Color(1f, 0.58f, 0.18f, 0.86f);
+                case DuelPresentationSummonKind.Flip:
+                    return new Color(0.62f, 0.88f, 1f, 0.82f);
+                case DuelPresentationSummonKind.Special:
+                    return new Color(0.52f, 1f, 0.70f, 0.84f);
+            }
+
+            var card = evt.Card;
             var data = card == null ? null : card.GetData();
             if (data == null)
                 return new Color(0.55f, 0.95f, 1f, 0.82f);
@@ -1481,6 +1768,53 @@ namespace MDPro3
             if (data.HasType(CardType.Ritual))
                 return new Color(0.28f, 0.54f, 1f, 0.86f);
             return new Color(0.52f, 1f, 0.70f, 0.82f);
+        }
+
+        private static float ResolveSummonPulseSize(DuelPresentationSummonKind summonKind)
+        {
+            switch (summonKind)
+            {
+                case DuelPresentationSummonKind.Fusion:
+                case DuelPresentationSummonKind.Synchro:
+                case DuelPresentationSummonKind.Xyz:
+                case DuelPresentationSummonKind.Link:
+                case DuelPresentationSummonKind.Ritual:
+                case DuelPresentationSummonKind.Pendulum:
+                    return 1.88f;
+                case DuelPresentationSummonKind.Tribute:
+                    return 1.78f;
+                case DuelPresentationSummonKind.Flip:
+                    return 1.38f;
+                default:
+                    return 1.55f;
+            }
+        }
+
+        private static string GetSummonPresentationName(DuelPresentationSummonKind summonKind)
+        {
+            switch (summonKind)
+            {
+                case DuelPresentationSummonKind.Fusion:
+                    return "FUSION";
+                case DuelPresentationSummonKind.Synchro:
+                    return "SYNCHRO";
+                case DuelPresentationSummonKind.Xyz:
+                    return "XYZ";
+                case DuelPresentationSummonKind.Link:
+                    return "LINK";
+                case DuelPresentationSummonKind.Ritual:
+                    return "RITUAL";
+                case DuelPresentationSummonKind.Pendulum:
+                    return "PENDULUM";
+                case DuelPresentationSummonKind.Tribute:
+                    return "\u4e0a\u7ea7\u53ec\u5524";
+                case DuelPresentationSummonKind.Flip:
+                    return "\u7ffb\u8f6c\u53ec\u5524";
+                case DuelPresentationSummonKind.Special:
+                    return "\u7279\u6b8a\u53ec\u5524";
+                default:
+                    return "\u53ec\u5524";
+            }
         }
 
         private static float ResolveWeightScale(DuelPresentationWeight weight)
@@ -1943,7 +2277,7 @@ namespace MDPro3
                 ? "LINK"
                 : attackActive ? "\u653b\u51fb\u8868\u793a" : "\u5b88\u5907\u8868\u793a";
             var stanceText = ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 18);
-            var attack = ColorizePowerLine("ATK", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 28 : 22);
+            var attack = ColorizePowerLine("\u653b\u51fb", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 28 : 22);
             if (data.HasType(CardType.Link))
                 return grade + "  " + stanceText + "\n" + attack;
 
@@ -1953,7 +2287,7 @@ namespace MDPro3
                 + "\n"
                 + attack
                 + "   "
-                + ColorizePowerLine("DEF", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 28 : 22);
+                + ColorizePowerLine("\u5b88\u5907", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 28 : 22);
         }
 
         private static string GetMonsterGradeLabel(Card data)
@@ -2233,6 +2567,7 @@ namespace MDPro3
                 var material = new Material(GetPortraitMaterial()) { name = "QuestMonsterPortrait_" + code };
                 ApplyTexture(material, texture);
                 ConfigureTransparentMaterial(material);
+                material.renderQueue = (int)RenderQueue.Transparent + PortraitRenderQueueOffset;
                 proxy.PortraitRenderer.sharedMaterial = material;
                 proxy.LoadedPortraitCode = code;
 
@@ -3004,6 +3339,7 @@ namespace MDPro3
                 text.outlineWidth = 0.34f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
                 text.margin = new Vector4(0.9f, 0.4f, 0.9f, 0.4f);
+                ConfigureTextOverlay(text, 120);
 
                 labelRoot.SetActive(false);
                 return labelRoot;
@@ -3036,9 +3372,28 @@ namespace MDPro3
                 text.outlineWidth = 0.26f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.95f);
                 text.margin = new Vector4(0.5f, 0.15f, 0.5f, 0.15f);
+                ConfigureTextOverlay(text, 110);
 
                 labelRoot.SetActive(false);
                 return labelRoot;
+            }
+
+            private static void ConfigureTextOverlay(TextMeshPro text, int sortingOrder)
+            {
+                if (text == null)
+                    return;
+
+                var renderer = text.GetComponent<Renderer>();
+                if (renderer != null)
+                {
+                    renderer.sortingOrder = sortingOrder;
+                    renderer.shadowCastingMode = ShadowCastingMode.Off;
+                    renderer.receiveShadows = false;
+                }
+
+                var material = text.fontMaterial;
+                if (material != null)
+                    material.renderQueue = (int)RenderQueue.Transparent + TextOverlayRenderQueueOffset;
             }
 
             public static void ConfigureRenderer(Renderer renderer, Material material)

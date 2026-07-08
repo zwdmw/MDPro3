@@ -119,7 +119,7 @@ namespace MDPro3
         private const float QuestDuelSleepCompressionScale = 0.35f;
         private const float QuestDuelSleepCompressionLogInterval = 3f;
         private const int QuestChainSleepCompressionMax = 12;
-        private const bool QuestVerboseRuntimeDiagnostics = false;
+        private static bool QuestVerboseRuntimeDiagnostics => QuestRuntimeDebugSettings.VerboseDiagnostics;
         private const float QuestGraphicRaycasterCacheRefreshInterval = 1f;
         private const int QuestPhysicsRaycastBufferSize = 96;
         private const float QuestFoveatedRenderingLevel = 0.65f;
@@ -351,6 +351,7 @@ namespace MDPro3
         private bool questPreviewDeletePressedLastFrame;
         private bool questMainUiRecenterPressedLastFrame;
         private bool questMainUiRecenterActive;
+        private bool questDebugAutoFrameApplied;
         private float lastQuestNativeDuelActiveTime = -999f;
         private Vector2 smoothedQuestRightWorldAxis;
         private Vector2 smoothedQuestLeftWorldAxis;
@@ -806,6 +807,7 @@ namespace MDPro3
 #if !UNITY_EDITOR && UNITY_ANDROID
             activeInstance = this;
             createdAt = Time.unscaledTime;
+            QuestRuntimeDebugSettings.Initialize();
             ConfigureFloorTrackingOrigin();
             CreateXrCamera();
             if (UsePassthroughMixedReality)
@@ -861,11 +863,13 @@ namespace MDPro3
                 }
                 EnsureQuestDuelNativeUi();
                 questDuelNativeUi?.Tick();
+                ApplyQuestDebugAutoFrameIfNeeded();
             }
             else
             {
                 questDuelNativeUi?.HideAllQuestUi();
                 ClearQuestDuelActionMenu();
+                questDebugAutoFrameApplied = false;
                 if (Time.unscaledTime - lastQuestNativeDuelActiveTime >= QuestDuelInactiveResetDelay)
                     ResetQuestWorldControlsWhenNoDuel();
             }
@@ -6391,6 +6395,30 @@ namespace MDPro3
             Debug.Log("Quest world player offset reset outside duel.");
         }
 
+        private void ApplyQuestDebugAutoFrameIfNeeded()
+        {
+            if (questDebugAutoFrameApplied)
+                return;
+            if (!QuestRuntimeDebugSettings.AutoFrameDuelView && !QuestRuntimeDebugSettings.AutoEnterSolo)
+                return;
+            if (!trackingOriginCalibrated || xrOrigin == null || duelWorldAnchor == null)
+                return;
+
+            questDebugAutoFrameApplied = true;
+            questPlayerWorldOffset = new Vector3(0f, 0f, -7.5f);
+            questPlayerYawOffsetDegrees = 0f;
+            smoothedQuestRightWorldAxis = Vector2.zero;
+            smoothedQuestLeftWorldAxis = Vector2.zero;
+            if (questDuelWorldScaleMultiplier < 1f)
+                SetQuestDuelWorldScale(1f);
+            ReapplyXrOriginForCurrentHeadPose();
+            ApplyQuestDuelWorldUserTransform();
+            Debug.LogFormat(
+                "Quest debug auto frame applied. PlayerOffset={0}, DuelWorldScale={1:F2}",
+                questPlayerWorldOffset,
+                questDuelWorldScaleMultiplier);
+        }
+
         private static Quaternion GetDuelBaseRotation()
         {
             var direction = DuelLookTarget - DuelEyePosition;
@@ -7148,7 +7176,7 @@ namespace MDPro3
                 case MDPro3.UI.ButtonType.ToDefensePosition:
                     return "\u5b88\u5907\u8868\u793a";
                 case MDPro3.UI.ButtonType.SpSummon:
-                    return "\u7279\u6b8a\u53ec\u5524";
+                    return GetQuestSummonActionLabel(action.Card);
                 case MDPro3.UI.ButtonType.Summon:
                     return "\u901a\u5e38\u53ec\u5524";
                 case MDPro3.UI.ButtonType.PenSummon:
@@ -7156,6 +7184,24 @@ namespace MDPro3
                 default:
                     return action.Type.ToString();
             }
+        }
+
+        private static string GetQuestSummonActionLabel(GameCard card)
+        {
+            var data = card == null ? null : card.GetData();
+            if (data == null)
+                return "\u7279\u6b8a\u53ec\u5524";
+            if (data.HasType(CardType.Fusion))
+                return "\u878d\u5408\u53ec\u5524";
+            if (data.HasType(CardType.Synchro))
+                return "\u540c\u8c03\u53ec\u5524";
+            if (data.HasType(CardType.Xyz))
+                return "\u8d85\u91cf\u53ec\u5524";
+            if (data.HasType(CardType.Link))
+                return "\u8fde\u63a5\u53ec\u5524";
+            if (data.HasType(CardType.Ritual))
+                return "\u4eea\u5f0f\u53ec\u5524";
+            return "\u7279\u6b8a\u53ec\u5524";
         }
 
         private static Color GetQuestDuelActionColor(QuestDuelAction action)
@@ -7367,6 +7413,7 @@ namespace MDPro3
                 {
                     questInfoHoverCard = null;
                     questInfoHoverShown = false;
+                    questDuelNativeUi?.HideCardInfo();
                 }
                 return;
             }
@@ -7376,17 +7423,24 @@ namespace MDPro3
                 questInfoHoverCard = card;
                 questInfoHoverStartTime = Time.unscaledTime;
                 questInfoHoverShown = false;
+                questDuelNativeUi?.HideCardInfo();
                 return;
             }
 
-            if (questInfoHoverShown || Time.unscaledTime - questInfoHoverStartTime < QuestCardInfoHoverDelay)
+            if (questInfoHoverShown)
+            {
+                questDuelNativeUi?.UpdateCardInfoAnchor(GetQuestCardInfoBounds(card));
+                return;
+            }
+
+            if (Time.unscaledTime - questInfoHoverStartTime < QuestCardInfoHoverDelay)
                 return;
 
             EnsureQuestDuelNativeUi();
             if (questDuelNativeUi == null || questDuelNativeUi.HasBlockingPanel)
                 return;
 
-            if (questDuelNativeUi.ShowCardInfo(card))
+            if (questDuelNativeUi.ShowCardInfo(card, GetQuestCardInfoBounds(card)))
                 questInfoHoverShown = true;
         }
 
@@ -7399,7 +7453,7 @@ namespace MDPro3
             EnsureQuestDuelNativeUi();
             if (questDuelNativeUi != null)
             {
-                questDuelNativeUi.ShowCardInfo(card);
+                questDuelNativeUi.ShowCardInfo(card, GetQuestCardInfoBounds(card));
                 questInfoHoverCard = card;
                 questInfoHoverShown = true;
             }
@@ -7414,6 +7468,16 @@ namespace MDPro3
                 ShowQuestDuelCardActions(card);
             else
                 ClearQuestDuelActionMenu();
+        }
+
+        private Bounds? GetQuestCardInfoBounds(GameCard card)
+        {
+            if (card != null
+                && questDuelWorldPresenter != null
+                && questDuelWorldPresenter.TryGetCardWorldBounds(card, out var bounds))
+                return bounds;
+
+            return null;
         }
 
         private bool TrySelectQuestFieldCard(GameCard card)

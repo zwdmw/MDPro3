@@ -20,7 +20,8 @@ namespace MDPro3
         private const float HudScale = 0.017f;
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
-        private const float CardInfoScale = 0.023f;
+        private const float CardInfoScale = 0.028f;
+        private const float HoverCardInfoScale = 0.0145f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
         private const float WorldCanvasDynamicPixelsPerUnit = 13f;
@@ -91,6 +92,9 @@ namespace MDPro3
         private TextMeshProUGUI cardInfoActionText;
         private TextMeshProUGUI cardInfoDescriptionText;
         private RawImage cardInfoImage;
+        private bool cardInfoUseWorldPose;
+        private Vector3 cardInfoWorldPosition;
+        private Quaternion cardInfoWorldRotation;
 
         private Canvas optionCanvas;
         private RectTransform optionRect;
@@ -118,6 +122,10 @@ namespace MDPro3
         private readonly List<GameObject> phaseHudRows = new List<GameObject>();
         private readonly List<GameObject> phaseTrackRows = new List<GameObject>();
         private string lastPhaseHudSignature;
+        private float lifeHudFlashStartTime;
+        private float lifeHudFlashDuration;
+        private float lifeHudFlashScale;
+        private Color lifeHudFlashColor = Color.white;
 
         private Canvas duelLogCanvas;
         private RectTransform duelLogRect;
@@ -382,12 +390,19 @@ namespace MDPro3
 
         public bool ShowCardInfo(GameCard card)
         {
+            return ShowCardInfo(card, null);
+        }
+
+        public bool ShowCardInfo(GameCard card, Bounds? worldBounds)
+        {
             if (!CanShowDuelUi() || card == null)
                 return false;
 
             EnsureCardInfoPanel();
             if (cardInfoCanvas == null)
                 return false;
+
+            UpdateCardInfoWorldPose(worldBounds);
 
             var data = card.GetData();
             if (data == null)
@@ -412,6 +427,20 @@ namespace MDPro3
             cardInfoCanvas.gameObject.SetActive(true);
             UpdatePanelPoses();
             return true;
+        }
+
+        public void UpdateCardInfoAnchor(Bounds? worldBounds)
+        {
+            if (cardInfoCanvas == null || !cardInfoCanvas.gameObject.activeSelf)
+                return;
+
+            UpdateCardInfoWorldPose(worldBounds);
+            UpdatePanelPoses();
+        }
+
+        public void HideCardInfo()
+        {
+            HideCardInfoPanel();
         }
 
         public bool ShowLocationBrowser(uint controller, CardLocation location)
@@ -640,6 +669,7 @@ namespace MDPro3
             var canEnd = PhaseButtonHandler.endPhase;
             if (lifeHudText != null)
                 lifeHudText.text = FormatLifeHud(core.life0, core.life1);
+            UpdateLifeHudFlash();
 
             var signature = core.phase + "|" + canBattle + "|" + canMain2 + "|" + canEnd + "|" + core.myTurn + "|" + core.life0 + "|" + core.life1;
             if (signature != lastPhaseHudSignature)
@@ -670,6 +700,32 @@ namespace MDPro3
                 controlHudCanvas.gameObject.SetActive(true);
 
             UpdateDuelLogPanel(core);
+        }
+
+        private void UpdateLifeHudFlash()
+        {
+            if (lifeHudText == null)
+                return;
+
+            if (lifeHudFlashDuration <= 0f)
+            {
+                lifeHudText.color = Color.white;
+                lifeHudText.transform.localScale = Vector3.one;
+                return;
+            }
+
+            var progress = Mathf.Clamp01((Time.unscaledTime - lifeHudFlashStartTime) / lifeHudFlashDuration);
+            if (progress >= 1f)
+            {
+                lifeHudFlashDuration = 0f;
+                lifeHudText.color = Color.white;
+                lifeHudText.transform.localScale = Vector3.one;
+                return;
+            }
+
+            var pulse = Mathf.Sin(progress * Mathf.PI);
+            lifeHudText.color = Color.Lerp(Color.white, lifeHudFlashColor, pulse);
+            lifeHudText.transform.localScale = Vector3.one * Mathf.Lerp(1f, lifeHudFlashScale, pulse);
         }
 
         private static string FormatLifeHud(int myLife, int opponentLife)
@@ -812,6 +868,32 @@ namespace MDPro3
             while (presentationLogLines.Count > MaxPresentationLogLines)
                 presentationLogLines.RemoveAt(presentationLogLines.Count - 1);
             lastDuelLogSignature = null;
+            TriggerLifeHudFlash(evt);
+        }
+
+        private void TriggerLifeHudFlash(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return;
+
+            if (evt.Kind == DuelPresentationKind.Damage)
+            {
+                lifeHudFlashColor = evt.Controller == 0
+                    ? new Color(1f, 0.22f, 0.18f, 1f)
+                    : new Color(1f, 0.56f, 0.18f, 1f);
+            }
+            else if (evt.Kind == DuelPresentationKind.Recover)
+            {
+                lifeHudFlashColor = new Color(0.34f, 1f, 0.52f, 1f);
+            }
+            else
+            {
+                return;
+            }
+
+            lifeHudFlashStartTime = Time.unscaledTime;
+            lifeHudFlashDuration = evt.Weight >= DuelPresentationWeight.Heavy ? 0.64f : 0.46f;
+            lifeHudFlashScale = evt.Weight >= DuelPresentationWeight.Heavy ? 1.12f : 1.07f;
         }
 
         private string BuildPresentationLogText(string fallbackLogText)
@@ -969,7 +1051,7 @@ namespace MDPro3
                 case DuelPresentationKind.CardSet:
                     return player + " \u653e\u7f6e " + cardName;
                 case DuelPresentationKind.CardSummoned:
-                    return player + " \u53ec\u5524 " + cardName;
+                    return player + " " + GetSummonLogName(evt.SummonKind) + " " + cardName;
                 case DuelPresentationKind.CardActivated:
                     return evt.ChainIndex > 1
                         ? "\u8fde\u9501 " + evt.ChainIndex + ": " + cardName
@@ -1028,6 +1110,33 @@ namespace MDPro3
         private static string GetPresentationControllerName(int controller)
         {
             return controller == 0 ? "\u6211\u65b9" : "\u5bf9\u65b9";
+        }
+
+        private static string GetSummonLogName(DuelPresentationSummonKind summonKind)
+        {
+            switch (summonKind)
+            {
+                case DuelPresentationSummonKind.Tribute:
+                    return "\u4e0a\u7ea7\u53ec\u5524";
+                case DuelPresentationSummonKind.Flip:
+                    return "\u7ffb\u8f6c\u53ec\u5524";
+                case DuelPresentationSummonKind.Special:
+                    return "\u7279\u6b8a\u53ec\u5524";
+                case DuelPresentationSummonKind.Fusion:
+                    return "\u878d\u5408\u53ec\u5524";
+                case DuelPresentationSummonKind.Synchro:
+                    return "\u540c\u8c03\u53ec\u5524";
+                case DuelPresentationSummonKind.Xyz:
+                    return "\u8d85\u91cf\u53ec\u5524";
+                case DuelPresentationSummonKind.Link:
+                    return "\u8fde\u63a5\u53ec\u5524";
+                case DuelPresentationSummonKind.Ritual:
+                    return "\u4eea\u5f0f\u53ec\u5524";
+                case DuelPresentationSummonKind.Pendulum:
+                    return "\u7075\u6446\u53ec\u5524";
+                default:
+                    return "\u53ec\u5524";
+            }
         }
 
         private void AddPhaseMenuButton(string label, bool interactable, Action onClick)
@@ -1780,6 +1889,7 @@ namespace MDPro3
         {
             if (cardInfoCanvas != null && cardInfoCanvas.gameObject.activeSelf)
                 cardInfoCanvas.gameObject.SetActive(false);
+            cardInfoUseWorldPose = false;
         }
 
         private void HideOptionPanel()
@@ -1803,11 +1913,16 @@ namespace MDPro3
             if (cardPanelRect != null && cardPanelCanvas.gameObject.activeSelf)
                 PlacePanel(cardPanelRect, DuelWorldCenterOnGround + new Vector3(0f, 10.8f, -18f), CardSelectorScale);
             if (cardInfoRect != null && cardInfoCanvas.gameObject.activeSelf)
-                PlacePanel(
-                    cardInfoRect,
-                    DuelWorldCenterOnGround + new Vector3(-72f, 21.8f, -42f),
-                    LeftSideWallRotation,
-                    CardInfoScale);
+            {
+                if (cardInfoUseWorldPose)
+                    PlacePanelWorld(cardInfoRect, cardInfoWorldPosition, cardInfoWorldRotation, HoverCardInfoScale);
+                else
+                    PlacePanel(
+                        cardInfoRect,
+                        DuelWorldCenterOnGround + new Vector3(-82f, 25.2f, -48f),
+                        LeftSideWallRotation,
+                        CardInfoScale);
+            }
             if (optionRect != null && optionCanvas.gameObject.activeSelf)
                 PlacePanel(optionRect, ResolveOptionPanelPosition(), SmallPanelScale);
             if (phaseMenuRect != null && phaseMenuCanvas.gameObject.activeSelf)
@@ -1863,6 +1978,62 @@ namespace MDPro3
                 rect.rotation = rotation;
             }
             rect.localScale = Vector3.one * scale;
+        }
+
+        private void PlacePanelWorld(RectTransform rect, Vector3 position, Quaternion rotation, float scale)
+        {
+            if (duelWorldAnchor != null && rect.parent == duelWorldAnchor)
+            {
+                rect.localPosition = duelWorldAnchor.InverseTransformPoint(position);
+                rect.localRotation = Quaternion.Inverse(duelWorldAnchor.rotation) * rotation;
+            }
+            else
+            {
+                rect.position = position;
+                rect.rotation = rotation;
+            }
+
+            rect.localScale = Vector3.one * scale;
+        }
+
+        private void UpdateCardInfoWorldPose(Bounds? worldBounds)
+        {
+            cardInfoUseWorldPose = worldBounds.HasValue;
+            if (!worldBounds.HasValue || cardInfoRect == null)
+                return;
+
+            var bounds = worldBounds.Value;
+            var center = bounds.center;
+            var toViewer = ResolvePlanarDirectionToViewer(center);
+            var parentScale = duelWorldAnchor == null
+                ? 1f
+                : Mathf.Max(duelWorldAnchor.lossyScale.x, 0.0001f);
+            var panelWidthWorld = cardInfoRect.sizeDelta.x * HoverCardInfoScale * parentScale;
+            var panelHeightWorld = cardInfoRect.sizeDelta.y * HoverCardInfoScale * parentScale;
+            var radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
+            var offset = radius + panelWidthWorld * 0.5f + Mathf.Max(0.65f, parentScale * 0.65f);
+            cardInfoWorldPosition = new Vector3(center.x, bounds.max.y + panelHeightWorld * 0.5f + parentScale * 0.28f, center.z)
+                + toViewer * offset;
+            cardInfoWorldRotation = ResolveFacingViewerRotation(cardInfoWorldPosition);
+        }
+
+        private Vector3 ResolvePlanarDirectionToViewer(Vector3 position)
+        {
+            var viewer = xrCamera == null ? DuelWorldCenterOnGround + new Vector3(0f, 24f, -54f) : xrCamera.transform.position;
+            var direction = viewer - position;
+            direction.y = 0f;
+            if (direction.sqrMagnitude < 0.0001f)
+                return Vector3.back;
+            return direction.normalized;
+        }
+
+        private Quaternion ResolveFacingViewerRotation(Vector3 position)
+        {
+            var toViewer = ResolvePlanarDirectionToViewer(position);
+            var forward = -toViewer;
+            if (forward.sqrMagnitude < 0.0001f)
+                forward = Vector3.forward;
+            return Quaternion.LookRotation(forward.normalized, Vector3.up);
         }
 
         private GameObject CreateCanvasObject(string name, out Canvas canvas, out RectTransform rect)
@@ -2224,7 +2395,7 @@ namespace MDPro3
             if (data == null)
                 return string.Empty;
             if (data.HasType(CardType.Monster))
-                return "ATK " + data.GetAttackString() + "\nDEF " + data.GetDefenseString();
+                return "\u653b\u51fb " + data.GetAttackString() + "\n\u5b88\u5907 " + data.GetDefenseString();
             if (data.HasType(CardType.Spell))
                 return "魔法";
             if (data.HasType(CardType.Trap))
@@ -2242,11 +2413,11 @@ namespace MDPro3
                 var text = "<b>" + GetMonsterFrameLabel(data) + "</b>\n";
                 text += GetMonsterGradeText(data) + "  " + GetAttributeLabel(data.Attribute) + "\n";
                 text += GetRaceLabel(data.Race) + " / " + GetMonsterSubtypeText(data) + "\n";
-                text += "<color=#FFD36B>ATK</color> " + data.GetAttackString();
+                text += "<color=#FFD36B>\u653b\u51fb</color> " + data.GetAttackString();
                 if (data.HasType(CardType.Link))
                     text += "  <color=#69D7FF>LINK</color> " + data.GetLinkCount();
                 else
-                    text += "  <color=#69D7FF>DEF</color> " + data.GetDefenseString();
+                    text += "  <color=#69D7FF>\u5b88\u5907</color> " + data.GetDefenseString();
                 return text;
             }
 
@@ -2269,9 +2440,9 @@ namespace MDPro3
             text += GetPositionText(card.p.position, data) + "\n";
             if (data != null && data.HasType(CardType.Monster))
             {
-                text += "\u5f53\u524d ATK " + data.GetAttackString();
+                text += "\u5f53\u524d \u653b\u51fb " + data.GetAttackString();
                 if (!data.HasType(CardType.Link))
-                    text += " / DEF " + data.GetDefenseString();
+                    text += " / \u5b88\u5907 " + data.GetDefenseString();
                 if (data.Attack != data.rAttack || data.Defense != data.rDefense)
                     text += "\n<color=#FFD36B>\u6570\u503c\u5df2\u53d8\u5316</color>";
             }
@@ -2537,7 +2708,7 @@ namespace MDPro3
             if (data.HasType(CardType.Monster))
             {
                 var levelLabel = data.HasType(CardType.Link) ? "LINK " + data.GetLinkCount() : "等级 " + data.Level;
-                return levelLabel + "\nATK " + data.GetAttackString() + " / DEF " + data.GetDefenseString();
+                return levelLabel + "\n\u653b\u51fb " + data.GetAttackString() + " / \u5b88\u5907 " + data.GetDefenseString();
             }
             if (data.HasType(CardType.Spell))
                 return "魔法卡";
