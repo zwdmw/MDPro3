@@ -31,7 +31,7 @@ namespace MDPro3
         private const float FloorHudScale = 0.041f;
         private const float ControlHudScale = 0.033f;
         private const float CardInfoScale = 0.028f;
-        private const float HoverCardInfoScale = 0.0155f;
+        private const float HoverCardInfoScale = 0.0175f;
         private const float SideCardDetailScale = 0.037f;
         private const float DuelLogPanelScale = 0.050f;
         private const float CardSelectorScale = 0.0185f;
@@ -660,26 +660,26 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestCardInfoPanel", out cardInfoCanvas, out cardInfoRect);
-            cardInfoRect.sizeDelta = new Vector2(940f, 540f);
+            cardInfoRect.sizeDelta = new Vector2(1020f, 620f);
             AddPanelBackground(canvasObject, HudPanelBackground);
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
             AddHudPanelChrome(cardInfoRect, HudAccentCyan);
-            AddHudSection(cardInfoRect, "CardImageSection", new Vector2(28f, -36f), new Vector2(276f, 392f), HudAccentCyan);
-            AddHudSection(cardInfoRect, "CardMetaSection", new Vector2(326f, -36f), new Vector2(278f, 234f), HudAccentGold);
-            AddHudSection(cardInfoRect, "CardStateSection", new Vector2(628f, -36f), new Vector2(284f, 234f), HudAccentCyan);
-            AddHudSection(cardInfoRect, "CardActionSection", new Vector2(326f, -300f), new Vector2(586f, 176f), HudAccentGold);
-            CreateHudCaption("CardMetaCaption", cardInfoRect, new Vector2(350f, -54f), new Vector2(230f, 32f), "\u5361\u7247\u6458\u8981");
-            CreateHudCaption("CardStateCaption", cardInfoRect, new Vector2(652f, -54f), new Vector2(230f, 32f), "\u5f53\u524d\u72b6\u6001");
-            CreateHudCaption("CardActionCaption", cardInfoRect, new Vector2(350f, -318f), new Vector2(230f, 32f), "\u53ef\u7528\u64cd\u4f5c");
+            AddHudSection(cardInfoRect, "CardImageSection", new Vector2(30f, -42f), new Vector2(300f, 426f), HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardMetaSection", new Vector2(356f, -42f), new Vector2(292f, 250f), HudAccentGold);
+            AddHudSection(cardInfoRect, "CardStateSection", new Vector2(676f, -42f), new Vector2(308f, 250f), HudAccentCyan);
+            AddHudSection(cardInfoRect, "CardActionSection", new Vector2(356f, -330f), new Vector2(628f, 220f), HudAccentGold);
+            CreateHudCaption("CardMetaCaption", cardInfoRect, new Vector2(382f, -60f), new Vector2(230f, 32f), "\u5361\u7247\u6458\u8981");
+            CreateHudCaption("CardStateCaption", cardInfoRect, new Vector2(702f, -60f), new Vector2(230f, 32f), "\u5f53\u524d\u72b6\u6001");
+            CreateHudCaption("CardActionCaption", cardInfoRect, new Vector2(382f, -348f), new Vector2(230f, 32f), "\u53ef\u7528\u64cd\u4f5c");
 
-            cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(50f, -62f), new Vector2(232f, 325f));
-            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(44f, -414f), new Vector2(248f, 78f), 35f, TextAlignmentOptions.TopLeft);
-            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(352f, -94f), new Vector2(224f, 140f), 31f, TextAlignmentOptions.TopLeft);
-            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(654f, -94f), new Vector2(228f, 140f), 31f, TextAlignmentOptions.TopLeft);
-            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(352f, -358f), new Vector2(516f, 92f), 32f, TextAlignmentOptions.TopLeft);
+            cardInfoImage = CreateRawImage("CardFace", cardInfoRect, new Vector2(58f, -70f), new Vector2(246f, 344f));
+            cardInfoNameText = CreateText("Name", cardInfoRect, new Vector2(44f, -486f), new Vector2(286f, 88f), 38f, TextAlignmentOptions.TopLeft);
+            cardInfoMetaText = CreateText("Meta", cardInfoRect, new Vector2(386f, -104f), new Vector2(232f, 154f), 33f, TextAlignmentOptions.TopLeft);
+            cardInfoStateText = CreateText("State", cardInfoRect, new Vector2(706f, -104f), new Vector2(248f, 154f), 33f, TextAlignmentOptions.TopLeft);
+            cardInfoActionText = CreateText("Actions", cardInfoRect, new Vector2(386f, -390f), new Vector2(548f, 126f), 34f, TextAlignmentOptions.TopLeft);
             cardInfoDescriptionText = CreateText("Description", cardInfoRect, Vector2.zero, Vector2.zero, 1f, TextAlignmentOptions.TopLeft);
             cardInfoDescriptionText.gameObject.SetActive(false);
             cardInfoNameText.overflowMode = TextOverflowModes.Ellipsis;
@@ -691,9 +691,10 @@ namespace MDPro3
             cardInfoStateText.overflowMode = TextOverflowModes.Truncate;
             cardInfoActionText.overflowMode = TextOverflowModes.Truncate;
             cardInfoDescriptionText.overflowMode = TextOverflowModes.Truncate;
-            cardInfoMetaText.fontSizeMin = 24f;
-            cardInfoStateText.fontSizeMin = 24f;
-            cardInfoActionText.fontSizeMin = 25f;
+            cardInfoNameText.fontSizeMin = 28f;
+            cardInfoMetaText.fontSizeMin = 25f;
+            cardInfoStateText.fontSizeMin = 25f;
+            cardInfoActionText.fontSizeMin = 26f;
             cardInfoDescriptionText.fontSizeMin = 1f;
             canvasObject.SetActive(false);
         }
@@ -2663,8 +2664,8 @@ namespace MDPro3
                 : Mathf.Max(duelWorldAnchor.lossyScale.x, 0.0001f);
             var panelHeightWorld = cardInfoRect.sizeDelta.y * HoverCardInfoScale * parentScale;
             var radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
-            var viewerOffset = Mathf.Clamp(radius * 0.12f, parentScale * 0.16f, parentScale * 0.78f);
-            var verticalLift = panelHeightWorld * 0.54f + Mathf.Clamp(parentScale * 0.34f, 0.22f, 1.1f);
+            var viewerOffset = Mathf.Clamp(radius * 0.20f, parentScale * 0.24f, parentScale * 1.05f);
+            var verticalLift = panelHeightWorld * 0.58f + Mathf.Clamp(parentScale * 0.50f, 0.34f, 1.55f);
             cardInfoWorldPosition = new Vector3(center.x, bounds.max.y + verticalLift, center.z)
                 + toViewer * viewerOffset;
             cardInfoWorldRotation = ResolveFacingViewerRotation(cardInfoWorldPosition);

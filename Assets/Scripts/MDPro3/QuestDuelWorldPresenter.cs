@@ -463,14 +463,14 @@ namespace MDPro3
         private const float PortraitMaxWidth = 18f;
         private const float CardInfoPortraitTopPadding = 1.15f;
         private const float CardInfoBackrowPortraitTopPadding = 1.45f;
-        private const float PowerLabelY = CardThickness + 2.18f;
-        private const float PowerLabelCameraSideOffset = CardHeight * 0.5f + 0.92f;
-        private const float PowerLabelPortraitAvoidanceFactor = 0.12f;
-        private const float PowerLabelPortraitAvoidancePadding = 0.48f;
-        private const float PowerLabelScale = 0.60f;
-        private const float PowerLabelBackplateWidth = 8.6f;
-        private const float PowerLabelBackplateHeight = 2.55f;
-        private const float PortraitBaseY = PowerLabelY + PowerLabelBackplateHeight * PowerLabelScale * 0.5f + 0.92f;
+        private const float PowerLabelY = CardThickness + 2.42f;
+        private const float PowerLabelCameraSideOffset = CardHeight * 0.5f + 1.18f;
+        private const float PowerLabelPortraitAvoidanceFactor = 0.18f;
+        private const float PowerLabelPortraitAvoidancePadding = 0.76f;
+        private const float PowerLabelScale = 0.66f;
+        private const float PowerLabelBackplateWidth = 9.8f;
+        private const float PowerLabelBackplateHeight = 2.95f;
+        private const float PortraitBaseY = PowerLabelY + PowerLabelBackplateHeight * PowerLabelScale * 0.5f + 1.08f;
         private const int PortraitRenderQueueOffset = -28;
         private const int PowerLabelBackplateRenderQueueOffset = 70;
         private const int TextOverlayRenderQueueOffset = 86;
@@ -2696,7 +2696,7 @@ namespace MDPro3
 
             var portraitWidth = Mathf.Abs(proxy.Portrait.transform.localScale.x);
             var avoidance = portraitWidth * PowerLabelPortraitAvoidanceFactor + PowerLabelPortraitAvoidancePadding;
-            return PowerLabelCameraSideOffset + Mathf.Clamp(avoidance, 0f, 2.8f);
+            return PowerLabelCameraSideOffset + Mathf.Clamp(avoidance, 0f, 4.2f);
         }
 
         private static bool ShouldShowPowerLabel(GameCard card)
@@ -2747,14 +2747,14 @@ namespace MDPro3
             if (data.HasType(CardType.Tuner))
                 extras += "  \u8c03\u6574";
 
-            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 18);
+            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 20);
             var attackActive = card != null && card.p != null && ((card.p.position & (uint)CardPosition.Attack) > 0 || data.HasType(CardType.Link));
             var defenseActive = !data.HasType(CardType.Link) && !attackActive;
             var stance = data.HasType(CardType.Link)
                 ? "LINK"
                 : attackActive ? "\u653b\u51fb\u8868\u793a" : "\u5b88\u5907\u8868\u793a";
-            var stanceText = ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 18);
-            var attack = ColorizePowerLine("\u653b\u51fb", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 28 : 22);
+            var stanceText = ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 20);
+            var attack = ColorizePowerLine("\u653b\u51fb", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 32 : 24);
             if (data.HasType(CardType.Link))
                 return grade + "  " + stanceText + "\n" + attack;
 
@@ -2764,7 +2764,7 @@ namespace MDPro3
                 + "\n"
                 + attack
                 + "   "
-                + ColorizePowerLine("\u5b88\u5907", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 28 : 22);
+                + ColorizePowerLine("\u5b88\u5907", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 32 : 24);
         }
 
         private static string GetMonsterGradeLabel(Card data)
@@ -4033,16 +4033,16 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 23f;
+                text.fontSize = 25f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.overflowMode = TextOverflowModes.Overflow;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.34f;
+                text.outlineWidth = 0.38f;
                 text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
-                text.margin = new Vector4(0.9f, 0.4f, 0.9f, 0.4f);
+                text.margin = new Vector4(1.05f, 0.42f, 1.05f, 0.42f);
                 text.rectTransform.sizeDelta = new Vector2(PowerLabelBackplateWidth, PowerLabelBackplateHeight);
                 ConfigureTextOverlay(text, 120);
 
