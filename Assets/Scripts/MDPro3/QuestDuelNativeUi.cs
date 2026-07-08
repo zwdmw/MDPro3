@@ -157,10 +157,15 @@ namespace MDPro3
         private Canvas duelLogCanvas;
         private RectTransform duelLogRect;
         private TextMeshProUGUI duelLogTitleText;
+        private TextMeshProUGUI duelLogEventText;
         private TextMeshProUGUI duelLogStatusText;
         private TextMeshProUGUI duelLogPromptText;
         private TextMeshProUGUI duelLogBodyText;
+        private Image duelLogEventAccentImage;
         private readonly List<string> presentationLogLines = new List<string>();
+        private string lastImportantEventText;
+        private Color lastImportantEventColor = HudAccentCyan;
+        private float lastImportantEventTime;
         private string lastDuelLogSignature;
         private bool duelLogPanelLogged;
 
@@ -182,8 +187,7 @@ namespace MDPro3
         private void OnDisable()
         {
             DuelPresentationDirector.EventRaised -= HandlePresentationEvent;
-            presentationLogLines.Clear();
-            lastDuelLogSignature = null;
+            ResetDuelLogState();
         }
 
         public void Configure(Camera camera, Transform worldAnchor = null)
@@ -583,7 +587,7 @@ namespace MDPro3
             if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                 duelLogCanvas.gameObject.SetActive(false);
             lastPhaseHudSignature = null;
-            lastDuelLogSignature = null;
+            ResetDuelLogState();
         }
 
         private static bool CanShowDuelUi()
@@ -854,7 +858,7 @@ namespace MDPro3
                 if (duelLogCanvas != null && duelLogCanvas.gameObject.activeSelf)
                     duelLogCanvas.gameObject.SetActive(false);
                 lastPhaseHudSignature = null;
-                lastDuelLogSignature = null;
+                ResetDuelLogState();
                 return;
             }
 
@@ -979,32 +983,42 @@ namespace MDPro3
                 return;
 
             var canvasObject = CreateCanvasObject("QuestDuelLogPanel", out duelLogCanvas, out duelLogRect);
-            duelLogRect.sizeDelta = new Vector2(1480f, 900f);
+            duelLogRect.sizeDelta = new Vector2(1480f, 980f);
             AddPanelBackground(canvasObject, HudPanelBackground);
             var background = canvasObject.GetComponent<Image>();
             if (background != null)
                 background.raycastTarget = false;
 
             AddHudPanelChrome(duelLogRect, HudAccentCyan);
-            AddHudSection(duelLogRect, "LogStatusSection", new Vector2(40f, -124f), new Vector2(650f, 308f), HudAccentCyan);
-            AddHudSection(duelLogRect, "LogPromptSection", new Vector2(728f, -124f), new Vector2(692f, 308f), HudAccentGold);
-            AddHudSection(duelLogRect, "LogRecentSection", new Vector2(40f, -478f), new Vector2(1380f, 334f), HudAccentCyan);
+            AddHudSection(duelLogRect, "LogEventSection", new Vector2(40f, -118f), new Vector2(1380f, 178f), HudAccentGold);
+            AddHudSection(duelLogRect, "LogStatusSection", new Vector2(40f, -326f), new Vector2(650f, 282f), HudAccentCyan);
+            AddHudSection(duelLogRect, "LogPromptSection", new Vector2(728f, -326f), new Vector2(692f, 282f), HudAccentGold);
+            AddHudSection(duelLogRect, "LogRecentSection", new Vector2(40f, -646f), new Vector2(1380f, 264f), HudAccentCyan);
+            var eventAccent = CreateRect("LogEventAccent", duelLogRect, new Vector2(40f, -118f), new Vector2(16f, 178f), new Vector2(0f, 1f));
+            duelLogEventAccentImage = eventAccent.gameObject.AddComponent<Image>();
+            duelLogEventAccentImage.color = HudAccentGold;
+            duelLogEventAccentImage.raycastTarget = false;
             duelLogTitleText = CreateText("Title", duelLogRect, new Vector2(58f, -34f), new Vector2(1180f, 78f), 64f, TextAlignmentOptions.Left);
-            CreateHudCaption("StatusCaption", duelLogRect, new Vector2(66f, -138f), new Vector2(300f, 34f), "\u6218\u51b5");
-            CreateHudCaption("PromptCaption", duelLogRect, new Vector2(754f, -138f), new Vector2(300f, 34f), "\u5f53\u524d\u64cd\u4f5c");
-            CreateHudCaption("RecentCaption", duelLogRect, new Vector2(66f, -492f), new Vector2(300f, 34f), "\u6700\u8fd1\u4e8b\u4ef6");
-            duelLogStatusText = CreateText("StatusBody", duelLogRect, new Vector2(68f, -178f), new Vector2(584f, 238f), 43f, TextAlignmentOptions.TopLeft);
-            duelLogPromptText = CreateText("PromptBody", duelLogRect, new Vector2(756f, -178f), new Vector2(622f, 238f), 45f, TextAlignmentOptions.TopLeft);
-            duelLogBodyText = CreateText("RecentBody", duelLogRect, new Vector2(68f, -534f), new Vector2(1300f, 236f), 46f, TextAlignmentOptions.TopLeft);
+            CreateHudCaption("EventCaption", duelLogRect, new Vector2(66f, -132f), new Vector2(300f, 34f), "\u5f53\u524d\u4e8b\u4ef6");
+            CreateHudCaption("StatusCaption", duelLogRect, new Vector2(66f, -340f), new Vector2(300f, 34f), "\u6218\u51b5");
+            CreateHudCaption("PromptCaption", duelLogRect, new Vector2(754f, -340f), new Vector2(300f, 34f), "\u5f53\u524d\u64cd\u4f5c");
+            CreateHudCaption("RecentCaption", duelLogRect, new Vector2(66f, -660f), new Vector2(300f, 34f), "\u6700\u8fd1\u4e8b\u4ef6");
+            duelLogEventText = CreateText("EventBody", duelLogRect, new Vector2(72f, -174f), new Vector2(1296f, 96f), 66f, TextAlignmentOptions.Left);
+            duelLogStatusText = CreateText("StatusBody", duelLogRect, new Vector2(68f, -380f), new Vector2(584f, 206f), 38f, TextAlignmentOptions.TopLeft);
+            duelLogPromptText = CreateText("PromptBody", duelLogRect, new Vector2(756f, -380f), new Vector2(622f, 206f), 41f, TextAlignmentOptions.TopLeft);
+            duelLogBodyText = CreateText("RecentBody", duelLogRect, new Vector2(68f, -702f), new Vector2(1300f, 176f), 38f, TextAlignmentOptions.TopLeft);
+            duelLogEventText.enableWordWrapping = true;
             duelLogStatusText.enableWordWrapping = true;
             duelLogPromptText.enableWordWrapping = true;
             duelLogBodyText.enableWordWrapping = true;
+            duelLogEventText.overflowMode = TextOverflowModes.Truncate;
             duelLogStatusText.overflowMode = TextOverflowModes.Truncate;
             duelLogPromptText.overflowMode = TextOverflowModes.Truncate;
             duelLogBodyText.overflowMode = TextOverflowModes.Truncate;
-            duelLogStatusText.fontSizeMin = 36f;
+            duelLogEventText.fontSizeMin = 50f;
+            duelLogStatusText.fontSizeMin = 31f;
             duelLogPromptText.fontSizeMin = 37f;
-            duelLogBodyText.fontSizeMin = 36f;
+            duelLogBodyText.fontSizeMin = 31f;
             duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
             canvasObject.SetActive(false);
             Debug.Log("Quest duel log panel created.");
@@ -1023,14 +1037,23 @@ namespace MDPro3
                 logText = "\u7b49\u5f85\u5bf9\u5c40\u4fe1\u606f";
             var statusText = BuildDuelStatusText(core, turnText, phaseText);
             var promptText = BuildDuelPromptText(core, messageText);
+            var eventText = BuildCurrentEventText(messageText, logText);
+            var eventColor = ResolveCurrentEventColor();
             var detailText = BuildPresentationLogText(logText);
 
-            var signature = statusText + "|" + promptText + "|" + detailText;
+            var signature = statusText + "|" + promptText + "|" + eventText + "|" + ColorUtility.ToHtmlStringRGBA(eventColor) + "|" + detailText;
             if (signature != lastDuelLogSignature)
             {
                 lastDuelLogSignature = signature;
                 if (duelLogTitleText != null)
                     duelLogTitleText.text = "\u51b3\u6597\u4fe1\u606f";
+                if (duelLogEventText != null)
+                {
+                    duelLogEventText.text = eventText;
+                    duelLogEventText.color = eventColor;
+                }
+                if (duelLogEventAccentImage != null)
+                    duelLogEventAccentImage.color = new Color(eventColor.r, eventColor.g, eventColor.b, 0.92f);
                 if (duelLogStatusText != null)
                     duelLogStatusText.text = statusText;
                 if (duelLogPromptText != null)
@@ -1063,8 +1086,18 @@ namespace MDPro3
             presentationLogLines.Insert(0, line);
             while (presentationLogLines.Count > MaxPresentationLogLines)
                 presentationLogLines.RemoveAt(presentationLogLines.Count - 1);
+            CaptureImportantEvent(evt, line);
             lastDuelLogSignature = null;
             TriggerLifeHudFlash(evt);
+        }
+
+        private void ResetDuelLogState()
+        {
+            presentationLogLines.Clear();
+            lastImportantEventText = null;
+            lastImportantEventTime = 0f;
+            lastImportantEventColor = HudAccentCyan;
+            lastDuelLogSignature = null;
         }
 
         private void TriggerLifeHudFlash(DuelPresentationEvent evt)
@@ -1094,18 +1127,61 @@ namespace MDPro3
 
         private string BuildPresentationLogText(string fallbackLogText)
         {
-            fallbackLogText = TrimForHud(fallbackLogText, 96);
+            fallbackLogText = TrimForHud(fallbackLogText, 82);
             if (presentationLogLines.Count == 0)
                 return fallbackLogText;
 
             var text = string.Empty;
-            var maxLines = Mathf.Min(5, presentationLogLines.Count);
+            var maxLines = Mathf.Min(4, presentationLogLines.Count);
             for (var i = 0; i < maxLines; i += 1)
-                text += "\u2022 " + TrimForHud(presentationLogLines[i], 52) + "\n";
+                text += "\u2022 " + TrimForHud(presentationLogLines[i], 58) + "\n";
 
             if (!string.IsNullOrWhiteSpace(fallbackLogText))
                 text += "\u65e5\u5fd7: " + fallbackLogText;
             return text.TrimEnd();
+        }
+
+        private string BuildCurrentEventText(string messageText, string logText)
+        {
+            if (!string.IsNullOrWhiteSpace(lastImportantEventText))
+            {
+                var age = Time.unscaledTime - lastImportantEventTime;
+                if (age < 14f)
+                    return TrimForHud(lastImportantEventText, 46);
+            }
+
+            if (!string.IsNullOrWhiteSpace(messageText))
+                return TrimForHud(messageText, 46);
+            return TrimForHud(logText, 46);
+        }
+
+        private Color ResolveCurrentEventColor()
+        {
+            if (string.IsNullOrWhiteSpace(lastImportantEventText))
+                return Color.white;
+
+            var age = Time.unscaledTime - lastImportantEventTime;
+            if (age <= 3.5f)
+                return lastImportantEventColor;
+            if (age >= 14f)
+                return Color.white;
+            return Color.Lerp(Color.white, lastImportantEventColor, 0.52f);
+        }
+
+        private void CaptureImportantEvent(DuelPresentationEvent evt, string fallbackLine)
+        {
+            if (evt == null)
+                return;
+
+            var text = FormatImportantEventText(evt);
+            if (string.IsNullOrWhiteSpace(text))
+                text = fallbackLine;
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            lastImportantEventText = text;
+            lastImportantEventColor = ResolveEventColor(evt);
+            lastImportantEventTime = Time.unscaledTime;
         }
 
         private static string BuildDuelStatusText(OcgCore core, string turnText, string phaseText)
@@ -1115,17 +1191,21 @@ namespace MDPro3
 
             var myHand = SafeGetHandCount(core, true);
             var opHand = SafeGetHandCount(core, false);
+            var myDeck = SafeGetLocationCount(core, CardLocation.Deck, 0);
+            var opDeck = SafeGetLocationCount(core, CardLocation.Deck, 1);
             var myGrave = SafeGetLocationCount(core, CardLocation.Grave, 0);
             var opGrave = SafeGetLocationCount(core, CardLocation.Grave, 1);
+            var myBanished = SafeGetLocationCount(core, CardLocation.Removed, 0);
+            var opBanished = SafeGetLocationCount(core, CardLocation.Removed, 1);
             var myExtra = SafeGetLocationCount(core, CardLocation.Extra, 0);
             var opExtra = SafeGetLocationCount(core, CardLocation.Extra, 1);
-            return "<size=56><b>" + turnText + "</b></size>  " + phaseText + "\n"
+            return "<size=50><b>" + turnText + "</b></size>  " + phaseText + "\n"
                 + "<color=#8DF6FF>\u6211\u65b9</color> LP " + Mathf.Max(0, core.life0)
-                + "  \u624b\u724c " + myHand + "\n"
-                + "\u5893\u5730 " + myGrave + "  \u989d\u5916 " + myExtra + "\n"
+                + "  \u724c\u7ec4 " + myDeck + "  \u624b\u724c " + myHand + "\n"
+                + "\u5893 " + myGrave + "  \u9664\u5916 " + myBanished + "  \u989d\u5916 " + myExtra + "\n"
                 + "<color=#FFB86B>\u5bf9\u65b9</color> LP " + Mathf.Max(0, core.life1)
-                + "  \u624b\u724c " + opHand + "\n"
-                + "\u5893\u5730 " + opGrave + "  \u989d\u5916 " + opExtra;
+                + "  \u724c\u7ec4 " + opDeck + "  \u624b\u724c " + opHand + "\n"
+                + "\u5893 " + opGrave + "  \u9664\u5916 " + opBanished + "  \u989d\u5916 " + opExtra;
         }
 
         private static string BuildDuelPromptText(OcgCore core, string messageText)
@@ -1135,7 +1215,7 @@ namespace MDPro3
 
             var actionable = CountActionableCards(core);
             var selectable = CountSelectableTargets(core);
-            var text = "<size=56><b>" + TrimForHud(messageText, 24) + "</b></size>";
+            var text = "<size=50><b>" + TrimForHud(messageText, 24) + "</b></size>";
             if (selectable > 0)
                 text += "\n<color=#69FFE0>\u53ef\u9009\u76ee\u6807 " + selectable + "</color>\n\u7528\u5c04\u7ebf\u70b9\u573a\u4e0a\u9ad8\u4eae\u5361";
             else if (actionable > 0)
@@ -1245,9 +1325,49 @@ namespace MDPro3
                 case DuelPresentationKind.CardMoved:
                     return FormatMovePresentationLine(evt, player, cardName);
                 case DuelPresentationKind.CardSet:
+                    return "\u3010\u653e\u7f6e\u3011" + player + " " + cardName;
+                case DuelPresentationKind.CardSummoned:
+                    return "\u3010\u53ec\u5524\u3011" + player + " " + GetSummonLogName(evt.SummonKind) + " " + cardName;
+                case DuelPresentationKind.CardActivated:
+                    return evt.ChainIndex > 1
+                        ? "\u3010\u8fde\u9501\u3011" + evt.ChainIndex + ": " + cardName
+                        : "\u3010\u53d1\u52a8\u3011" + player + " " + cardName;
+                case DuelPresentationKind.ChainStacked:
+                    return "\u3010\u8fde\u9501\u3011" + evt.ChainIndex + ": " + cardName;
+                case DuelPresentationKind.CardDestroyed:
+                    return "\u3010\u7834\u574f\u3011" + cardName;
+                case DuelPresentationKind.CardSentToGrave:
+                    return "\u3010\u9001\u5893\u3011" + cardName;
+                case DuelPresentationKind.CardBanished:
+                    return "\u3010\u9664\u5916\u3011" + cardName;
+                case DuelPresentationKind.AttackDeclared:
+                    return "\u3010\u653b\u51fb\u3011" + cardName + " \u2192 " + GetPresentationTargetName(evt);
+                case DuelPresentationKind.AttackImpact:
+                    return "\u3010\u547d\u4e2d\u3011" + cardName;
+                case DuelPresentationKind.Damage:
+                    return "\u3010\u4f24\u5bb3\u3011" + GetPresentationControllerName(evt.Controller) + " LP -" + Mathf.Abs(evt.Value);
+                case DuelPresentationKind.Recover:
+                    return "\u3010\u6062\u590d\u3011" + GetPresentationControllerName(evt.Controller) + " LP +" + Mathf.Abs(evt.Value);
+                case DuelPresentationKind.PhaseChanged:
+                    return "\u3010\u9636\u6bb5\u3011" + player + " " + GetPhaseName(evt.Phase);
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private static string FormatImportantEventText(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return string.Empty;
+
+            var player = GetPresentationControllerName(evt.Controller);
+            var cardName = GetCardName(evt.Card);
+            switch (evt.Kind)
+            {
+                case DuelPresentationKind.CardSet:
                     return player + " \u653e\u7f6e " + cardName;
                 case DuelPresentationKind.CardSummoned:
-                    return player + " " + GetSummonLogName(evt.SummonKind) + " " + cardName;
+                    return GetSummonLogName(evt.SummonKind) + ": " + cardName;
                 case DuelPresentationKind.CardActivated:
                     return evt.ChainIndex > 1
                         ? "\u8fde\u9501 " + evt.ChainIndex + ": " + cardName
@@ -1255,23 +1375,78 @@ namespace MDPro3
                 case DuelPresentationKind.ChainStacked:
                     return "\u8fde\u9501 " + evt.ChainIndex + ": " + cardName;
                 case DuelPresentationKind.CardDestroyed:
-                    return "\u7834\u574f " + cardName;
+                    return "\u7834\u574f: " + cardName;
                 case DuelPresentationKind.CardSentToGrave:
-                    return "\u9001\u53bb\u5893\u5730 " + cardName;
+                    return "\u9001\u53bb\u5893\u5730: " + cardName;
                 case DuelPresentationKind.CardBanished:
-                    return "\u9664\u5916 " + cardName;
+                    return "\u9664\u5916: " + cardName;
                 case DuelPresentationKind.AttackDeclared:
-                    return "\u653b\u51fb: " + cardName + " \u2192 " + GetPresentationTargetName(evt);
+                    return evt.Final
+                        ? "\u51b3\u80dc\u653b\u51fb: " + cardName + " \u2192 " + GetPresentationTargetName(evt)
+                        : "\u653b\u51fb\u5ba3\u8a00: " + cardName + " \u2192 " + GetPresentationTargetName(evt);
                 case DuelPresentationKind.AttackImpact:
                     return "\u6218\u6597\u547d\u4e2d: " + cardName;
                 case DuelPresentationKind.Damage:
-                    return GetPresentationControllerName(evt.Controller) + " LP -" + Mathf.Abs(evt.Value);
+                    return player + " LP -" + Mathf.Abs(evt.Value);
                 case DuelPresentationKind.Recover:
-                    return GetPresentationControllerName(evt.Controller) + " LP +" + Mathf.Abs(evt.Value);
+                    return player + " LP +" + Mathf.Abs(evt.Value);
                 case DuelPresentationKind.PhaseChanged:
-                    return player + " " + GetPhaseName(evt.Phase);
+                    return player + " \u8fdb\u5165 " + GetPhaseName(evt.Phase);
                 default:
                     return string.Empty;
+            }
+        }
+
+        private static Color ResolveEventColor(DuelPresentationEvent evt)
+        {
+            if (evt == null)
+                return Color.white;
+
+            switch (evt.Kind)
+            {
+                case DuelPresentationKind.Damage:
+                case DuelPresentationKind.CardDestroyed:
+                case DuelPresentationKind.AttackDeclared:
+                case DuelPresentationKind.AttackImpact:
+                    return new Color(1f, 0.38f, 0.22f, 1f);
+                case DuelPresentationKind.Recover:
+                    return new Color(0.36f, 1f, 0.58f, 1f);
+                case DuelPresentationKind.CardActivated:
+                case DuelPresentationKind.ChainStacked:
+                    return new Color(1f, 0.80f, 0.26f, 1f);
+                case DuelPresentationKind.CardSummoned:
+                    return ResolveSummonHudColor(evt.SummonKind);
+                case DuelPresentationKind.CardBanished:
+                    return new Color(0.35f, 0.82f, 1f, 1f);
+                case DuelPresentationKind.CardSentToGrave:
+                    return new Color(0.72f, 0.78f, 0.90f, 1f);
+                case DuelPresentationKind.PhaseChanged:
+                    return new Color(0.62f, 0.94f, 1f, 1f);
+                default:
+                    return Color.white;
+            }
+        }
+
+        private static Color ResolveSummonHudColor(DuelPresentationSummonKind summonKind)
+        {
+            switch (summonKind)
+            {
+                case DuelPresentationSummonKind.Fusion:
+                    return new Color(0.86f, 0.46f, 1f, 1f);
+                case DuelPresentationSummonKind.Synchro:
+                    return new Color(0.92f, 1f, 0.96f, 1f);
+                case DuelPresentationSummonKind.Xyz:
+                    return new Color(0.98f, 0.86f, 0.28f, 1f);
+                case DuelPresentationSummonKind.Link:
+                    return new Color(0.36f, 0.68f, 1f, 1f);
+                case DuelPresentationSummonKind.Ritual:
+                    return new Color(0.38f, 0.58f, 1f, 1f);
+                case DuelPresentationSummonKind.Pendulum:
+                    return new Color(0.42f, 1f, 0.88f, 1f);
+                case DuelPresentationSummonKind.Tribute:
+                    return new Color(1f, 0.62f, 0.22f, 1f);
+                default:
+                    return new Color(0.58f, 1f, 0.74f, 1f);
             }
         }
 
@@ -1280,17 +1455,17 @@ namespace MDPro3
             switch (evt.MoveKind)
             {
                 case DuelPresentationMoveKind.Draw:
-                    return player + " \u62bd\u5361";
+                    return "\u3010\u62bd\u5361\u3011" + player;
                 case DuelPresentationMoveKind.ToHand:
-                    return cardName + " \u52a0\u5165\u624b\u724c";
+                    return "\u3010\u5165\u624b\u3011" + cardName;
                 case DuelPresentationMoveKind.ToField:
-                    return cardName + " \u51fa\u73b0\u5728\u573a\u4e0a";
+                    return "\u3010\u4e0a\u573a\u3011" + cardName;
                 case DuelPresentationMoveKind.Released:
-                    return "\u89e3\u653e " + cardName;
+                    return "\u3010\u89e3\u653e\u3011" + cardName;
                 case DuelPresentationMoveKind.Material:
-                    return cardName + " \u6210\u4e3a\u7d20\u6750";
+                    return "\u3010\u7d20\u6750\u3011" + cardName;
                 case DuelPresentationMoveKind.Overlay:
-                    return cardName + " \u53e0\u653e\u4e3a\u7d20\u6750";
+                    return "\u3010\u53e0\u653e\u3011" + cardName;
                 default:
                     return string.Empty;
             }
