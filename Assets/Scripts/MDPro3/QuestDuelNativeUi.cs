@@ -2080,7 +2080,7 @@ namespace MDPro3
             PopulateCardDetail(
                 cardDetailPinnedCard,
                 cardDetailPinnedCard.GetData(),
-                "\u5df2\u56fa\u5b9a",
+                "\u5df2\u56fa\u5b9a\uff1a" + GetCardName(cardDetailPinnedCard),
                 BuildPinnedCardActionText(cardDetailPinnedCard));
         }
 
@@ -2122,8 +2122,8 @@ namespace MDPro3
         {
             var text = BuildCardActionSummary(card);
             if (!string.IsNullOrWhiteSpace(text))
-                text += "\n";
-            text += "\u53f3\u624b\u6447\u6746\u518d\u6309\u4e00\u6b21\u53d6\u6d88\u56fa\u5b9a\u3002\n\u70b9\u51fb\u7a7a\u767d\u533a\u57df\u4e5f\u4f1a\u5173\u95ed\u3002";
+                text += "\n\n";
+            text += "\u8fd9\u5f20\u5361\u7684\u8be6\u60c5\u5df2\u4fdd\u6301\u663e\u793a\u3002\n\u53f3\u624b\u6447\u6746\u518d\u6309\u4e00\u6b21\u53d6\u6d88\u56fa\u5b9a\uff1b\u70b9\u51fb\u7a7a\u767d\u533a\u57df\u4e5f\u4f1a\u5173\u95ed\u3002";
             return text;
         }
 

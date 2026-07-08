@@ -499,6 +499,9 @@ namespace MDPro3
         private const float SelectionGuideBadgeWidth = 7.6f;
         private const float SelectionGuideBadgeHeight = 2.35f;
         private const float SelectionGuideBadgeYOffset = 2.1f;
+        private const float SelectionGuideRingBaseWidth = 0.18f;
+        private const float SelectionGuideRingPulseWidth = 0.085f;
+        private const float SelectionGuideRingPulseRadius = 0.20f;
         private const float AttackPortraitLungeDistance = 5.8f;
         private const float DirectAttackPortraitLungeDistance = 7.2f;
         private const float AttackProjectileHeight = 1.35f;
@@ -531,7 +534,9 @@ namespace MDPro3
         private readonly List<GameCard> staleCards = new List<GameCard>();
         private readonly List<GameObject> selectionGuideObjects = new List<GameObject>();
         private readonly List<Material> selectionGuideMaterials = new List<Material>();
+        private readonly List<SelectionGuideRing> selectionGuideRings = new List<SelectionGuideRing>();
         private readonly List<SelectionGuideBadge> selectionGuideBadges = new List<SelectionGuideBadge>();
+        private readonly List<SelectionGuideArc> selectionGuideArcs = new List<SelectionGuideArc>();
         private GameCard hoveredCard;
         private GameCard selectionSourceCard;
         private string selectionGuideSignature;
@@ -869,11 +874,11 @@ namespace MDPro3
                 if (!TryResolveSelectionTargetPose(target, out var center, out var radius))
                     continue;
 
-                CreateSelectionTargetRing(center, radius);
+                CreateSelectionTargetRing(target, center, radius, targetIndex);
                 CreateSelectionTargetBadge(target, center, radius, targetIndex, targets.Count);
 
                 if (hasSource)
-                    CreateSelectionGuideArc(sourcePoint, center + Vector3.up * 0.62f, targets.Count);
+                    CreateSelectionGuideArc(source, target, sourcePoint, center + Vector3.up * 0.62f, targetIndex, targets.Count);
             }
         }
 
@@ -917,7 +922,7 @@ namespace MDPro3
             return false;
         }
 
-        private void CreateSelectionTargetRing(Vector3 center, float radius)
+        private void CreateSelectionTargetRing(GameCard target, Vector3 center, float radius, int targetIndex)
         {
             var ringObject = new GameObject("QuestSelectionTargetRing");
             SetQuestOverlayLayer(ringObject);
@@ -928,26 +933,20 @@ namespace MDPro3
             line.positionCount = SelectionGuideCircleSegments;
             line.numCapVertices = 4;
             line.alignment = LineAlignment.View;
-            line.startWidth = 0.20f;
-            line.endWidth = 0.20f;
+            line.startWidth = SelectionGuideRingBaseWidth;
+            line.endWidth = SelectionGuideRingBaseWidth;
             var color = new Color(0.24f, 1f, 0.82f, 0.90f);
             var material = CreateMaterial("QuestSelectionTargetRingMaterial", color, true);
+            material.renderQueue = (int)RenderQueue.Transparent + 58;
             line.material = material;
-            var localCenter = presentationRoot.InverseTransformPoint(center);
-            var localRadius = radius / GetPresentationRootWorldScale();
-
-            for (var index = 0; index < SelectionGuideCircleSegments; index += 1)
-            {
-                var angle = Mathf.PI * 2f * index / SelectionGuideCircleSegments;
-                var position = localCenter + new Vector3(Mathf.Cos(angle) * localRadius, 0f, Mathf.Sin(angle) * localRadius);
-                line.SetPosition(index, position);
-            }
 
             selectionGuideObjects.Add(ringObject);
             selectionGuideMaterials.Add(material);
+            selectionGuideRings.Add(new SelectionGuideRing(target, line, targetIndex));
+            UpdateSelectionTargetRing(line, center, radius, targetIndex);
         }
 
-        private void CreateSelectionGuideArc(Vector3 from, Vector3 to, int targetCount)
+        private void CreateSelectionGuideArc(GameCard source, GameCard target, Vector3 from, Vector3 to, int targetIndex, int targetCount)
         {
             if ((to - from).sqrMagnitude < 0.01f)
                 return;
@@ -964,22 +963,13 @@ namespace MDPro3
             line.endWidth = 0.045f;
             var color = new Color(0.22f, 0.82f, 1f, 0.64f);
             var material = CreateMaterial("QuestSelectionGuideArcMaterial", color, true);
+            material.renderQueue = (int)RenderQueue.Transparent + 54;
             line.material = material;
-
-            var localFrom = presentationRoot.InverseTransformPoint(from);
-            var localTo = presentationRoot.InverseTransformPoint(to);
-            var planarDistance = Vector3.Distance(new Vector3(localFrom.x, 0f, localFrom.z), new Vector3(localTo.x, 0f, localTo.z));
-            var apex = Mathf.Clamp(planarDistance * 0.16f, 0.65f, 2.6f);
-            for (var index = 0; index < line.positionCount; index += 1)
-            {
-                var t = index / (float)(line.positionCount - 1);
-                var position = Vector3.Lerp(localFrom, localTo, t);
-                position.y += Mathf.Sin(t * Mathf.PI) * apex;
-                line.SetPosition(index, position);
-            }
 
             selectionGuideObjects.Add(lineObject);
             selectionGuideMaterials.Add(material);
+            selectionGuideArcs.Add(new SelectionGuideArc(source, target, line, targetIndex));
+            UpdateSelectionGuideArc(line, from, to, targetIndex, targetCount);
         }
 
         private void CreateSelectionTargetBadge(GameCard target, Vector3 center, float radius, int targetIndex, int targetCount)
@@ -1012,7 +1002,9 @@ namespace MDPro3
             textObject.transform.localRotation = Quaternion.identity;
             textObject.transform.localScale = Vector3.one;
             var text = textObject.AddComponent<TextMeshPro>();
-            text.text = targetCount > 1 ? "\u70b9\u9009\u76ee\u6807 " + (targetIndex + 1) : "\u70b9\u9009\u76ee\u6807";
+            text.text = targetCount > 1
+                ? "\u76ee\u6807 " + (targetIndex + 1) + "/" + targetCount + "  \u70b9\u9009\u6b64\u5361"
+                : "\u70b9\u9009\u6b64\u5361";
             text.alignment = TextAlignmentOptions.Center;
             text.fontSize = 4.2f;
             text.fontStyle = FontStyles.Bold;
@@ -1064,11 +1056,16 @@ namespace MDPro3
 
         private void UpdateSelectionGuideBillboards()
         {
+            UpdateSelectionGuideArcs();
+            UpdateSelectionGuideRings();
+
             for (var index = selectionGuideBadges.Count - 1; index >= 0; index -= 1)
             {
                 var badge = selectionGuideBadges[index];
                 if (badge == null || badge.Root == null || !TryResolveSelectionTargetPose(badge.Target, out var center, out var radius))
                 {
+                    DestroySelectionGuideObject(badge?.Root == null ? null : badge.Root.gameObject);
+                    DestroySelectionGuideObject(badge?.Pointer == null ? null : badge.Pointer.gameObject);
                     selectionGuideBadges.RemoveAt(index);
                     continue;
                 }
@@ -1087,6 +1084,96 @@ namespace MDPro3
                 var pulse = (Mathf.Sin(Time.unscaledTime * 3.1f + index * 0.73f) + 1f) * 0.5f;
                 badge.Root.localScale = Vector3.one * SelectionGuideBadgeScale * (1f + pulse * 0.075f);
             }
+        }
+
+        private void UpdateSelectionGuideArcs()
+        {
+            for (var index = selectionGuideArcs.Count - 1; index >= 0; index -= 1)
+            {
+                var arc = selectionGuideArcs[index];
+                if (arc == null || arc.Line == null)
+                {
+                    selectionGuideArcs.RemoveAt(index);
+                    continue;
+                }
+
+                var sourcePoint = Vector3.zero;
+                var targetCenter = Vector3.zero;
+                var hasSource = arc.Source != null && TryGetSelectionGuideSourcePoint(arc.Source, out sourcePoint);
+                var hasTarget = arc.Target != null && TryResolveSelectionTargetPose(arc.Target, out targetCenter, out _);
+                if (!hasSource || !hasTarget)
+                {
+                    DestroySelectionGuideObject(arc.Line.gameObject);
+                    selectionGuideArcs.RemoveAt(index);
+                    continue;
+                }
+
+                UpdateSelectionGuideArc(arc.Line, sourcePoint, targetCenter + Vector3.up * 0.62f, arc.TargetIndex, selectionGuideArcs.Count);
+            }
+        }
+
+        private void UpdateSelectionGuideRings()
+        {
+            for (var index = selectionGuideRings.Count - 1; index >= 0; index -= 1)
+            {
+                var ring = selectionGuideRings[index];
+                if (ring == null || ring.Line == null || !TryResolveSelectionTargetPose(ring.Target, out var center, out var radius))
+                {
+                    DestroySelectionGuideObject(ring?.Line == null ? null : ring.Line.gameObject);
+                    selectionGuideRings.RemoveAt(index);
+                    continue;
+                }
+
+                UpdateSelectionTargetRing(ring.Line, center, radius, ring.TargetIndex);
+            }
+        }
+
+        private void UpdateSelectionTargetRing(LineRenderer line, Vector3 center, float radius, int targetIndex)
+        {
+            if (line == null || presentationRoot == null)
+                return;
+
+            var pulse = (Mathf.Sin(Time.unscaledTime * 4.1f + targetIndex * 0.62f) + 1f) * 0.5f;
+            var localCenter = presentationRoot.InverseTransformPoint(center);
+            var localRadius = (radius + pulse * SelectionGuideRingPulseRadius) / GetPresentationRootWorldScale();
+            for (var index = 0; index < SelectionGuideCircleSegments; index += 1)
+            {
+                var angle = Mathf.PI * 2f * index / SelectionGuideCircleSegments;
+                var position = localCenter + new Vector3(Mathf.Cos(angle) * localRadius, 0f, Mathf.Sin(angle) * localRadius);
+                line.SetPosition(index, position);
+            }
+
+            var width = SelectionGuideRingBaseWidth + pulse * SelectionGuideRingPulseWidth;
+            line.startWidth = width;
+            line.endWidth = width;
+            var color = new Color(0.24f, 1f, 0.82f, 0.66f + pulse * 0.28f);
+            line.startColor = color;
+            line.endColor = color;
+        }
+
+        private void UpdateSelectionGuideArc(LineRenderer line, Vector3 from, Vector3 to, int targetIndex, int targetCount)
+        {
+            if (line == null || presentationRoot == null)
+                return;
+
+            var localFrom = presentationRoot.InverseTransformPoint(from);
+            var localTo = presentationRoot.InverseTransformPoint(to);
+            var planarDistance = Vector3.Distance(new Vector3(localFrom.x, 0f, localFrom.z), new Vector3(localTo.x, 0f, localTo.z));
+            var apex = Mathf.Clamp(planarDistance * 0.16f, 0.65f, 2.6f);
+            var pulse = (Mathf.Sin(Time.unscaledTime * 3.7f + targetIndex * 0.47f) + 1f) * 0.5f;
+            for (var index = 0; index < line.positionCount; index += 1)
+            {
+                var t = index / (float)(line.positionCount - 1);
+                var position = Vector3.Lerp(localFrom, localTo, t);
+                position.y += Mathf.Sin(t * Mathf.PI) * (apex + pulse * 0.16f);
+                line.SetPosition(index, position);
+            }
+
+            var color = new Color(0.22f, 0.82f, 1f, 0.46f + pulse * 0.20f);
+            line.startColor = color;
+            line.endColor = new Color(color.r, color.g, color.b, color.a * 0.62f);
+            line.startWidth = Mathf.Clamp(0.12f + Mathf.Max(1, targetCount) * 0.012f + pulse * 0.025f, 0.12f, 0.24f);
+            line.endWidth = 0.045f + pulse * 0.018f;
         }
 
         private float GetPresentationRootWorldScale()
@@ -1109,8 +1196,34 @@ namespace MDPro3
                 if (guide != null)
                     Destroy(guide);
             selectionGuideObjects.Clear();
+            selectionGuideRings.Clear();
             selectionGuideBadges.Clear();
+            selectionGuideArcs.Clear();
             selectionGuideSignature = null;
+        }
+
+        private void DestroySelectionGuideObject(GameObject guide)
+        {
+            if (guide == null)
+                return;
+
+            selectionGuideObjects.Remove(guide);
+            var renderers = guide.GetComponentsInChildren<Renderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                var materials = renderer.sharedMaterials;
+                foreach (var material in materials)
+                {
+                    if (material == null || !selectionGuideMaterials.Remove(material))
+                        continue;
+                    Destroy(material);
+                }
+            }
+
+            Destroy(guide);
         }
 
         private void EnsureRoot()
@@ -2407,9 +2520,9 @@ namespace MDPro3
             var pulse = (Mathf.Sin(Time.unscaledTime * 5.9f) + 1f) * 0.5f;
             target.transform.localPosition = new Vector3(0f, CardThickness + 0.034f, ActionMarkerZ + 0.10f);
             target.transform.localScale = new Vector3(
-                CardWidth * 0.62f + pulse * 0.34f,
-                0.018f,
-                ActionMarkerBaseDepth * 1.42f + pulse * 0.09f);
+                CardWidth * 0.82f + pulse * 0.42f,
+                0.020f,
+                ActionMarkerBaseDepth * 0.88f + pulse * 0.07f);
         }
 
         private static void SetHandAccentObject(GameObject target, bool active, bool emphasized, float normalizedEdge)
@@ -3370,7 +3483,7 @@ namespace MDPro3
             if (targetHighlightMaterial != null)
                 return targetHighlightMaterial;
 
-            targetHighlightMaterial = CreateMaterial("QuestCardTargetHighlightMaterial", new Color(0.10f, 0.88f, 1f, 0.46f), true);
+            targetHighlightMaterial = CreateMaterial("QuestCardTargetHighlightMaterial", new Color(0.10f, 0.96f, 0.82f, 0.62f), true);
             return targetHighlightMaterial;
         }
 
@@ -3631,6 +3744,36 @@ namespace MDPro3
                 Target = target;
                 Root = root;
                 Pointer = pointer;
+            }
+        }
+
+        private sealed class SelectionGuideRing
+        {
+            public readonly GameCard Target;
+            public readonly LineRenderer Line;
+            public readonly int TargetIndex;
+
+            public SelectionGuideRing(GameCard target, LineRenderer line, int targetIndex)
+            {
+                Target = target;
+                Line = line;
+                TargetIndex = targetIndex;
+            }
+        }
+
+        private sealed class SelectionGuideArc
+        {
+            public readonly GameCard Source;
+            public readonly GameCard Target;
+            public readonly LineRenderer Line;
+            public readonly int TargetIndex;
+
+            public SelectionGuideArc(GameCard source, GameCard target, LineRenderer line, int targetIndex)
+            {
+                Source = source;
+                Target = target;
+                Line = line;
+                TargetIndex = targetIndex;
             }
         }
 
