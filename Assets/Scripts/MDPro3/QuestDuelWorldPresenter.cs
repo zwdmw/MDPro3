@@ -467,12 +467,12 @@ namespace MDPro3
         private const float PowerLabelCameraSideOffset = CardHeight * 0.5f + 1.18f;
         private const float PowerLabelPortraitAvoidanceFactor = 0.18f;
         private const float PowerLabelPortraitAvoidancePadding = 0.76f;
-        private const float PowerLabelScale = 0.66f;
-        private const float PowerLabelPortraitScale = 0.78f;
+        private const float PowerLabelScale = 0.70f;
+        private const float PowerLabelPortraitScale = 0.82f;
         private const float PowerLabelPortraitTopGap = 1.25f;
         private const float PowerLabelPortraitForwardOffset = 0.86f;
-        private const float PowerLabelBackplateWidth = 11.2f;
-        private const float PowerLabelBackplateHeight = 3.35f;
+        private const float PowerLabelBackplateWidth = 10.8f;
+        private const float PowerLabelBackplateHeight = 2.72f;
         private const float PortraitBaseY = PowerLabelY + PowerLabelBackplateHeight * PowerLabelScale * 0.5f + 1.08f;
         private const int PortraitRenderQueueOffset = -28;
         private const int PowerLabelBackplateRenderQueueOffset = 70;
@@ -2090,7 +2090,7 @@ namespace MDPro3
                 return;
 
             var from = lungeTarget.position;
-            var to = ResolveAttackTargetPoint(evt) + Vector3.up * AttackImpactHeight;
+            var to = ResolveAttackLungeEndpoint(evt, from);
             var direction = to - from;
             if (direction.sqrMagnitude < 0.01f)
                 return;
@@ -2098,17 +2098,21 @@ namespace MDPro3
 
             var originalLocalPosition = lungeTarget.localPosition;
             var originalLocalScale = lungeTarget.localScale;
-            var lungeDistance = evt.Direct ? DirectAttackPortraitLungeDistance : AttackPortraitLungeDistance;
-            var peak = from + direction * lungeDistance + Vector3.up * (evt.Final ? 0.72f : 0.34f);
+            var distanceToTarget = Vector3.Distance(from, to);
+            if (distanceToTarget < 0.35f)
+                return;
+            var peak = to + Vector3.up * (evt.Final ? 0.72f : 0.34f);
             var scaleBoost = evt.Final ? 1.18f : evt.Direct ? 1.12f : 1.08f;
+            var rushDuration = Mathf.Clamp(distanceToTarget * 0.010f, evt.Direct ? 0.20f : 0.16f, evt.Direct ? 0.38f : 0.32f);
+            var recoverDuration = Mathf.Clamp(distanceToTarget * 0.012f, 0.26f, 0.44f);
 
             lungeTarget.DOKill(false);
             DOTween.Sequence()
-                .Append(lungeTarget.DOMove(peak, evt.Direct ? 0.22f : 0.16f).SetEase(Ease.OutCubic))
-                .Join(lungeTarget.DOScale(originalLocalScale * scaleBoost, evt.Direct ? 0.22f : 0.16f).SetEase(Ease.OutQuad))
+                .Append(lungeTarget.DOMove(peak, rushDuration).SetEase(Ease.OutCubic))
+                .Join(lungeTarget.DOScale(originalLocalScale * scaleBoost, rushDuration).SetEase(Ease.OutQuad))
                 .AppendInterval(evt.Direct ? 0.05f : 0.03f)
-                .Append(lungeTarget.DOLocalMove(originalLocalPosition, 0.28f).SetEase(Ease.OutBack))
-                .Join(lungeTarget.DOScale(originalLocalScale, 0.28f).SetEase(Ease.OutBack))
+                .Append(lungeTarget.DOLocalMove(originalLocalPosition, recoverDuration).SetEase(Ease.OutBack))
+                .Join(lungeTarget.DOScale(originalLocalScale, recoverDuration).SetEase(Ease.OutBack))
                 .OnKill(() =>
                 {
                     if (lungeTarget != null)
@@ -2117,6 +2121,57 @@ namespace MDPro3
                         lungeTarget.localScale = originalLocalScale;
                     }
                 });
+        }
+
+        private Vector3 ResolveAttackLungeEndpoint(DuelPresentationEvent evt, Vector3 from)
+        {
+            var targetPoint = ResolveAttackTargetPoint(evt) + Vector3.up * AttackImpactHeight;
+            var direction = targetPoint - from;
+            if (direction.sqrMagnitude < 0.0001f)
+                return targetPoint;
+            direction.Normalize();
+
+            if (evt != null && evt.TargetCard != null && TryGetAttackTargetBounds(evt.TargetCard, out var bounds))
+            {
+                var extentAlongPath =
+                    Mathf.Abs(direction.x) * bounds.extents.x
+                    + Mathf.Abs(direction.y) * bounds.extents.y
+                    + Mathf.Abs(direction.z) * bounds.extents.z;
+                var nearSurface = bounds.center - direction * Mathf.Max(0.12f, extentAlongPath);
+                var clearance = Mathf.Clamp(Mathf.Max(bounds.extents.x, bounds.extents.z) * 0.18f + 0.58f, 0.72f, 2.1f);
+                var endpoint = nearSurface - direction * clearance;
+                endpoint.y = Mathf.Max(endpoint.y, from.y + 0.10f);
+                return endpoint;
+            }
+
+            var directClearance = evt != null && evt.Direct ? DirectAttackPortraitLungeDistance : AttackPortraitLungeDistance;
+            var distance = Vector3.Distance(from, targetPoint);
+            if (distance <= directClearance + 0.45f)
+                return targetPoint;
+            return from + direction * (distance - directClearance);
+        }
+
+        private bool TryGetAttackTargetBounds(GameCard card, out Bounds bounds)
+        {
+            bounds = default;
+            if (card == null)
+                return false;
+            if (!cardProxies.TryGetValue(card, out var proxy) || proxy == null)
+                return false;
+
+            if (proxy.Portrait != null
+                && proxy.Portrait.activeInHierarchy
+                && proxy.PortraitRenderer != null
+                && proxy.PortraitRenderer.enabled)
+            {
+                bounds = proxy.PortraitRenderer.bounds;
+                return true;
+            }
+
+            if (proxy.Root != null && proxy.Root.activeInHierarchy && TryCollectWorldBounds(proxy.Root, out bounds))
+                return true;
+
+            return false;
         }
 
         private void PlayAttackImpact(DuelPresentationEvent evt)
@@ -3209,14 +3264,14 @@ namespace MDPro3
             if (data.HasType(CardType.Tuner))
                 extras += "  \u8c03\u6574";
 
-            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 20);
+            var grade = ColorizePowerLine(string.Empty, extras, new Color(1f, 0.84f, 0.30f, 1f), 21);
             var attackActive = card != null && card.p != null && ((card.p.position & (uint)CardPosition.Attack) > 0 || data.HasType(CardType.Link));
             var defenseActive = !data.HasType(CardType.Link) && !attackActive;
             var stance = data.HasType(CardType.Link)
                 ? "LINK"
                 : attackActive ? "\u653b\u51fb\u8868\u793a" : "\u5b88\u5907\u8868\u793a";
-            var stanceText = ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 20);
-            var attack = ColorizePowerLine("\u653b\u51fb", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 32 : 24);
+            var stanceText = ColorizePowerLine(string.Empty, stance, new Color(0.72f, 0.92f, 1f, 1f), 21);
+            var attack = ColorizePowerLine("\u653b", data.GetAttackString(), ResolvePowerLabelColor(data.Attack, data.rAttack), attackActive ? 34 : 27);
             if (data.HasType(CardType.Link))
                 return grade + "  " + stanceText + "\n" + attack;
 
@@ -3226,7 +3281,7 @@ namespace MDPro3
                 + "\n"
                 + attack
                 + "   "
-                + ColorizePowerLine("\u5b88\u5907", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 32 : 24);
+                + ColorizePowerLine("\u5b88", data.GetDefenseString(), ResolvePowerLabelColor(data.Defense, data.rDefense), defenseActive ? 34 : 27);
         }
 
         private static string GetMonsterGradeLabel(Card data)
@@ -3260,7 +3315,7 @@ namespace MDPro3
             var content = string.IsNullOrEmpty(label) ? value : label + " " + value;
             if (size > 0)
                 content = "<size=" + size + ">" + content + "</size>";
-            return "<mark=#061016D8><color=#" + ColorUtility.ToHtmlStringRGB(color) + ">" + content + "</color></mark>";
+            return "<color=#" + ColorUtility.ToHtmlStringRGB(color) + ">" + content + "</color>";
         }
 
         private static bool IsQuestFieldSelectionTarget(GameCard card)
@@ -4068,7 +4123,7 @@ namespace MDPro3
             if (powerLabelBackplateMaterial != null)
                 return powerLabelBackplateMaterial;
 
-            powerLabelBackplateMaterial = CreateMaterial("QuestPowerLabelBackplateMaterial", new Color(0.015f, 0.025f, 0.035f, 0.78f), true);
+            powerLabelBackplateMaterial = CreateMaterial("QuestPowerLabelBackplateMaterial", new Color(0.008f, 0.018f, 0.026f, 0.58f), true);
             powerLabelBackplateMaterial.renderQueue = (int)RenderQueue.Transparent + PowerLabelBackplateRenderQueueOffset;
             return powerLabelBackplateMaterial;
         }
@@ -4440,7 +4495,7 @@ namespace MDPro3
                 var front = CreateCardQuad("QuestCardProxyFront", root.transform, CardThickness + 0.006f, faceMaterial);
                 var back = CreateCardQuad("QuestCardProxyBack", root.transform, CardThickness + 0.012f, backMaterial);
                 var portrait = CreatePortraitQuad("QuestCardProxyPortrait", root.transform, faceMaterial);
-                var powerLabel = CreatePowerLabel(root.transform, powerLabelBackplateMaterial);
+                var powerLabel = CreatePowerLabel(root.transform, powerLabelBackplateMaterial, handAccentMaterial);
                 var interactionLabel = CreateInteractionLabel(root.transform);
                 var powerLabelText = powerLabel.GetComponentInChildren<TextMeshPro>(true);
                 var interactionLabelText = interactionLabel.GetComponentInChildren<TextMeshPro>(true);
@@ -4516,7 +4571,7 @@ namespace MDPro3
                 return quad;
             }
 
-            private static GameObject CreatePowerLabel(Transform parent, Material backplateMaterial)
+            private static GameObject CreatePowerLabel(Transform parent, Material backplateMaterial, Material accentMaterial)
             {
                 var labelRoot = new GameObject("QuestCardProxyPowerLabel");
                 SetQuestOverlayLayer(labelRoot);
@@ -4538,6 +4593,9 @@ namespace MDPro3
                 if (backplateRenderer != null)
                     backplateRenderer.sortingOrder = 112;
 
+                CreatePowerLabelAccent(labelRoot.transform, accentMaterial, new Vector3(0f, PowerLabelBackplateHeight * 0.47f, 0.030f), new Vector3(PowerLabelBackplateWidth * 0.92f, 0.045f, 1f), 114);
+                CreatePowerLabelAccent(labelRoot.transform, accentMaterial, new Vector3(0f, -PowerLabelBackplateHeight * 0.47f, 0.030f), new Vector3(PowerLabelBackplateWidth * 0.62f, 0.032f, 1f), 114);
+
                 var textObject = new GameObject("QuestCardProxyPowerText");
                 SetQuestOverlayLayer(textObject);
                 textObject.transform.SetParent(labelRoot.transform, false);
@@ -4547,21 +4605,38 @@ namespace MDPro3
 
                 var text = textObject.AddComponent<TextMeshPro>();
                 text.alignment = TextAlignmentOptions.Center;
-                text.fontSize = 27.5f;
+                text.fontSize = 29f;
                 text.fontStyle = FontStyles.Bold;
                 text.richText = true;
                 text.enableWordWrapping = false;
                 text.overflowMode = TextOverflowModes.Overflow;
                 text.text = string.Empty;
                 text.color = Color.white;
-                text.outlineWidth = 0.42f;
-                text.outlineColor = new Color(0f, 0f, 0f, 0.92f);
+                text.outlineWidth = 0.30f;
+                text.outlineColor = new Color(0f, 0f, 0f, 0.86f);
                 text.margin = new Vector4(1.05f, 0.42f, 1.05f, 0.42f);
                 text.rectTransform.sizeDelta = new Vector2(PowerLabelBackplateWidth, PowerLabelBackplateHeight);
                 ConfigureTextOverlay(text, 120);
 
                 labelRoot.SetActive(false);
                 return labelRoot;
+            }
+
+            private static GameObject CreatePowerLabelAccent(Transform parent, Material material, Vector3 localPosition, Vector3 localScale, int sortingOrder)
+            {
+                var accent = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                accent.name = "QuestCardProxyPowerAccent";
+                SetQuestOverlayLayer(accent);
+                UnityEngine.Object.Destroy(accent.GetComponent<Collider>());
+                accent.transform.SetParent(parent, false);
+                accent.transform.localPosition = localPosition;
+                accent.transform.localRotation = Quaternion.identity;
+                accent.transform.localScale = localScale;
+                ConfigureRenderer(accent.GetComponent<MeshRenderer>(), material);
+                var renderer = accent.GetComponent<MeshRenderer>();
+                if (renderer != null)
+                    renderer.sortingOrder = sortingOrder;
+                return accent;
             }
 
             private static GameObject CreateInteractionLabel(Transform parent)

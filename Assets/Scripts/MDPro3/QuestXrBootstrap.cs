@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using DG.Tweening;
 using TMPro;
 using MDPro3.YGOSharp.OCGWrapper.Enums;
 using Unity.XR.CoreUtils;
@@ -408,6 +409,7 @@ namespace MDPro3
         private InputActionReference uiPointReference;
         private InputActionReference uiClickReference;
         private static QuestXrBootstrap activeInstance;
+        private static bool questTweenCapacityConfigured;
         private static float questNativeDuelFrontendSuppressedUntil;
 
         private sealed class QuestDuelAction
@@ -844,6 +846,7 @@ namespace MDPro3
             QuestDuelNativeUi.UiVisibilityChanged += HandleQuestNativeUiVisibilityChanged;
             createdAt = Time.unscaledTime;
             QuestRuntimeDebugSettings.Initialize();
+            ConfigureQuestTweenCapacity();
             ConfigureFloorTrackingOrigin();
             CreateXrCamera();
             if (UsePassthroughMixedReality)
@@ -858,6 +861,16 @@ namespace MDPro3
             RegisterQuestInputCallbacks();
             RequestQuestInputRefresh("startup");
 #endif
+        }
+
+        private static void ConfigureQuestTweenCapacity()
+        {
+            if (questTweenCapacityConfigured)
+                return;
+
+            questTweenCapacityConfigured = true;
+            DOTween.SetTweensCapacity(1200, 200);
+            Debug.Log("Quest XR DOTween capacity configured: tweeners=1200, sequences=200");
         }
 
         private void Update()
