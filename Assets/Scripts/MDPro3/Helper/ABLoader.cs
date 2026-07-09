@@ -277,6 +277,8 @@ namespace MDPro3
                 aliasRelative = "Android/MasterDuel/BG/Timer/Timer_013";
             else if (relative.EndsWith("Android/MasterDuel/BG/timer/phasebutton_c001", StringComparison.OrdinalIgnoreCase))
                 aliasRelative = "Android/MasterDuel/BG/Timer/PhaseButton_013";
+            else if (relative.EndsWith("Android/MasterDuel/BG/celestialsphere_c001", StringComparison.OrdinalIgnoreCase))
+                aliasRelative = "Android/MasterDuel/BG/CelestialSphere_c002";
             else if (relative.EndsWith("Android/MasterDuel/BG/Timer/PlayableGuide_C001_Near", StringComparison.OrdinalIgnoreCase))
                 aliasRelative = "Android/MasterDuel/BG/Timer/PlayableGuide_c001_near_Mat13";
             else if (relative.EndsWith("Android/MasterDuel/BG/Timer/PlayableGuide_C001_Far", StringComparison.OrdinalIgnoreCase))

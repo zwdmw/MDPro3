@@ -2924,7 +2924,7 @@ namespace MDPro3
                 foreach (var card in selectedOrder)
                     packet.writer.Write((byte)card.selectPtr);
             }
-            core.SendReturn(packet.Get());
+            SendPreparedResponse(packet, "select-card", selectedOrder.Count.ToString(CultureInfo.InvariantCulture));
         }
 
         private void ConfirmIdleOrBattleCard()
@@ -3015,7 +3015,7 @@ namespace MDPro3
 
             var packet = new BinaryMaster();
             packet.writer.Write(card.GetData().Id);
-            core.SendReturn(packet.Get());
+            SendPreparedResponse(packet, "announce-card", card.GetData().Id.ToString(CultureInfo.InvariantCulture));
             core.ClearAnnounceCards();
         }
 
@@ -3034,7 +3034,7 @@ namespace MDPro3
 
             var packet = new BinaryMaster();
             packet.writer.Write(bytes);
-            core.SendReturn(packet.Get());
+            SendPreparedResponse(packet, "sort-cards", cards.Count.ToString(CultureInfo.InvariantCulture));
         }
 
         private void CancelCardSelection()
@@ -3112,7 +3112,58 @@ namespace MDPro3
 
             var packet = new BinaryMaster();
             packet.writer.Write(response);
+            SendPreparedResponse(packet, "int", response.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private void SendPreparedResponse(BinaryMaster packet, string responseKind, string responseValue)
+        {
+            var core = Program.instance?.ocgcore;
+            if (core == null || packet == null)
+                return;
+
+            var message = core.currentMessage;
+            var phase = core.phase;
+            var selected = BuildSelectedOrderDebugSummary();
+            var actions = BuildCoreActionableCardSummary(core);
+            var targets = BuildSelectableTargetSummary(core);
             core.SendReturn(packet.Get());
+            if (QuestRuntimeDebugSettings.EventLog || QuestRuntimeDebugSettings.VerboseDiagnostics)
+            {
+                Debug.LogFormat(
+                    "Quest duel response sent: message={0}, phase={1}, kind={2}, response={3}, selected={4}, actions={5}, targets={6}",
+                    message,
+                    phase,
+                    responseKind,
+                    responseValue,
+                    selected,
+                    actions,
+                    targets);
+            }
+        }
+
+        private string BuildSelectedOrderDebugSummary()
+        {
+            if (selectedOrder == null || selectedOrder.Count == 0)
+                return "none";
+
+            var builder = new StringBuilder(160);
+            var count = 0;
+            foreach (var card in selectedOrder)
+            {
+                if (card == null)
+                    continue;
+                if (count > 0)
+                    builder.Append('|');
+                AppendCardDebugIdentity(builder, card);
+                count += 1;
+                if (count >= 12 && selectedOrder.Count > count)
+                {
+                    builder.Append("|...");
+                    break;
+                }
+            }
+
+            return count == 0 ? "none" : builder.ToString();
         }
 
         private void PreselectForcedCardsForSum()

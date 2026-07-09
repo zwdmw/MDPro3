@@ -49,8 +49,8 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
 - Added `Tools/Test-QuestExpansionResources.ps1`.
   - It follows the same expansion CDB priority model as `ZipHelper.GetExpansionDatabaseFiles()`.
   - It reports target-card duplicate rows, the final winning database, loose/zip Lua presence, and ocgcore script-load status.
-  - Latest local run: `Logs/quest-expansion-resource-check-20260709-104507.md`.
-  - Latest Quest device-side run: `Logs/quest-expansion-resource-check-20260709-104507-device.json`.
+  - Latest local run: `Logs/quest-expansion-resource-check-20260709-112339.md`.
+  - Latest Quest device-side run: `Logs/quest-expansion-resource-check-20260709-112339-device.json`.
   - Current target result: `100083`, `99993`, `100352`, and `100047` all resolve to `IFZCG2.cdb`, have loose and zipped scripts, and pass ocgcore script-load checks.
   - Current Quest device result: target loose scripts and `script.zip` exist under `/sdcard/Android/data/com.ygo.mdpro3.quest/files/Expansions` and match host file sizes.
 - Updated `Tools/Run-QuestDebugSession.ps1` so generated reports include Quest extra deck/action/selection diagnostics such as:
@@ -69,6 +69,15 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
   - Each presentation event records kind, card, target, controller, summon kind, move kind, value, chain index, direct/final flags, from/to GPS, phase, and reason.
   - `Run-QuestDebugSession.ps1` includes these lines in generated important log reports.
   - Debug reports now prefer app-filtered log lines for health counts and count fixture events, duel-state snapshots, and actionable snapshots separately.
+- Added `Tools/Test-QuestDebugSession.ps1`.
+  - It validates a captured debug session against required log patterns, fixture events, move kinds, summon kinds, actionable card ids, screenshots, and critical error patterns.
+  - It scans the full raw app log by PID for critical errors, while using the important log only for flow summaries.
+  - It supports `RequiredCardFlows` assertions so a fixture can bind card id, candidate action, response, summon kind, and final location to one card path.
+  - It reports missing AssetBundles, runtime fallback bundles, and unresolved missing bundles separately. Runtime fallbacks are allowed for rules fixtures but remain visible as presentation debt.
+  - It is the gate that turns a Quest debug run into a pass/fail fixture result.
+  - It keeps strict general exception checks enabled by default, reports general Unity error counts, and has an audited ignore list for known benign startup warnings such as transient local `TcpHelper.Join` connection refusals.
+- Added `Quest duel response sent:` runtime logs in `QuestDuelNativeUi` for int, select-card, announce-card, and sort-card responses.
+- Added an Android AssetBundle alias for `MasterDuel/BG/celestialsphere_c001` to the available `CelestialSphere_c002` Android bundle.
 
 ### Tasks
 
@@ -149,6 +158,7 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
   - SelectPlace
   - SelectPosition
 - The debug report shows zero new `NullReferenceException`, `InvalidKeyException`, missing Lua, or ocgcore script errors.
+- The fixture validation report shows zero unresolved missing AssetBundles. Runtime fallback count may be non-zero during Phase 1, but must trend down during presentation phases.
 
 ## Phase 2: Field-First Interaction Layer
 
