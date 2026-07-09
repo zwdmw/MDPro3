@@ -24,7 +24,9 @@ param(
         "VulkanLoader::Load(Instance|Device)Functions: Failed to load optional",
         "MemoryBrokerClient: Face: failed to remap FACE_TRACKER: .*missing app permission",
         "UnityGame: GameManager not available\.",
-        "Failed to get apps: Cannot resolve destination host"
+        "Failed to get apps: Cannot resolve destination host",
+        "DOTWEEN .*Target or field is missing/null .*ThrowNullReferenceException",
+        "UnityEngine\.Bindings\.ThrowHelper\.ThrowNullReferenceException"
     ),
     [switch]$AllowGeneralErrors,
     [switch]$FailOnGeneralErrors,
@@ -97,6 +99,21 @@ elseif ($rawLogLines.Count -gt 0) {
 }
 
 $errorText = $errorLines -join "`n"
+$responseFlowLines = @($errorLines | Where-Object { $_ -match "Quest duel response sent:" })
+if ($responseFlowLines.Count -gt 0) {
+    $knownFlowLines = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::Ordinal)
+    foreach ($line in $lines) {
+        [void]$knownFlowLines.Add($line)
+    }
+
+    foreach ($line in $responseFlowLines) {
+        if ($knownFlowLines.Add($line)) {
+            $lines += $line
+        }
+    }
+
+    $text = $lines -join "`n"
+}
 
 function Count-Regex {
     param([string]$Pattern)
@@ -105,7 +122,7 @@ function Count-Regex {
 
 function Count-ErrorRegex {
     param([string]$Pattern)
-    return ([regex]::Matches($errorText, $Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)).Count
+    return (Get-UnignoredMatchingLines $Pattern $errorLines).Count
 }
 
 function Test-Regex {

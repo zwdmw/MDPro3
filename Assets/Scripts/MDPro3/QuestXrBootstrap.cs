@@ -7527,7 +7527,7 @@ namespace MDPro3
                         return;
                 }
 
-                SendQuestDuelIntResponse(response);
+                SendQuestDuelIntResponse(response, action);
                 return;
             }
 
@@ -7583,15 +7583,48 @@ namespace MDPro3
                 core.FieldSelectedCancel();
         }
 
-        private static void SendQuestDuelIntResponse(int response)
+        private static void SendQuestDuelIntResponse(int response, QuestDuelAction action)
         {
             var core = Program.instance?.ocgcore;
             if (core == null)
                 return;
 
+            var message = core.currentMessage;
+            var phase = core.phase;
+            var selected = BuildQuestDuelActionDebugIdentity(action);
             var packet = new BinaryMaster();
             packet.writer.Write(response);
             core.SendReturn(packet.Get());
+            if (QuestRuntimeDebugSettings.EventLog || QuestRuntimeDebugSettings.VerboseDiagnostics)
+            {
+                Debug.LogFormat(
+                    "Quest duel response sent: message={0}, phase={1}, kind=quest-xr-action, response={2}, selected={3}, action={4}, targets=none",
+                    message,
+                    phase,
+                    response,
+                    selected,
+                    action == null ? "none" : action.Type.ToString());
+            }
+        }
+
+        private static string BuildQuestDuelActionDebugIdentity(QuestDuelAction action)
+        {
+            var card = action == null ? null : action.Card;
+            if (card == null)
+                return "none";
+
+            var data = card.GetData();
+            var id = data == null ? 0 : data.Id;
+            if (card.p == null)
+                return id + "@0:0";
+
+            return id
+                + "@"
+                + card.p.location
+                + ":"
+                + card.p.sequence
+                + "/"
+                + card.p.controller;
         }
 
         private static bool ShowQuestEffectSelection(GameCard card, bool includeCancel)
