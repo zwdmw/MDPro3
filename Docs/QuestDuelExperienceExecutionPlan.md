@@ -61,6 +61,10 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
   - `Quest duel action clicked`
   - `Quest duel target`
   - `Quest duel selection`
+- Extended `QuestDuelNativeUi` duel-state diagnostics so `Quest duel state changed/unchanged` lines include:
+  - `panels=` visible Quest panel count, names, and world positions.
+  - `actions=` actionable card ids, locations, controllers, and button responses.
+  - `targets=` field selection target ids, locations, and controllers.
 
 ### Tasks
 

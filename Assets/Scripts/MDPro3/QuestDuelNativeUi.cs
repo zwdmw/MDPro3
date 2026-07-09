@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using MDPro3.Net;
 using MDPro3.UI;
@@ -1621,7 +1622,7 @@ namespace MDPro3
                 if (QuestRuntimeDebugSettings.VerboseDiagnostics)
                 {
                     Debug.LogFormat(
-                        "Quest duel state changed: message={0}, phase={1}, myTurn={2}, actionable={3}, selectable={4}, chain={5}, phaseButtons=[battle:{6},main2:{7},end:{8}], lp={9}/{10}, text={11}, log={12}",
+                        "Quest duel state changed: message={0}, phase={1}, myTurn={2}, actionable={3}, selectable={4}, chain={5}, phaseButtons=[battle:{6},main2:{7},end:{8}], lp={9}/{10}, text={11}, log={12}, panels={13}, actions={14}, targets={15}",
                         core.currentMessage,
                         core.phase,
                         core.myTurn,
@@ -1634,7 +1635,10 @@ namespace MDPro3
                         core.life0,
                         core.life1,
                         TrimForHud(messageText, 48),
-                        TrimForHud(logText, 72));
+                        TrimForHud(logText, 72),
+                        BuildVisiblePanelSummary(),
+                        BuildCoreActionableCardSummary(core),
+                        BuildSelectableTargetSummary(core));
                 }
 
                 return;
@@ -1646,7 +1650,7 @@ namespace MDPro3
 
             lastDuelStateWatchLogTime = now;
             Debug.LogFormat(
-                "Quest duel state unchanged: seconds={0:F1}, message={1}, phase={2}, myTurn={3}, actionable={4}, selectable={5}, chain={6}, phaseButtons=[battle:{7},main2:{8},end:{9}], lp={10}/{11}, text={12}, log={13}",
+                "Quest duel state unchanged: seconds={0:F1}, message={1}, phase={2}, myTurn={3}, actionable={4}, selectable={5}, chain={6}, phaseButtons=[battle:{7},main2:{8},end:{9}], lp={10}/{11}, text={12}, log={13}, panels={14}, actions={15}, targets={16}",
                 unchangedSeconds,
                 core.currentMessage,
                 core.phase,
@@ -1660,7 +1664,10 @@ namespace MDPro3
                 core.life0,
                 core.life1,
                 TrimForHud(messageText, 48),
-                TrimForHud(logText, 72));
+                TrimForHud(logText, 72),
+                BuildVisiblePanelSummary(),
+                BuildCoreActionableCardSummary(core),
+                BuildSelectableTargetSummary(core));
         }
 
         private void TriggerLifeHudFlash(DuelPresentationEvent evt)
@@ -1956,6 +1963,125 @@ namespace MDPro3
                 if (place != null && place.cardSelecting && place.cookieCard != null)
                     count += 1;
             return count;
+        }
+
+        private string BuildVisiblePanelSummary()
+        {
+            var builder = new StringBuilder(160);
+            var count = 0;
+            AppendVisiblePanel(builder, ref count, cardPanelCanvas, "cards", cardPanelRect);
+            AppendVisiblePanel(builder, ref count, cardInfoCanvas, "info", cardInfoRect);
+            AppendVisiblePanel(builder, ref count, cardDetailCanvas, "detail", cardDetailRect);
+            AppendVisiblePanel(builder, ref count, optionCanvas, "option", optionRect);
+            AppendVisiblePanel(builder, ref count, phaseMenuCanvas, "phaseMenu", phaseMenuRect);
+            AppendVisiblePanel(builder, ref count, phaseHudCanvas, "phaseHud", phaseHudRect);
+            AppendVisiblePanel(builder, ref count, stateBannerCanvas, "state", stateBannerRect);
+            AppendVisiblePanel(builder, ref count, chainPanelCanvas, "chain", chainPanelRect);
+            AppendVisiblePanel(builder, ref count, controlHudCanvas, "control", controlHudRect);
+            AppendVisiblePanel(builder, ref count, duelLogCanvas, "log", duelLogRect);
+            if (count == 0)
+                return "none";
+            return "count=" + count + ":" + builder;
+        }
+
+        private static void AppendVisiblePanel(StringBuilder builder, ref int count, Canvas canvas, string label, RectTransform rect)
+        {
+            if (canvas == null || !canvas.gameObject.activeInHierarchy)
+                return;
+            if (count > 0)
+                builder.Append('|');
+            builder.Append(label);
+            if (rect != null)
+            {
+                var position = rect.position;
+                builder.Append('@')
+                    .Append(position.x.ToString("F1", CultureInfo.InvariantCulture))
+                    .Append(',')
+                    .Append(position.y.ToString("F1", CultureInfo.InvariantCulture))
+                    .Append(',')
+                    .Append(position.z.ToString("F1", CultureInfo.InvariantCulture));
+            }
+            count += 1;
+        }
+
+        private static string BuildCoreActionableCardSummary(OcgCore core)
+        {
+            if (core == null || core.cards == null)
+                return "none";
+
+            var builder = new StringBuilder(256);
+            var count = 0;
+            foreach (var card in core.cards)
+            {
+                if (card == null || card.p == null || card.buttons == null || card.buttons.Count == 0)
+                    continue;
+                if ((card.p.location & (uint)(CardLocation.Hand | CardLocation.Onfield | CardLocation.Grave | CardLocation.Removed | CardLocation.Deck | CardLocation.Extra)) == 0)
+                    continue;
+                if (count > 0)
+                    builder.Append('|');
+                AppendCardDebugIdentity(builder, card);
+                builder.Append('[');
+                for (var i = 0; i < card.buttons.Count; i += 1)
+                {
+                    if (i > 0)
+                        builder.Append(',');
+                    var button = card.buttons[i];
+                    builder.Append(button.type);
+                    if (button.response != null && button.response.Count > 0)
+                        builder.Append('=').Append(button.response[0]);
+                }
+                builder.Append(']');
+                count += 1;
+                if (count >= 12)
+                {
+                    builder.Append("|...");
+                    break;
+                }
+            }
+
+            return count == 0 ? "none" : builder.ToString();
+        }
+
+        private static string BuildSelectableTargetSummary(OcgCore core)
+        {
+            if (core == null || core.places == null)
+                return "none";
+
+            var builder = new StringBuilder(192);
+            var count = 0;
+            foreach (var place in core.places)
+            {
+                if (place == null || !place.cardSelecting || place.cookieCard == null)
+                    continue;
+                if (count > 0)
+                    builder.Append('|');
+                AppendCardDebugIdentity(builder, place.cookieCard);
+                count += 1;
+                if (count >= 12)
+                {
+                    builder.Append("|...");
+                    break;
+                }
+            }
+
+            return count == 0 ? "none" : builder.ToString();
+        }
+
+        private static void AppendCardDebugIdentity(StringBuilder builder, GameCard card)
+        {
+            var data = card == null ? null : card.GetData();
+            builder.Append(data == null ? 0 : data.Id)
+                .Append('@');
+            if (card == null || card.p == null)
+            {
+                builder.Append("0:0");
+                return;
+            }
+            builder.Append(card.p.location)
+                .Append(':')
+                .Append(card.p.sequence)
+                .Append('/')
+                .Append(card.p.controller);
         }
 
         private static int SafeGetHandCount(OcgCore core, bool mine)
