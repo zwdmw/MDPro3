@@ -49,8 +49,10 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
 - Added `Tools/Test-QuestExpansionResources.ps1`.
   - It follows the same expansion CDB priority model as `ZipHelper.GetExpansionDatabaseFiles()`.
   - It reports target-card duplicate rows, the final winning database, loose/zip Lua presence, and ocgcore script-load status.
-  - Latest local run: `Logs/quest-expansion-resource-check-20260709-103830.md`.
+  - Latest local run: `Logs/quest-expansion-resource-check-20260709-104507.md`.
+  - Latest Quest device-side run: `Logs/quest-expansion-resource-check-20260709-104507-device.json`.
   - Current target result: `100083`, `99993`, `100352`, and `100047` all resolve to `IFZCG2.cdb`, have loose and zipped scripts, and pass ocgcore script-load checks.
+  - Current Quest device result: target loose scripts and `script.zip` exist under `/sdcard/Android/data/com.ygo.mdpro3.quest/files/Expansions` and match host file sizes.
 - Updated `Tools/Run-QuestDebugSession.ps1` so generated reports include Quest extra deck/action/selection diagnostics such as:
   - `Quest location browser opened`
   - `Quest extra deck cards`

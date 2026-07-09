@@ -2,8 +2,11 @@ param(
     [string]$RuntimeRoot = "D:\game\MDPro3",
     [string]$ProjectRoot = "D:\game\MDPro3-src",
     [string]$CardLabRoot = "D:\Cards",
+    [string]$AdbExe = "D:\Unity\Editors\6000.0.28f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe",
+    [string]$PackageName = "com.ygo.mdpro3.quest",
     [int[]]$TargetCardIds = @(100083, 99993, 100352, 100047),
     [string]$OutputRoot = "D:\game\MDPro3-src\Logs",
+    [switch]$CheckDevice,
     [switch]$NoFail
 )
 
@@ -26,6 +29,8 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $jsonPath = Join-Path $OutputRoot "quest-expansion-resource-check-$stamp.json"
 $markdownPath = Join-Path $OutputRoot "quest-expansion-resource-check-$stamp.md"
 $pythonPath = Join-Path $OutputRoot "quest-expansion-resource-check-$stamp.py"
+
+$deviceReportPath = Join-Path $OutputRoot "quest-expansion-resource-check-$stamp-device.json"
 
 $python = @'
 from __future__ import annotations
@@ -308,6 +313,86 @@ Set-Content -LiteralPath $pythonPath -Value $python -Encoding UTF8
 $targetArg = ($TargetCardIds -join ",")
 & py -3.10 $pythonPath $RuntimeRoot $ProjectRoot $CardLabRoot $jsonPath $markdownPath $targetArg
 $exitCode = $LASTEXITCODE
+
+if ($CheckDevice) {
+    $deviceStatus = [ordered]@{
+        packageName = $PackageName
+        adb = $AdbExe
+        checked = $true
+        online = $false
+        remoteRoot = "/sdcard/Android/data/$PackageName/files/Expansions"
+        files = @()
+        error = ""
+    }
+
+    try {
+        if (!(Test-Path -LiteralPath $AdbExe -PathType Leaf)) {
+            throw "adb was not found: $AdbExe"
+        }
+
+        $devices = & $AdbExe devices
+        $deviceStatus.devices = @($devices)
+        $deviceStatus.online = (($devices | Select-String -Pattern "`tdevice" | Measure-Object).Count -gt 0)
+        if (!$deviceStatus.online) {
+            throw "No adb device is online."
+        }
+
+        $remoteRoot = $deviceStatus.remoteRoot
+        $remoteFiles = @("script.zip")
+        foreach ($id in $TargetCardIds) {
+            $remoteFiles += "script/c$id.lua"
+        }
+
+        $fileReports = New-Object System.Collections.Generic.List[object]
+        foreach ($relative in $remoteFiles) {
+            $remote = "$remoteRoot/$relative"
+            $line = (& $AdbExe shell "if [ -f '$remote' ]; then wc -c '$remote'; else echo MISSING '$remote'; fi").Trim()
+            $exists = !$line.StartsWith("MISSING")
+            [int64]$size = 0
+            if ($exists) {
+                $parts = $line -split "\s+"
+                [void][int64]::TryParse($parts[0], [ref]$size)
+            }
+
+            $local = Join-Path (Join-Path $RuntimeRoot "Expansions") $relative.Replace("/", "\")
+            $localSize = 0
+            if (Test-Path -LiteralPath $local -PathType Leaf) {
+                $localSize = (Get-Item -LiteralPath $local).Length
+            }
+
+            $fileReports.Add([ordered]@{
+                relative = $relative
+                remote = $remote
+                exists = $exists
+                remoteSize = $size
+                local = $local
+                localSize = $localSize
+                sizeMatchesHost = ($exists -and $localSize -gt 0 -and $size -eq $localSize)
+            })
+        }
+
+        $deviceStatus.files = @($fileReports.ToArray())
+        $missing = @($fileReports | Where-Object { !$_.exists -or !$_.sizeMatchesHost })
+        if ($missing.Count -gt 0) {
+            $deviceStatus.error = "One or more Quest device expansion files are missing or size-mismatched."
+            if ($exitCode -eq 0) {
+                $exitCode = 3
+            }
+        }
+    }
+    catch {
+        $deviceStatus.error = $_.Exception.Message
+        if ($exitCode -eq 0) {
+            $exitCode = 3
+        }
+    }
+
+    $deviceStatus | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $deviceReportPath -Encoding UTF8
+    Write-Host "Quest device resource check report: $deviceReportPath"
+    if (![string]::IsNullOrWhiteSpace($deviceStatus.error)) {
+        Write-Host "Quest device resource check warning: $($deviceStatus.error)"
+    }
+}
 
 if ($exitCode -ne 0 -and !$NoFail) {
     throw "Quest expansion resource check failed with exit code $exitCode. Report: $markdownPath"
