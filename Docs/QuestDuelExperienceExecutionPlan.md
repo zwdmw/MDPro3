@@ -68,6 +68,7 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
 - Added machine-readable `Quest fixture event:` logs from `DuelPresentationDirector`.
   - Each presentation event records kind, card, target, controller, summon kind, move kind, value, chain index, direct/final flags, from/to GPS, phase, and reason.
   - `Run-QuestDebugSession.ps1` includes these lines in generated important log reports.
+  - Debug reports now prefer app-filtered log lines for health counts and count fixture events, duel-state snapshots, and actionable snapshots separately.
 
 ### Tasks
 

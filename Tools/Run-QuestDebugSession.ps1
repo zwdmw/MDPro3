@@ -141,6 +141,9 @@ function Write-QuestDebugSessionReport {
     $importantAppPath = Join-Path $sessionRoot "important-app-log-lines.txt"
     $logForHighlights = $importantPath
     $importantAppAvailable = (Test-Path -LiteralPath $importantAppPath -PathType Leaf) -and ((Get-Item -LiteralPath $importantAppPath).Length -gt 0)
+    if ($importantAppAvailable) {
+        $logForHighlights = $importantAppPath
+    }
 
     $hostShots = @(Get-ChildItem -LiteralPath $hostScreensRoot -Filter "*.png" -ErrorAction SilentlyContinue)
     $appShots = @(Get-ChildItem -LiteralPath $pulledDebugRoot -Recurse -Filter "*.png" -ErrorAction SilentlyContinue)
@@ -171,6 +174,9 @@ function Write-QuestDebugSessionReport {
     [void]$lines.Add("- NullReferenceException: $(Count-LogPattern -Path $logForHighlights -Pattern 'NullReferenceException')")
     [void]$lines.Add("- InvalidKeyException: $(Count-LogPattern -Path $logForHighlights -Pattern 'InvalidKeyException')")
     [void]$lines.Add("- Unchanged duel-state watchdog lines: $(Count-LogPattern -Path $logForHighlights -Pattern 'Quest duel state unchanged')")
+    [void]$lines.Add("- Quest fixture events: $(Count-LogPattern -Path $logForHighlights -Pattern 'Quest fixture event')")
+    [void]$lines.Add("- Quest duel state snapshots: $(Count-LogPattern -Path $logForHighlights -Pattern 'Quest duel state changed')")
+    [void]$lines.Add("- Quest actionable snapshots: $(Count-LogPattern -Path $logForHighlights -Pattern 'actions=')")
     [void]$lines.Add("")
     [void]$lines.Add("## Critical Lines")
     [void]$lines.Add("")
