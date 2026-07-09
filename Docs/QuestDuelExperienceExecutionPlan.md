@@ -65,6 +65,9 @@ Goal: prove the duel backend and resources are correct before changing more UI. 
   - `panels=` visible Quest panel count, names, and world positions.
   - `actions=` actionable card ids, locations, controllers, and button responses.
   - `targets=` field selection target ids, locations, and controllers.
+- Added machine-readable `Quest fixture event:` logs from `DuelPresentationDirector`.
+  - Each presentation event records kind, card, target, controller, summon kind, move kind, value, chain index, direct/final flags, from/to GPS, phase, and reason.
+  - `Run-QuestDebugSession.ps1` includes these lines in generated important log reports.
 
 ### Tasks
 

@@ -409,7 +409,11 @@ namespace MDPro3
         private static void Raise(DuelPresentationEvent evt)
         {
             var handler = EventRaised;
-            if (handler == null || evt == null)
+            if (evt == null)
+                return;
+
+            LogFixtureEvent(evt);
+            if (handler == null)
                 return;
 
             foreach (Action<DuelPresentationEvent> subscriber in handler.GetInvocationList())
@@ -423,6 +427,59 @@ namespace MDPro3
                     Debug.LogWarning("Duel presentation subscriber failed: " + ex.Message);
                 }
             }
+        }
+
+        private static void LogFixtureEvent(DuelPresentationEvent evt)
+        {
+            if (!QuestRuntimeDebugSettings.EventLog && !QuestRuntimeDebugSettings.VerboseDiagnostics)
+                return;
+
+            Debug.LogFormat(
+                "Quest fixture event: kind={0}, card={1}, target={2}, controller={3}, summon={4}, move={5}, value={6}, chain={7}, direct={8}, final={9}, from={10}, to={11}, phase={12}, reason=0x{13:X8}",
+                evt.Kind,
+                FormatCardDebugIdentity(evt.Card),
+                FormatCardDebugIdentity(evt.TargetCard),
+                evt.Controller,
+                evt.SummonKind,
+                evt.MoveKind,
+                evt.Value,
+                evt.ChainIndex,
+                evt.Direct,
+                evt.Final,
+                FormatGpsDebugIdentity(evt.From),
+                FormatGpsDebugIdentity(evt.To),
+                evt.Phase,
+                evt.Reason);
+        }
+
+        private static string FormatCardDebugIdentity(GameCard card)
+        {
+            if (card == null)
+                return "none";
+
+            var data = card.GetData();
+            var gps = card.p;
+            return (data == null ? 0 : data.Id)
+                + "@"
+                + (gps == null ? 0u : gps.location)
+                + ":"
+                + (gps == null ? 0u : gps.sequence)
+                + "/"
+                + (gps == null ? 0u : gps.controller);
+        }
+
+        private static string FormatGpsDebugIdentity(GPS gps)
+        {
+            if (gps == null)
+                return "none";
+
+            return gps.location
+                + ":"
+                + gps.sequence
+                + "/"
+                + gps.controller
+                + ":pos="
+                + gps.position;
         }
     }
 

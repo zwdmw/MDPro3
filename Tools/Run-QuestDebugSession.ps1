@@ -210,6 +210,7 @@ function Write-QuestDebugSessionReport {
         "Quest duel action clicked",
         "Quest duel target",
         "Quest duel selection",
+        "Quest fixture event",
         "Quest XR no card action",
         "DuelStart",
         "deck restored"
@@ -385,6 +386,7 @@ if (Test-Path -LiteralPath $logcatPath -PathType Leaf) {
         "Quest duel action clicked",
         "Quest duel target",
         "Quest duel selection",
+        "Quest fixture event",
         "NullReferenceException",
         "InvalidKeyException",
         "Exception",
@@ -418,6 +420,7 @@ if (Test-Path -LiteralPath $logcatPath -PathType Leaf) {
                 "Quest duel action clicked",
                 "Quest duel target",
                 "Quest duel selection",
+                "Quest fixture event",
                 "NullReferenceException",
                 "InvalidKeyException",
                 "Exception",
