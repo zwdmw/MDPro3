@@ -6901,6 +6901,7 @@ namespace MDPro3
             if (!questDuelActions.Exists(existing => existing.LegacyButton == button))
                 questDuelActions.Add(action);
 
+            questDuelNativeUi?.HideCardInfo();
             EnsureQuestDuelActionMenu();
             RebuildQuestDuelActionMenu();
             if (questDuelActionMenuCanvas != null && !questDuelActionMenuCanvas.gameObject.activeSelf)
@@ -6980,6 +6981,7 @@ namespace MDPro3
                 return;
             }
 
+            questDuelNativeUi?.HideCardInfo();
             EnsureQuestDuelActionMenu();
             RebuildQuestDuelActionMenu();
             if (questDuelActionMenuCanvas != null)
@@ -7376,7 +7378,8 @@ namespace MDPro3
             questDuelNativeUi?.ShowActionHint(
                 action.Card,
                 GetQuestDuelActionLabel(action),
-                BuildQuestDuelActionHint(action));
+                BuildQuestDuelActionHint(action),
+                action.Card == null ? null : GetQuestCardInfoBounds(action.Card));
         }
 
         private void HideQuestDuelActionHint(QuestDuelAction action)
@@ -9678,6 +9681,13 @@ namespace MDPro3
         private void HandleQuestNativeUiVisibilityChanged()
         {
             InvalidateGraphicRaycasterCache();
+            if (questDuelNativeUi != null && questDuelNativeUi.HasBlockingPanel)
+            {
+                questDuelWorldPresenter?.SetHoveredCard(null);
+                questInfoHoverCard = null;
+                questInfoHoverShown = false;
+                ClearQuestDuelActionMenu();
+            }
         }
 
         private void RefreshGraphicRaycasterCache(float now)
